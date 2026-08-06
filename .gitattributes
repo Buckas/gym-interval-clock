@@ -1,0 +1,11 @@
+# Normalise in the repo, check out Windows line endings for a Windows-only project.
+* text=auto eol=crlf
+
+*.sh    text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+*.ico   binary
+*.png   binary
+*.jpg   binary
+*.zip   binary

@@ -1,0 +1,43 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+publish/
+*.user
+*.suo
+
+# Visual Studio
+.vs/
+*.userprefs
+*.VC.db
+*.VC.VC.opendb
+
+# Rider / VS Code
+.idea/
+.vscode/
+*.sln.iml
+
+# Test / coverage / packages
+[Tt]est[Rr]esult*/
+*.coverage
+*.nupkg
+packages/
+
+# Runtime settings written by the app (never commit a personal config)
+gymclock.settings.txt
+
+# OS noise
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# --- LICENSING: never commit these ---
+# The signing private key. Losing it means no more licence keys can ever be
+# issued; leaking it means anyone can mint their own.
+keys/
+*.pem
+*-private.*
+
+# Issued licence keys for individual users
+licences/
+*.licence

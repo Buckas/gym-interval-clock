@@ -1,0 +1,31 @@
+
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.9.34714.143
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GymClock", "src\GymClock\GymClock.csproj", "{D62B153B-FB5C-42FA-82FC-1B620E7821A6}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GymClock.KeyGen", "tools\GymClock.KeyGen\GymClock.KeyGen.csproj", {F197FADA-D2F0-4FBD-A1CB-5DE897A0CAA3}
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D62B153B-FB5C-42FA-82FC-1B620E7821A6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D62B153B-FB5C-42FA-82FC-1B620E7821A6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D62B153B-FB5C-42FA-82FC-1B620E7821A6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D62B153B-FB5C-42FA-82FC-1B620E7821A6}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F197FADA-D2F0-4FBD-A1CB-5DE897A0CAA3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F197FADA-D2F0-4FBD-A1CB-5DE897A0CAA3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F197FADA-D2F0-4FBD-A1CB-5DE897A0CAA3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F197FADA-D2F0-4FBD-A1CB-5DE897A0CAA3}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {B34FD93D-330A-47A5-B894-FB8C14E94AFE}
+	EndGlobalSection
+EndGlobal

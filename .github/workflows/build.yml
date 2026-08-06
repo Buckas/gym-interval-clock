@@ -1,0 +1,88 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # A build with the placeholder public key can never be licensed, so it must
+      # never reach a release. On ordinary pushes this is only a warning.
+      - name: Check the licence signing key is configured
+        shell: pwsh
+        run: |
+          $placeholder = Select-String -Path src/GymClock/Licensing.cs `
+            -Pattern 'PASTE-YOUR-PUBLIC-KEY-HERE' -Quiet
+          if ($placeholder) {
+            if ("${{ github.ref }}".StartsWith("refs/tags/v")) {
+              Write-Error "Licensing.cs still has the placeholder public key. Run 'newkeys' in GymClock.KeyGen and paste in your public key before tagging a release."
+              exit 1
+            }
+            Write-Warning "Licensing.cs still has the placeholder public key. This build cannot be licensed - fine for testing, not for release."
+          }
+          else {
+            Write-Host "Signing key is configured."
+          }
+
+      - name: Restore
+        run: dotnet restore GymClock.sln
+
+      - name: Build
+        run: dotnet build GymClock.sln --configuration Release --no-restore
+
+      - name: Publish single-file exe
+        run: >
+          dotnet publish src/GymClock/GymClock.csproj
+          --configuration Release
+          --runtime win-x64
+          --self-contained true
+          -p:PublishSingleFile=true
+          -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:DebugType=embedded
+          --output publish
+
+      # The licence has to travel with the exe, so ship a bundle, not a bare file.
+      - name: Assemble the distribution bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item publish/GymClock.exe            dist/
+          Copy-Item LICENSE                         dist/LICENCE.txt
+          Copy-Item distribution/READ-ME-FIRST.txt  dist/
+          Copy-Item settings-examples/circuit-45-15.txt dist/example-settings.txt
+          Compress-Archive -Path dist/* -DestinationPath GymClock.zip -Force
+          Get-ChildItem dist | Select-Object Name, Length
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: GymClock-win-x64
+          path: GymClock.zip
+          if-no-files-found: error
+
+      - name: Attach the bundle to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "${{ github.ref_name }}" "GymClock.zip"
+          --title "Gym Interval Clock ${{ github.ref_name }}"
+          --generate-notes

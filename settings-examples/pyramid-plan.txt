@@ -1,0 +1,12 @@
+# Variable session: builds up, holds, then a long finisher.
+# Blocks are work/rest x repeats, joined with +. This overrides work/rest/rounds.
+prep=15
+plan=30/30x3+45/15x4+50/10x4+60/30x1
+rounds=6
+restafterfinalround=false
+sound=true
+volume=0.9
+worklabel=WORK
+restlabel=REST
+stations=Burpees,Air squats,Push-ups,Rower,Box jumps,Sit-ups,Kettlebell swings,Lunges,Ski erg,Plank,Wall sit,Farmers carry
+presets=45/15x10,40/20x10,30/30x10,20/10x8,60/15x8

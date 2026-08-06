@@ -1,0 +1,9 @@
+# Open-ended session - runs until you stop it (rounds=0)
+prep=10
+work=60
+rest=30
+rounds=0
+sound=true
+worklabel=WORK
+restlabel=RECOVER
+presets=60/30,45/15,30/30,90/30,120/60

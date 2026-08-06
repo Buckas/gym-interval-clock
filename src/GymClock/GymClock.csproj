@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>GymClock</RootNamespace>
+    <AssemblyName>GymClock</AssemblyName>
+    <ApplicationIcon>GymClock.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>Gym Interval Clock</Product>
+    <AssemblyTitle>Gym Interval Clock</AssemblyTitle>
+    <Description>Full-screen interval training clock for projecting onto a gym wall.</Description>
+    <Version>1.0.0</Version>
+    <Copyright>Copyright (c) 2026 Chris Bucknell and James Vella. All rights reserved.</Copyright>
+    <Authors>Chris Bucknell; James Vella</Authors>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <NeutralLanguage>en-AU</NeutralLanguage>
+  </PropertyGroup>
+
+  <!--
+    Publish settings live in Properties\PublishProfiles\win-x64.pubxml so that
+    F5 debugging stays fast. In Visual Studio: right-click the project > Publish.
+  -->
+
+</Project>

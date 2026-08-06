@@ -1,0 +1,72 @@
+GYM INTERVAL CLOCK
+==================
+
+A full-screen interval timer for projecting onto a gym wall.
+
+
+GETTING STARTED
+---------------
+
+1. Copy GymClock.exe anywhere you like - your desktop is fine. It needs nothing
+   installed and does not write to anywhere except your own user profile.
+
+2. Double-click it. Windows may show "Windows protected your PC" because the
+   file was downloaded from the internet. Click "More info", then
+   "Run anyway". This happens because the app is not code-signed.
+
+3. It opens full screen. Press SPACE to start.
+
+
+THE CONTROLS
+------------
+
+  SPACE or click ....... start, pause, resume
+  R .................... reset to the beginning
+  S .................... change the work and rest times
+  1 to 9 ............... instantly apply a saved preset
+  RIGHT / LEFT ......... skip forward or back an interval
+  M .................... mute the beeps
+  F11 .................. leave or re-enter full screen
+  F6 ................... move the clock onto the projector
+  F3 ................... licence and version information
+  Q .................... quit
+
+Most presentation clickers will step the intervals using the arrow keys.
+
+
+LICENSING
+---------
+
+Copyright (c) 2026 Chris Bucknell and James Vella. All rights reserved.
+
+This software is not free software. Please read LICENCE.txt.
+
+In short: you may use it free of charge up to and including 30 APRIL 2027, and you
+may pass unmodified copies to colleagues as long as LICENCE.txt goes with it.
+
+From 1 MAY 2027 the app will not start without a licence key. If you are still
+using it then, contact the author and he will issue one. Press F3 in the app at
+any time to see the current status and to enter a key.
+
+Please do not remove the licence file, and please do not sell it or put it
+behind a paywall.
+
+
+WHAT IT KEEPS TRACK OF
+----------------------
+
+The app counts how many sessions you run and on how many days, stored on your own
+computer. When you ask for a licence renewal, those totals are included in the
+email - you will see them in full before you press Send. This is how free teaching
+licences are told apart from commercial use.
+
+Nothing else is collected. It does not read your username, your network or your
+files, and it never sends anything on its own.
+
+
+NO WARRANTY
+-----------
+
+This is a timer, not a safety device. It comes with no warranty of any kind.
+You remain responsible for supervising the activity you are running. See
+LICENCE.txt for the full terms.

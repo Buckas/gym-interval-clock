@@ -1,0 +1,13 @@
+# Classic Tabata: eight rounds of 20 seconds work / 10 seconds rest
+prep=10
+work=20
+rest=10
+rounds=8
+restafterfinalround=false
+sound=true
+volume=1.00
+worklabel=GO HARD
+restlabel=REST
+workcolour=#B3261E
+restcolour=#1E63D0
+presets=20/10x8,30/15x8,40/20x6,45/15x10,10/20x8
