@@ -7,23 +7,18 @@ A full-screen interval timer for projecting onto a gym wall.
 GETTING STARTED
 ---------------
 
-BEFORE YOU UNZIP - this saves a warning later:
+1. Unzip it anywhere you like - your desktop is fine. Nothing needs installing
+   and it does not write to anywhere except your own user profile.
 
-  1. Right-click the downloaded GymClock.zip and choose Properties
-  2. Tick "Unblock" at the bottom, then OK
-  3. Now unzip it
+2. Right-click GymClock.exe, choose Properties, tick "Unblock" at the bottom,
+   then OK.
 
-That tells Windows you know where the file came from, and the app will open
-without complaint. If you unzipped first and get "Windows protected your PC",
-click "More info" then "Run anyway" - or delete it, unblock the zip, and
-unzip again.
+   This tells Windows you know where the file came from. Skip it and you will
+   get "Windows protected your PC" - which you can click through with
+   "More info" then "Run anyway", but unblocking is tidier and you only need
+   to do it once.
 
-THEN:
-
-1. Copy GymClock.exe anywhere you like - your desktop is fine. It needs nothing
-   installed and does not write to anywhere except your own user profile.
-
-2. Double-click it. It opens full screen. Press SPACE to start.
+3. Double-click it. It opens full screen. Press SPACE to start.
 
 
 THE CONTROLS
