@@ -29,8 +29,11 @@ jobs:
       - name: Check the licence signing key is configured
         shell: pwsh
         run: |
-          $placeholder = Select-String -Path src/GymClock/Licensing.cs `
-            -Pattern 'PASTE-YOUR-PUBLIC-KEY-HERE' -Quiet
+          # Match the constant assignment specifically, not the string anywhere in the
+          # file - the code used to mention the placeholder in a guard, which made a
+          # whole-file grep fire on correctly configured builds too.
+          $content = Get-Content src/GymClock/Licensing.cs -Raw
+          $placeholder = $content -match 'PublicKeyBase64\s*=\s*"PASTE-YOUR-PUBLIC-KEY-HERE"'
           if ($placeholder) {
             if ("${{ github.ref }}".StartsWith("refs/tags/v")) {
               Write-Error "Licensing.cs still has the placeholder public key. Run 'newkeys' in GymClock.KeyGen and paste in your public key before tagging a release."
