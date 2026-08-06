@@ -101,7 +101,8 @@ namespace GymClock
         /// Your public key, as printed by: GymClock.KeyGen newkeys
         /// The matching private key must NEVER be committed or shipped.
         /// </summary>
-        private const string PublicKeyBase64 = "PASTE-YOUR-PUBLIC-KEY-HERE";
+        private const string PublicKeyBase64 =
+            "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+A/r5vVGvC58oxzkGoLsXiwqsc/WRgbJ21yz2STw66gChYLbuISVS1RBeqxaHKmBKMs6DKZ4R3B8q1gcmLR/YQ==";
 
         /// <summary>
         /// Compiled-in fallback address. Change this when you cut a new version.
@@ -241,7 +242,7 @@ namespace GymClock
 
             RecordRun(today);
 
-            if (PublicKeyBase64 == "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+A/r5vVGvC58oxzkGoLsXiwqsc/WRgbJ21yz2STw66gChYLbuISVS1RBeqxaHKmBKMs6DKZ4R3B8q1gcmLR/YQ==")
+            if (PublicKeyBase64 == "PASTE-YOUR-PUBLIC-KEY-HERE")
             {
                 // Fail loudly rather than shipping a build nobody can ever licence.
                 status.State = LicenceState.NotConfigured;
