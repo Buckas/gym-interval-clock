@@ -160,26 +160,28 @@ namespace GymClock
         /// <summary>
         /// Set by the caller when a newer version has been seen. The clock display tells
         /// people to press F3, so F3 has to actually show it.
+        ///
+        /// Not called "Update" - that would hide the inherited Control.Update() method.
         /// </summary>
-        public UpdateInfo Update { get; set; }
+        public UpdateInfo AvailableUpdate { get; set; }
 
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
 
-            if (Update == null || !Update.IsNewerThanThis) return;
+            if (AvailableUpdate == null || !AvailableUpdate.IsNewerThanThis) return;
 
-            _updateLink.Text = Update.Description + " - click here to download";
+            _updateLink.Text = AvailableUpdate.Description + " - click here to download";
             _updateLink.Visible = true;
         }
 
         private void UpdateLink_Clicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
-            if (Update == null) return;
+            if (AvailableUpdate == null) return;
 
             try
             {
-                ProcessStartInfo info = new ProcessStartInfo(Update.DownloadUrl);
+                ProcessStartInfo info = new ProcessStartInfo(AvailableUpdate.DownloadUrl);
                 info.UseShellExecute = true;
                 Process.Start(info);
             }

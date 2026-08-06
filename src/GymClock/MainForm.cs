@@ -497,7 +497,7 @@ namespace GymClock
             using (LicenceDialog dialog = new LicenceDialog(Licensing.Current, false))
             {
                 dialog.Settings = _settings;
-                dialog.Update = _update;
+                dialog.AvailableUpdate = _update;
                 dialog.ShowDialog(this);
             }
             Invalidate();
