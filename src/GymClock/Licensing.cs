@@ -105,6 +105,32 @@ namespace GymClock
             "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE+A/r5vVGvC58oxzkGoLsXiwqsc/WRgbJ21yz2STw66gChYLbuISVS1RBeqxaHKmBKMs6DKZ4R3B8q1gcmLR/YQ==";
 
         /// <summary>
+        /// True when a real key has been compiled in.
+        ///
+        /// Checks the shape of the value rather than comparing against the full
+        /// placeholder text, deliberately: the release workflow greps this file for that
+        /// text, so spelling it out here would make the check fire on every build,
+        /// configured or not.
+        /// </summary>
+        private static bool IsSigningKeyConfigured()
+        {
+            string key = PublicKeyBase64;
+
+            if (string.IsNullOrEmpty(key)) return false;
+            if (key.IndexOf("PASTE", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+            try
+            {
+                // A P-256 SubjectPublicKeyInfo is 91 bytes.
+                return Convert.FromBase64String(key).Length >= 80;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Compiled-in fallback address. Change this when you cut a new version.
         /// </summary>
         public const string DefaultContactDetails = "chris.bucknell@outlook.com.au";
@@ -242,7 +268,7 @@ namespace GymClock
 
             RecordRun(today);
 
-            if (PublicKeyBase64 == "PASTE-YOUR-PUBLIC-KEY-HERE")
+            if (!IsSigningKeyConfigured())
             {
                 // Fail loudly rather than shipping a build nobody can ever licence.
                 status.State = LicenceState.NotConfigured;
