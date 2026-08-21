@@ -15,6 +15,7 @@ namespace GymClock
         Prep,
         Work,
         Rest,
+        Move,
         Finished
     }
 
@@ -123,7 +124,7 @@ namespace GymClock
 
         private bool InTimedPhase
         {
-            get { return _phase == Phase.Prep || _phase == Phase.Work || _phase == Phase.Rest; }
+            get { return _phase == Phase.Prep || _phase == Phase.Work || _phase == Phase.Rest || _phase == Phase.Move; }
         }
 
         private bool IsPaused
@@ -201,6 +202,7 @@ namespace GymClock
                 case Phase.Prep: Beeper.CuePrepStart(); break;
                 case Phase.Work: Beeper.CueWorkStart(); break;
                 case Phase.Rest: Beeper.CueRestStart(); break;
+                case Phase.Move: Beeper.CueMoveStart(); break;
             }
 
             Invalidate();
@@ -213,8 +215,19 @@ namespace GymClock
                 case Phase.Prep: return Math.Max(1, _settings.PrepSeconds);
                 case Phase.Work: return Math.Max(1, CurrentRound().Work);
                 case Phase.Rest: return Math.Max(1, CurrentRound().Rest);
+                case Phase.Move: return Math.Max(1, _settings.MoveSeconds);
                 default: return 0;
             }
+        }
+
+        /// <summary>
+        /// Whether a move phase belongs between this round and the next: the option
+        /// is on, it has a positive length, and there is actually a next round to
+        /// move towards.
+        /// </summary>
+        private bool ShouldInsertMove()
+        {
+            return _settings.UseMoveTime && _settings.MoveSeconds > 0;
         }
 
         private double RemainingSeconds()
@@ -275,6 +288,7 @@ namespace GymClock
                     if (CurrentRound().Rest <= 0)
                     {
                         if (finalRound) { FinishSession(); return; }
+                        if (ShouldInsertMove()) { BeginPhase(Phase.Move); return; }
                         _round++;
                         BeginPhase(Phase.Work);
                         return;
@@ -291,10 +305,16 @@ namespace GymClock
                         FinishSession();
                         return;
                     }
+                    if (ShouldInsertMove()) { BeginPhase(Phase.Move); return; }
                     _round++;
                     BeginPhase(Phase.Work);
                     return;
                 }
+
+                case Phase.Move:
+                    _round++;
+                    BeginPhase(Phase.Work);
+                    return;
             }
         }
 
@@ -309,6 +329,10 @@ namespace GymClock
 
             switch (_phase)
             {
+                case Phase.Move:
+                    BeginPhase(CurrentRound().Rest > 0 ? Phase.Rest : Phase.Work);
+                    return;
+
                 case Phase.Rest:
                     BeginPhase(Phase.Work);
                     return;
@@ -516,6 +540,28 @@ namespace GymClock
             ShowHint(4);
         }
 
+        /// <summary>
+        /// Jumps straight to the work phase of the given station (0-based), for a
+        /// teacher correcting a mistake or starting mid-way through a class that is
+        /// already spread across the stations. Wraps forward to the nearest round
+        /// that lands on it, so it always moves the session on rather than back.
+        /// </summary>
+        private void JumpToStation(int index)
+        {
+            int count = _settings.Stations.Count;
+            if (count == 0 || index >= count) { ShowHint(4); return; }
+
+            if (_phase == Phase.Idle || _phase == Phase.Finished) StartSession();
+
+            int current = ((_round - 1) % count + count) % count;
+            int delta = index - current;
+            if (delta < 0) delta += count;
+
+            _round += delta;
+            BeginPhase(Phase.Work);
+            ShowHint(4);
+        }
+
         // -------------------------------------------------------------- display
 
         private void ShowHint(double seconds)
@@ -582,7 +628,8 @@ namespace GymClock
 
             if (presetIndex >= 0)
             {
-                if (presetIndex < _settings.Presets.Count) ApplyPreset(_settings.Presets[presetIndex]);
+                if (e.Control) JumpToStation(presetIndex);
+                else if (presetIndex < _settings.Presets.Count) ApplyPreset(_settings.Presets[presetIndex]);
                 e.Handled = true;
                 return;
             }
@@ -691,21 +738,34 @@ namespace GymClock
 
             float margin = h * 0.035f;
 
+            // The station table, when shown, takes the left third of the screen.
+            // Everything else that used to span the full width now lives in the
+            // remaining pane, flush to the true right edge.
+            bool showTable = _settings.ShowStationsTable && _settings.Stations.Count > 0;
+            float paneLeft = showTable ? (w / 3f) : 0f;
+            float paneWidth = w - paneLeft;
+
+            if (showTable)
+            {
+                RectangleF tableArea = new RectangleF(margin, margin, paneLeft - (margin * 1.5f), h - (margin * 2f));
+                DrawStationsTable(g, tableArea, h);
+            }
+
             // ---- wall clock, top right
             if (_settings.ShowClock)
             {
                 DrawText(g, CurrentTimeText(), _labelFamily, h * 0.075f, FontStyle.Bold, InkSoft,
-                    new RectangleF(w * 0.45f, margin, (w * 0.55f) - margin, h * 0.10f),
+                    new RectangleF(paneLeft + (paneWidth * 0.45f), margin, (paneWidth * 0.55f) - margin, h * 0.10f),
                     StringAlignment.Far, StringAlignment.Near);
             }
 
-            // ---- configuration summary + session elapsed, top left
+            // ---- configuration summary + session elapsed, top left of the pane
             DrawText(g, ConfigSummaryText(), _labelFamily, h * 0.045f, FontStyle.Bold, InkSoft,
-                new RectangleF(margin, margin, w * 0.5f, h * 0.05f),
+                new RectangleF(paneLeft + margin, margin, paneWidth * 0.5f, h * 0.05f),
                 StringAlignment.Near, StringAlignment.Near);
 
             DrawText(g, SessionElapsedText(), _labelFamily, h * 0.035f, FontStyle.Regular, InkFaint,
-                new RectangleF(margin, margin + (h * 0.052f), w * 0.5f, h * 0.045f),
+                new RectangleF(paneLeft + margin, margin + (h * 0.052f), paneWidth * 0.5f, h * 0.045f),
                 StringAlignment.Near, StringAlignment.Near);
 
             // ---- licence status, deliberately unobtrusive but always present
@@ -716,39 +776,39 @@ namespace GymClock
 
             DrawText(g, Licensing.ShortDescription(licence), _labelFamily, h * 0.030f, FontStyle.Regular,
                 licenceInk,
-                new RectangleF(margin, margin + (h * 0.095f), w * 0.5f, h * 0.040f),
+                new RectangleF(paneLeft + margin, margin + (h * 0.095f), paneWidth * 0.5f, h * 0.040f),
                 StringAlignment.Near, StringAlignment.Near);
 
-            // ---- station / exercise name
-            string station = CurrentStationText();
+            // ---- station / exercise name, or the move instruction while moving
+            string station = _phase == Phase.Move ? MoveLabel() : CurrentStationText();
             if (!string.IsNullOrEmpty(station))
             {
                 DrawFitted(g, station, _labelFamily, h * 0.075f, FontStyle.Bold, InkSoft,
-                    new RectangleF(w * 0.05f, h * 0.115f, w * 0.90f, h * 0.075f));
+                    new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.115f, paneWidth * 0.90f, h * 0.075f));
             }
 
             // ---- phase label
             DrawFitted(g, PhaseLabelText(), _labelFamily, h * 0.105f, FontStyle.Bold, Ink,
-                new RectangleF(w * 0.04f, h * 0.195f, w * 0.92f, h * 0.105f));
+                new RectangleF(paneLeft + (paneWidth * 0.04f), h * 0.195f, paneWidth * 0.92f, h * 0.105f));
 
             // ---- the big number
             DrawFitted(g, BigNumberText(), _numberFamily, h * 0.44f, _numberStyle, Ink,
-                new RectangleF(w * 0.03f, h * 0.285f, w * 0.94f, h * 0.475f));
+                new RectangleF(paneLeft + (paneWidth * 0.03f), h * 0.285f, paneWidth * 0.94f, h * 0.475f));
 
             // ---- round counter
             DrawFitted(g, RoundText(), _labelFamily, h * 0.055f, FontStyle.Bold, InkSoft,
-                new RectangleF(w * 0.05f, h * 0.760f, w * 0.90f, h * 0.065f));
+                new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.760f, paneWidth * 0.90f, h * 0.065f));
 
             // ---- what is coming next
             DrawFitted(g, NextUpText(), _labelFamily, h * 0.038f, FontStyle.Regular, InkFaint,
-                new RectangleF(w * 0.05f, h * 0.832f, w * 0.90f, h * 0.050f));
+                new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.832f, paneWidth * 0.90f, h * 0.050f));
 
             // ---- progress bar for the current interval
             if (InTimedPhase)
             {
                 float barHeight = Math.Max(4f, h * 0.018f);
-                float barLeft = w * 0.06f;
-                float barWidth = w * 0.88f;
+                float barLeft = paneLeft + (paneWidth * 0.06f);
+                float barWidth = paneWidth * 0.88f;
                 float barTop = h * 0.893f;
                 double fraction = _phaseLength > 0 ? remaining / _phaseLength : 0;
                 if (fraction < 0) fraction = 0;
@@ -770,13 +830,13 @@ namespace GymClock
             {
                 DrawFitted(g, HintText(), _labelFamily, h * 0.030f, FontStyle.Regular,
                     Color.FromArgb(150, 255, 255, 255),
-                    new RectangleF(w * 0.03f, h * 0.920f, w * 0.94f, h * 0.040f));
+                    new RectangleF(paneLeft + (paneWidth * 0.03f), h * 0.920f, paneWidth * 0.94f, h * 0.040f));
             }
 
             // ---- copyright notice, always on screen regardless of licence state
             DrawText(g, Licensing.ShortCopyright, _labelFamily, h * 0.026f, FontStyle.Regular,
                 Color.FromArgb(120, 255, 255, 255),
-                new RectangleF(w * 0.50f, h * 0.960f, (w * 0.50f) - margin, h * 0.036f),
+                new RectangleF(paneLeft + (paneWidth * 0.50f), h * 0.960f, (paneWidth * 0.50f) - margin, h * 0.036f),
                 StringAlignment.Far, StringAlignment.Near);
 
             // ---- who this copy is licensed to, bottom left, permanently.
@@ -788,7 +848,7 @@ namespace GymClock
 
             DrawText(g, licensee, _labelFamily, h * 0.026f, FontStyle.Regular,
                 Color.FromArgb(120, 255, 255, 255),
-                new RectangleF(margin, h * 0.960f, w * 0.48f, h * 0.036f),
+                new RectangleF(paneLeft + margin, h * 0.960f, paneWidth * 0.48f, h * 0.036f),
                 StringAlignment.Near, StringAlignment.Near);
 
             // ---- update notice
@@ -796,8 +856,122 @@ namespace GymClock
             {
                 DrawText(g, _update.Description + " - press F3", _labelFamily, h * 0.026f,
                     FontStyle.Regular, Color.FromArgb(190, 255, 240, 170),
-                    new RectangleF(margin, margin + (h * 0.130f), w * 0.5f, h * 0.036f),
+                    new RectangleF(paneLeft + margin, margin + (h * 0.130f), paneWidth * 0.5f, h * 0.036f),
                     StringAlignment.Near, StringAlignment.Near);
+            }
+        }
+
+        /// <summary>
+        /// The station list, drawn as a table down the left third of the screen, with
+        /// the station for the round in progress highlighted.
+        /// </summary>
+        private void DrawStationsTable(Graphics g, RectangleF area, float clientHeight)
+        {
+            List<Station> stations = _settings.Stations;
+            if (stations.Count == 0 || area.Width < 10 || area.Height < 10) return;
+
+            using (SolidBrush panel = new SolidBrush(Color.FromArgb(70, 0, 0, 0)))
+            {
+                g.FillRectangle(panel, area);
+            }
+
+            int currentIndex = -1;
+            if (_settings.HighlightCurrentStation && _phase != Phase.Idle && _phase != Phase.Finished)
+            {
+                // While moving, the round counter has not advanced yet, so point at
+                // where the class is headed rather than the station just finished.
+                int roundForHighlight = _phase == Phase.Move ? _round + 1 : _round;
+                currentIndex = (roundForHighlight - 1) % stations.Count;
+                if (currentIndex < 0) currentIndex += stations.Count;
+            }
+
+            float rowHeight = area.Height / stations.Count;
+            float pad = Math.Max(6f, area.Width * 0.06f);
+
+            for (int i = 0; i < stations.Count; i++)
+            {
+                float rowTop = area.Y + (i * rowHeight);
+                bool current = i == currentIndex;
+
+                if (current)
+                {
+                    using (SolidBrush highlight = new SolidBrush(Color.FromArgb(90, 255, 255, 255)))
+                    {
+                        g.FillRectangle(highlight, area.X + (pad * 0.25f), rowTop + (rowHeight * 0.05f),
+                            area.Width - (pad * 0.5f), rowHeight * 0.90f);
+                    }
+                }
+                else if (i > 0)
+                {
+                    using (Pen rule = new Pen(Color.FromArgb(35, 255, 255, 255)))
+                    {
+                        g.DrawLine(rule, area.X + (pad * 0.25f), rowTop, area.X + area.Width - (pad * 0.25f), rowTop);
+                    }
+                }
+
+                Station st = stations[i];
+                Color nameInk = current ? Ink : InkSoft;
+                Color detailInk = current ? InkSoft : InkFaint;
+
+                float nameSize = Math.Min(clientHeight * 0.03f, rowHeight * 0.30f);
+                float detailSize = Math.Min(clientHeight * 0.021f, rowHeight * 0.20f);
+
+                // A per-station accent colour, drawn as a small swatch rather than
+                // tinting the text itself, so it stays legible over any background.
+                if (!string.IsNullOrEmpty(st.Colour))
+                {
+                    Color swatch = TimerSettings.ParseColour(st.Colour, Color.Transparent);
+                    if (swatch.A > 0)
+                    {
+                        float swatchSize = Math.Min(pad * 0.8f, rowHeight * 0.22f);
+                        float swatchY = rowTop + (rowHeight * 0.05f) + ((rowHeight * 0.36f - swatchSize) / 2f);
+                        using (SolidBrush swatchBrush = new SolidBrush(swatch))
+                        {
+                            g.FillEllipse(swatchBrush, area.X + (pad * 0.15f), swatchY, swatchSize, swatchSize);
+                        }
+                    }
+                }
+
+                RectangleF nameRect = new RectangleF(area.X + pad, rowTop + (rowHeight * 0.05f),
+                    area.Width - (pad * 1.6f), rowHeight * 0.36f);
+                DrawTableCell(g, (i + 1) + ". " + st.Name, nameSize, FontStyle.Bold, nameInk, nameRect);
+
+                float detailTop = rowTop + (rowHeight * 0.42f);
+                float detailHeight = rowHeight * 0.27f;
+
+                if (!string.IsNullOrEmpty(st.WorkDetail))
+                {
+                    RectangleF workRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), detailHeight);
+                    DrawTableCell(g, _settings.WorkLabel.ToUpperInvariant() + ": " + st.WorkDetail,
+                        detailSize, FontStyle.Regular, detailInk, workRect);
+                    detailTop += detailHeight;
+                }
+
+                if (!string.IsNullOrEmpty(st.RestDetail))
+                {
+                    RectangleF restRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), detailHeight);
+                    DrawTableCell(g, _settings.RestLabel.ToUpperInvariant() + ": " + st.RestDetail,
+                        detailSize, FontStyle.Regular, detailInk, restRect);
+                }
+            }
+        }
+
+        /// <summary>Left-aligned, wraps within its box and trims with an ellipsis rather than overflowing.</summary>
+        private void DrawTableCell(Graphics g, string text, float pixelSize, FontStyle style, Color colour, RectangleF bounds)
+        {
+            if (string.IsNullOrEmpty(text) || bounds.Width < 4 || bounds.Height < 4) return;
+
+            using (StringFormat format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Near;
+                format.LineAlignment = StringAlignment.Near;
+                format.Trimming = StringTrimming.EllipsisCharacter;
+                format.FormatFlags = StringFormatFlags.LineLimit;
+
+                using (SolidBrush brush = new SolidBrush(colour))
+                {
+                    g.DrawString(text, GetFont(_labelFamily, pixelSize, style), brush, bounds, format);
+                }
             }
         }
 
@@ -810,6 +984,7 @@ namespace GymClock
                 case Phase.Prep: return _settings.PrepBg;
                 case Phase.Work: return _settings.WorkBg;
                 case Phase.Rest: return _settings.RestBg;
+                case Phase.Move: return _settings.MoveBg;
                 case Phase.Finished: return _settings.DoneBg;
                 default: return _settings.IdleBg;
             }
@@ -852,6 +1027,11 @@ namespace GymClock
                     first.Rest, _settings.RestLabel.ToUpperInvariant(), rounds);
             }
 
+            if (ShouldInsertMove())
+            {
+                text += string.Format(CultureInfo.InvariantCulture, "  +{0}s move", _settings.MoveSeconds);
+            }
+
             return text + (_settings.SoundEnabled ? string.Empty : "   (MUTED)");
         }
 
@@ -868,20 +1048,55 @@ namespace GymClock
             if (_settings.Stations.Count == 0) return string.Empty;
             if (_phase == Phase.Idle || _phase == Phase.Finished) return string.Empty;
 
-            int index = (_round - 1) % _settings.Stations.Count;
-            if (index < 0) index = 0;
+            Station station = CurrentStation();
+            if (station == null) return string.Empty;
 
-            string name = _settings.Stations[index];
-            if (_phase == Phase.Prep) return "UP FIRST: " + name.ToUpperInvariant();
+            if (_phase == Phase.Prep) return "UP FIRST: " + station.Name.ToUpperInvariant();
             if (_phase == Phase.Rest) return "COMING UP: " + NextStationName().ToUpperInvariant();
-            return name.ToUpperInvariant();
+            return station.Name.ToUpperInvariant();
+        }
+
+        /// <summary>The station for the round in progress, or null if none are defined.</summary>
+        private Station CurrentStation()
+        {
+            return StationAt(_round);
+        }
+
+        private Station StationAt(int round)
+        {
+            if (_settings.Stations.Count == 0) return null;
+            int index = (round - 1) % _settings.Stations.Count;
+            if (index < 0) index += _settings.Stations.Count;
+            return _settings.Stations[index];
         }
 
         private string NextStationName()
         {
-            if (_settings.Stations.Count == 0) return string.Empty;
-            int index = _round % _settings.Stations.Count;
-            return _settings.Stations[index];
+            Station station = StationAt(_round + 1);
+            return station == null ? string.Empty : station.Name;
+        }
+
+        /// <summary>
+        /// The word to show for a phase: a station's own instruction when the
+        /// "station wording" option is on and that station has one set for this
+        /// phase, otherwise the generic Work/Rest label from settings.
+        /// </summary>
+        private string WordingFor(bool work, Station station)
+        {
+            string generic = work ? _settings.WorkLabel : _settings.RestLabel;
+            if (string.IsNullOrEmpty(generic)) generic = work ? "WORK" : "REST";
+
+            string detail = station == null ? null : (work ? station.WorkDetail : station.RestDetail);
+            if (_settings.UseStationWording && !string.IsNullOrEmpty(detail)) return detail.ToUpperInvariant();
+
+            return generic.ToUpperInvariant();
+        }
+
+        /// <summary>The move instruction, upper-cased for display, with a sensible fallback.</summary>
+        private string MoveLabel()
+        {
+            string message = _settings.MoveMessage;
+            return string.IsNullOrEmpty(message) ? "MOVE TO THE NEXT STATION" : message.ToUpperInvariant();
         }
 
         private string PhaseLabelText()
@@ -891,8 +1106,9 @@ namespace GymClock
             switch (_phase)
             {
                 case Phase.Prep: return "GET READY";
-                case Phase.Work: return _settings.WorkLabel.ToUpperInvariant();
-                case Phase.Rest: return _settings.RestLabel.ToUpperInvariant();
+                case Phase.Work: return WordingFor(true, CurrentStation());
+                case Phase.Rest: return WordingFor(false, CurrentStation());
+                case Phase.Move: return "MOVE";
                 case Phase.Finished: return "DONE";
                 default: return "READY";
             }
@@ -956,7 +1172,7 @@ namespace GymClock
 
                 case Phase.Prep:
                     return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
-                        _settings.WorkLabel.ToUpperInvariant(), RoundNumber(1).Work);
+                        WordingFor(true, StationAt(1)), RoundNumber(1).Work);
 
                 case Phase.Work:
                 {
@@ -966,23 +1182,35 @@ namespace GymClock
                     PlanRound current = CurrentRound();
                     if (current.Rest <= 0)
                     {
+                        if (ShouldInsertMove())
+                        {
+                            return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
+                                MoveLabel(), _settings.MoveSeconds);
+                        }
+
                         return string.Format(CultureInfo.InvariantCulture,
                             "Next: straight into {0}s {1}",
-                            RoundNumber(_round + 1).Work, _settings.WorkLabel.ToUpperInvariant());
+                            RoundNumber(_round + 1).Work, WordingFor(true, StationAt(_round + 1)));
                     }
 
                     return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
-                        _settings.RestLabel.ToUpperInvariant(), current.Rest);
+                        WordingFor(false, CurrentStation()), current.Rest);
                 }
 
                 case Phase.Rest:
                 {
                     if (TotalRounds > 0 && _round >= TotalRounds) return "Next: finish";
 
+                    if (ShouldInsertMove())
+                    {
+                        return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
+                            MoveLabel(), _settings.MoveSeconds);
+                    }
+
                     PlanRound next = RoundNumber(_round + 1);
                     string text = string.Format(CultureInfo.InvariantCulture,
                         "Next: {0} for {1}s   (round {2})",
-                        _settings.WorkLabel.ToUpperInvariant(), next.Work, _round + 1);
+                        WordingFor(true, StationAt(_round + 1)), next.Work, _round + 1);
 
                     // Call out a change of pace, since the number is about to jump.
                     if (_plan != null && _plan.BlockCount > 1 && next.BlockNumber != CurrentRound().BlockNumber)
@@ -991,6 +1219,13 @@ namespace GymClock
                     }
 
                     return text;
+                }
+
+                case Phase.Move:
+                {
+                    PlanRound next = RoundNumber(_round + 1);
+                    return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s   (round {2})",
+                        WordingFor(true, StationAt(_round + 1)), next.Work, _round + 1);
                 }
             }
 
@@ -1002,8 +1237,9 @@ namespace GymClock
             switch (phase)
             {
                 case Phase.Prep: return "the countdown";
-                case Phase.Work: return _settings.WorkLabel.ToUpperInvariant();
-                case Phase.Rest: return _settings.RestLabel.ToUpperInvariant();
+                case Phase.Work: return WordingFor(true, CurrentStation());
+                case Phase.Rest: return WordingFor(false, CurrentStation());
+                case Phase.Move: return "the move between stations";
                 default: return "the session";
             }
         }
@@ -1022,6 +1258,8 @@ namespace GymClock
                 }
                 sb.Append("-  ");
             }
+
+            if (_settings.Stations.Count > 0) sb.Append("CTRL+1-9 jump to station  -  ");
 
             sb.Append("M mute  -  F11 full screen  -  F6 next display  -  F3 licence  -  Q quit");
             return sb.ToString();

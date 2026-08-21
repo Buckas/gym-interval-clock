@@ -98,8 +98,13 @@ namespace GymClock
                 sb.AppendLine("Prep         : " + settings.PrepSeconds.ToString(CultureInfo.InvariantCulture) + "s");
                 sb.AppendLine("Wording      : " + settings.WorkLabel + " / " + settings.RestLabel);
                 sb.AppendLine("Sound        : " + (settings.SoundEnabled ? "on" : "muted"));
-                sb.AppendLine("Stations     : " + (settings.Stations.Count == 0
-                    ? "none" : string.Join(", ", settings.Stations.ToArray())));
+                List<string> stationNames = new List<string>();
+                foreach (Station st in settings.Stations) stationNames.Add(st.Name);
+                sb.AppendLine("Stations     : " + (stationNames.Count == 0
+                    ? "none" : string.Join(", ", stationNames)));
+                sb.AppendLine("Move time    : " + (settings.UseMoveTime
+                    ? settings.MoveSeconds.ToString(CultureInfo.InvariantCulture) + "s - \"" + settings.MoveMessage + "\""
+                    : "off"));
             }
             sb.AppendLine("Settings file: " + TimerSettings.FilePath);
             sb.AppendLine();
