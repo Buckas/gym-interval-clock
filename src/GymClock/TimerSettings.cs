@@ -72,6 +72,72 @@ namespace GymClock
     }
 
     /// <summary>
+    /// One station in a circuit: a name plus optional instructions for what to do
+    /// during the work phase and during the rest phase, e.g. "Exercise bike" /
+    /// "80% resistance" / "no resistance", or "Skip rope" / "full pace" / "walk".
+    /// </summary>
+    public class Station
+    {
+        public string Name = string.Empty;
+        public string WorkDetail = string.Empty;
+        public string RestDetail = string.Empty;
+
+        /// <summary>Optional accent colour for the table, "#RRGGBB" or a .NET colour name.</summary>
+        public string Colour = string.Empty;
+
+        public Station()
+        {
+        }
+
+        public Station(string name, string workDetail, string restDetail)
+            : this(name, workDetail, restDetail, string.Empty)
+        {
+        }
+
+        public Station(string name, string workDetail, string restDetail, string colour)
+        {
+            Name = name ?? string.Empty;
+            WorkDetail = workDetail ?? string.Empty;
+            RestDetail = restDetail ?? string.Empty;
+            Colour = colour ?? string.Empty;
+        }
+
+        public Station Clone()
+        {
+            return new Station(Name, WorkDetail, RestDetail, Colour);
+        }
+
+        public bool HasDetail
+        {
+            get { return WorkDetail.Length > 0 || RestDetail.Length > 0 || Colour.Length > 0; }
+        }
+
+        /// <summary>The written form shared by settings.txt and a standalone station file: Name|work|rest|colour.</summary>
+        public string ToFileLine()
+        {
+            string line = Name + "|" + WorkDetail + "|" + RestDetail;
+            if (Colour.Length > 0) line += "|" + Colour;
+            return line;
+        }
+
+        public static bool TryParse(string text, out Station station)
+        {
+            station = null;
+            if (string.IsNullOrEmpty(text)) return false;
+
+            string[] fields = text.Split('|');
+            string name = fields.Length > 0 ? fields[0].Trim() : string.Empty;
+            if (name.Length == 0) return false;
+
+            string work = fields.Length > 1 ? fields[1].Trim() : string.Empty;
+            string rest = fields.Length > 2 ? fields[2].Trim() : string.Empty;
+            string colour = fields.Length > 3 ? fields[3].Trim() : string.Empty;
+            station = new Station(name, work, rest, colour);
+            return true;
+        }
+    }
+
+    /// <summary>
     /// Everything the clock needs, stored as a human-readable key=value text file
     /// so it can also be edited with Notepad if you would rather not use the dialog.
     /// </summary>
@@ -104,8 +170,39 @@ namespace GymClock
         public string DoneColour = "#5B4B9E";
         public string IdleColour = "#1A1E25";
 
-        /// <summary>Optional station / exercise names, shown one per work round.</summary>
-        public List<string> Stations = new List<string>();
+        /// <summary>Optional stations / exercises, shown one per work round.</summary>
+        public List<Station> Stations = new List<Station>();
+
+        /// <summary>
+        /// When true, a station's own WorkDetail/RestDetail (if it has one) replaces
+        /// the generic WorkLabel/RestLabel on the big central display. When false, or
+        /// for a station with no detail set, the generic wording is always used.
+        /// </summary>
+        public bool UseStationWording = false;
+
+        /// <summary>Shows the station list as a table down the left third of the screen.</summary>
+        public bool ShowStationsTable = true;
+
+        /// <summary>
+        /// True for a linear session where the whole class moves through the
+        /// stations together, one per round - the table highlights whichever one
+        /// is in progress. False for a rotating circuit, where every station is in
+        /// use at once by a different group and highlighting just one would be
+        /// misleading, so none is highlighted.
+        /// </summary>
+        public bool HighlightCurrentStation = true;
+
+        /// <summary>
+        /// An optional extra phase after the rest (or straight after work, if there
+        /// is no rest) where the class physically moves to its next station, with
+        /// its own length and an editable instruction such as "Move clockwise to
+        /// the next station". Skipped after the final round - there is nowhere
+        /// left to move to.
+        /// </summary>
+        public bool UseMoveTime = false;
+        public int MoveSeconds = 8;
+        public string MoveMessage = "Move clockwise to the next station";
+        public string MoveColour = "#1E9AA6";
 
         public List<Preset> Presets = new List<Preset>();
 
@@ -155,7 +252,15 @@ namespace GymClock
             c.PausedColour = PausedColour;
             c.DoneColour = DoneColour;
             c.IdleColour = IdleColour;
-            c.Stations = new List<string>(Stations);
+            c.Stations = new List<Station>();
+            foreach (Station st in Stations) c.Stations.Add(st.Clone());
+            c.UseStationWording = UseStationWording;
+            c.ShowStationsTable = ShowStationsTable;
+            c.HighlightCurrentStation = HighlightCurrentStation;
+            c.UseMoveTime = UseMoveTime;
+            c.MoveSeconds = MoveSeconds;
+            c.MoveMessage = MoveMessage;
+            c.MoveColour = MoveColour;
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
@@ -231,7 +336,15 @@ namespace GymClock
                         case "donecolor": s.DoneColour = value; break;
                         case "idlecolour":
                         case "idlecolor": s.IdleColour = value; break;
-                        case "stations": s.Stations = SplitList(value); break;
+                        case "stations": s.Stations = ParseStations(value); break;
+                        case "usestationwording": s.UseStationWording = ReadBool(value, s.UseStationWording); break;
+                        case "showstationstable": s.ShowStationsTable = ReadBool(value, s.ShowStationsTable); break;
+                        case "highlightcurrentstation": s.HighlightCurrentStation = ReadBool(value, s.HighlightCurrentStation); break;
+                        case "usemovetime": s.UseMoveTime = ReadBool(value, s.UseMoveTime); break;
+                        case "moveseconds": s.MoveSeconds = ReadInt(value, s.MoveSeconds, 1, 600); break;
+                        case "movemessage": s.MoveMessage = value; break;
+                        case "movecolour":
+                        case "movecolor": s.MoveColour = value; break;
                         case "presets":
                             List<Preset> parsed = new List<Preset>();
                             foreach (string item in SplitList(value))
@@ -294,8 +407,26 @@ namespace GymClock
                 sb.AppendLine("donecolour=" + DoneColour);
                 sb.AppendLine("idlecolour=" + IdleColour);
                 sb.AppendLine();
-                sb.AppendLine("# Optional station names, shown one per work round (comma separated)");
-                sb.AppendLine("stations=" + string.Join(",", Stations.ToArray()));
+                sb.AppendLine("# Optional stations, shown one per work round, and in the on-screen table.");
+                sb.AppendLine("# Plain names:      stations=Burpees,Squats,Push-ups");
+                sb.AppendLine("# With instructions for each phase, Name|during work|during rest, joined by ;");
+                sb.AppendLine("#   stations=Exercise bike|80% resistance|no resistance;Skip rope|full pace|walk");
+                sb.AppendLine("stations=" + FormatStations(Stations));
+                sb.AppendLine();
+                sb.AppendLine("# Replace the big WORK/REST word with a station's own instruction, when it has one.");
+                sb.AppendLine("usestationwording=" + (UseStationWording ? "true" : "false"));
+                sb.AppendLine("# Show the station list as a table down the left third of the screen.");
+                sb.AppendLine("showstationstable=" + (ShowStationsTable ? "true" : "false"));
+                sb.AppendLine("# Highlight the station in progress - turn off for a rotating circuit where");
+                sb.AppendLine("# every station is in use at once by a different group.");
+                sb.AppendLine("highlightcurrentstation=" + (HighlightCurrentStation ? "true" : "false"));
+                sb.AppendLine();
+                sb.AppendLine("# Optional move phase between stations, after the rest (or straight after");
+                sb.AppendLine("# work if there is none). Skipped after the final round.");
+                sb.AppendLine("usemovetime=" + (UseMoveTime ? "true" : "false"));
+                sb.AppendLine("moveseconds=" + MoveSeconds.ToString(CultureInfo.InvariantCulture));
+                sb.AppendLine("movemessage=" + MoveMessage);
+                sb.AppendLine("movecolour=" + MoveColour);
                 sb.AppendLine();
                 sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
                 List<string> ps = new List<string>();
@@ -318,6 +449,7 @@ namespace GymClock
         public Color PausedBg { get { return ParseColour(PausedColour, Color.FromArgb(51, 59, 71)); } }
         public Color DoneBg { get { return ParseColour(DoneColour, Color.FromArgb(91, 75, 158)); } }
         public Color IdleBg { get { return ParseColour(IdleColour, Color.FromArgb(26, 30, 37)); } }
+        public Color MoveBg { get { return ParseColour(MoveColour, Color.FromArgb(30, 154, 166)); } }
 
         public static Color ParseColour(string text, Color fallback)
         {
@@ -352,6 +484,60 @@ namespace GymClock
                 if (!ok) return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// Accepts either a plain comma-separated list of names (the old format,
+        /// still what a bare textbox entry produces) or the richer
+        /// "Name|work detail|rest detail" form, stations joined with ";". The
+        /// presence of a "|" anywhere in the value is what selects the richer form,
+        /// so every settings file written before stations had detail still loads
+        /// unchanged.
+        /// </summary>
+        public static List<Station> ParseStations(string value)
+        {
+            List<Station> list = new List<Station>();
+            if (string.IsNullOrEmpty(value)) return list;
+
+            if (value.IndexOf('|') >= 0)
+            {
+                foreach (string part in value.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    Station station;
+                    if (Station.TryParse(part, out station)) list.Add(station);
+                }
+            }
+            else
+            {
+                foreach (string name in SplitList(value)) list.Add(new Station(name, string.Empty, string.Empty));
+            }
+
+            return list;
+        }
+
+        /// <summary>
+        /// Plain comma list when nothing has instructions attached, so a simple
+        /// station list still reads as it always has. Falls back to the richer
+        /// "Name|work|rest|colour" form, joined by ";", the moment any station uses one.
+        /// </summary>
+        public static string FormatStations(List<Station> stations)
+        {
+            bool anyDetail = false;
+            foreach (Station st in stations)
+            {
+                if (st.HasDetail) { anyDetail = true; break; }
+            }
+
+            List<string> parts = new List<string>();
+
+            if (anyDetail)
+            {
+                foreach (Station st in stations) parts.Add(st.ToFileLine());
+                return string.Join(";", parts.ToArray());
+            }
+
+            foreach (Station st in stations) parts.Add(st.Name);
+            return string.Join(",", parts.ToArray());
         }
 
         public static List<string> SplitList(string value)

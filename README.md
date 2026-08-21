@@ -29,7 +29,9 @@ Session 04:12
   amber = rest, grey = paused, purple = finished.
 - The background **pulses over the last three seconds** of every interval, with a beep
   on 3‑2‑1 and a distinct double beep when work starts.
-- Optional **station names** cycle one per round, for circuit work.
+- A built-in **session builder** for circuit work: name each station, give it its
+  own work/rest instructions, and show the whole list as a table down the left
+  third of the screen. See [Stations / session builder](#stations--session-builder).
 - Timing uses `Stopwatch`, not accumulated timer ticks, so it does not drift over a
   long session.
 
@@ -78,6 +80,7 @@ The result appears in `src/GymClock/bin/publish/win-x64/GymClock.exe`.
 | `→` / `Page Down` / `N` | Skip to the next interval |
 | `←` / `Page Up` / `P` | Restart this interval, or step back one |
 | `1`–`9` | Apply quick preset 1–9 instantly |
+| `Ctrl`+`1`–`9` | Jump straight to station 1–9's work phase |
 | `M` | Mute / unmute the cues |
 | `T` | Toggle always-on-top |
 | `F11` or `F` | Toggle full screen |
@@ -124,6 +127,13 @@ pausedcolour=#333B47
 donecolour=#5B4B9E
 idlecolour=#1A1E25
 stations=Burpees,Squats,Push-ups,Rower,Box jumps
+usestationwording=false     # show each station's own instruction instead of WORK/REST
+showstationstable=true      # table of stations down the left third of the screen
+highlightcurrentstation=true # highlight the one in progress (off for a rotating circuit)
+usemovetime=false           # extra phase between stations, e.g. for walking round to the next one
+moveseconds=8
+movemessage=Move clockwise to the next station
+movecolour=#1E9AA6
 presets=45/15x10,40/20x10,30/30x10,20/10x8,60/15x8
 ```
 
@@ -160,6 +170,91 @@ A file named `gymclock.settings.txt` placed **next to the .exe** is used in pref
 to the one in `%AppData%`, which is handy for a USB-stick copy or several shortcuts
 with different configurations. See [`settings-examples/`](settings-examples) for
 ready-made circuit, Tabata and continuous configurations.
+
+## Stations / session builder
+
+The **Stations** tab of the settings dialog (**S**, second tab) is a small session
+builder: one row per station, with optional instructions for what to do during the
+work phase and during the rest phase, and an optional accent colour.
+
+```
+Station / exercise    During WORK          During REST        Colour
+Exercise bike          80% resistance      no resistance      #2AA7A0
+Skip rope               full pace          walk
+Rower                  max effort          light pull          SkyBlue
+```
+
+Use **Add** to append a blank row, **Duplicate** to copy the selected station
+(handy for reusing the same bike or a similar exercise elsewhere in the program),
+**Remove** to delete the selected row, and **Up** / **Down** to reorder the list -
+or just use the grid's own blank last row and the Delete key. A station can appear
+more than once in the list; that is completely normal for reusing equipment. What
+is not allowed is the *same* station running straight into itself with nothing in
+between, including where the list wraps from the last station back to the first -
+so **Ride bike, Skip rope, Ride bike** is fine, but **Ride bike, Ride bike** is not.
+Two labels under the grid update live as you type:
+
+- A **back-to-back warning** naming any station that repeats with nothing
+  between the two - a **Duplicate** lands right next to its original for this
+  exact reason, as a prompt to move it with Up/Down to where it actually belongs.
+- A **session estimate** - station count, round count, and the total running
+  time the current Timing settings and move time add up to.
+
+**Import...** / **Export...** save or load just the station list as its own
+`.stations.txt` file (one station per line, `Name|work|rest|colour`), so a circuit
+built once can be reused on another computer or in another settings file, or
+handed to another teacher. Importing offers to add to the current list or replace
+it outright.
+
+On the right, checkboxes control how it plays out on the projector:
+
+- **Show a stations table on screen** - the grid above, always visible down the
+  left third of the screen, rather than just a single station name scrolling
+  through the header.
+- **Replace the WORK/REST word with each station's own instruction, when it has
+  one** - the huge central word becomes "80% RESISTANCE" instead of "WORK" for a
+  station that has one set, and falls back to the plain WORK/REST wording
+  otherwise (including for any station left with no instructions).
+- **Highlight the station in progress** - turn this **on** for a linear session
+  where the whole class moves through the stations together, one per round, so
+  the table can point at the one they should be on. Turn it **off** for a
+  rotating circuit, where every station is already staffed by a different group
+  every round - highlighting just one there would be actively misleading.
+
+Below that, **Move between stations** adds an optional extra phase after the rest
+(or straight after work, if there is none) for the physical move to the next
+station, with its own length and an editable instruction - e.g. 8 seconds of
+"MOVE CLOCKWISE TO THE NEXT STATION" in its own colour, shown as the big central
+word and as the banner line above it. It is skipped after the final round, and
+`Ctrl`+`1`–`9` on the clock jumps straight to a given station's work phase if a
+class needs correcting onto the right one mid-session.
+
+A **Save** button next to OK writes straight to `settings.txt` without closing the
+dialog, so a session can be built up and checked on disk before moving on; OK
+still saves and applies it as before, and Cancel discards the changes.
+
+In the settings file itself, a plain list still works exactly as it always has:
+
+```
+stations=Burpees,Squats,Push-ups,Rower,Box jumps
+```
+
+Add instructions and a colour with `Name|during work|during rest|colour`, stations
+joined by `;` (trailing fields can be left blank or omitted):
+
+```
+stations=Exercise bike|80% resistance|no resistance|#2AA7A0;Skip rope|full pace|walk
+usestationwording=true
+showstationstable=true
+highlightcurrentstation=true
+usemovetime=true
+moveseconds=8
+movemessage=Move clockwise to the next station
+```
+
+See [`settings-examples/station-builder.txt`](settings-examples/station-builder.txt)
+for a complete example, and drop a `*.stations.txt` file exported from the dialog
+next to it to reuse just the station list on its own.
 
 ## Repository layout
 

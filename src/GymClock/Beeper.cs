@@ -45,6 +45,7 @@ namespace GymClock
         // Cue vocabulary used by the clock.
         public static void CueWorkStart() { Play(new Tone(1000, 160, 60), new Tone(1000, 320)); }
         public static void CueRestStart() { Play(new Tone(520, 380)); }
+        public static void CueMoveStart() { Play(new Tone(650, 140, 70), new Tone(650, 140)); }
         public static void CuePrepStart() { Play(new Tone(700, 200)); }
         public static void CueCountdown() { Play(new Tone(880, 110)); }
         public static void CuePause() { Play(new Tone(400, 150)); }
