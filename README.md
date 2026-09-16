@@ -29,9 +29,11 @@ Session 04:12
   amber = rest, grey = paused, purple = finished.
 - The background **pulses over the last three seconds** of every interval, with a beep
   on 3‑2‑1 and a distinct double beep when work starts.
-- A built-in **session builder** for circuit work: name each station, give it its
-  own work/rest instructions, and show the whole list as a table down the left
-  third of the screen. See [Stations / session builder](#stations--session-builder).
+- A built-in **program builder**: Quick Setup turns a pattern (Tabata, pyramid,
+  ladder, EMOM, ...) and a few numbers into a full program in seconds, and the
+  Program Builder gives full control - stations with their own timing, repeat
+  groups, rest/move/water-break/instruction blocks anywhere you like, or the
+  same program typed as plain text. See [Building a program](#building-a-program).
 - Timing uses `Stopwatch`, not accumulated timer ticks, so it does not drift over a
   long session.
 
@@ -102,7 +104,8 @@ on to the next one.
 1. **Press `1`–`9`** for a preset. Out of the box: `1` = 45/15, `2` = 40/20,
    `3` = 30/30, `4` = 20/10 (Tabata), `5` = 60/15.
 2. **Press `S`** for the settings dialog: prep countdown, work, rest, rounds, cue
-   volume, wording, station list, clock format.
+   volume, wording, clock format, and the **Program** tab for Quick Setup / the
+   Program Builder - see [Building a program](#building-a-program).
 3. **Edit the settings file** in Notepad. The path is shown at the bottom of the
    settings dialog; by default it is `%AppData%\GymClock\settings.txt`.
 
@@ -126,14 +129,29 @@ prepcolour=#1E63D0
 pausedcolour=#333B47
 donecolour=#5B4B9E
 idlecolour=#1A1E25
+recoverycolour=#4A90D9     # default colours for the block types a program can use
+countdowncolour=#6C3FC5
+waterbreakcolour=#17A2B8
+instructioncolour=#546E7A
+customcolour=#B23A78
+
+# Everything below this line only matters for a *simple* session - once a real
+# program is built (see "program=" and Building a program, below) the program's
+# own stations and timing take over completely.
 stations=Burpees,Squats,Push-ups,Rower,Box jumps
-usestationwording=false     # show each station's own instruction instead of WORK/REST
-showstationstable=true      # table of stations down the left third of the screen
+showstationstable=true      # table of stations down the left quarter of the screen
+showstationnameasdescription=false # show the station's name instead of WORK/REST/MOVE
 highlightcurrentstation=true # highlight the one in progress (off for a rotating circuit)
 usemovetime=false           # extra phase between stations, e.g. for walking round to the next one
 moveseconds=8
 movemessage=Move clockwise to the next station
 movecolour=#1E9AA6
+
+# The current program, written with the script grammar - see Building a
+# program, below. Blank (the default) means no program has been built yet, so
+# the clock runs the plain work/rest/rounds/stations settings above instead.
+program=
+
 presets=45/15x10,40/20x10,30/30x10,20/10x8,60/15x8
 ```
 
@@ -171,90 +189,148 @@ to the one in `%AppData%`, which is handy for a USB-stick copy or several shortc
 with different configurations. See [`settings-examples/`](settings-examples) for
 ready-made circuit, Tabata and continuous configurations.
 
-## Stations / session builder
+## Building a program
 
-The **Stations** tab of the settings dialog (**S**, second tab) is a small session
-builder: one row per station, with optional instructions for what to do during the
-work phase and during the rest phase, and an optional accent colour.
+The **Program** tab of the settings dialog (**S**) is where a session stops being
+just "work/rest/rounds" and becomes a real, reusable **program**: any mix of
+timed blocks, optionally split across stations that each run their own timing.
+Two ways in, both producing the same thing:
+
+- **Quick Setup** - a name, an execution mode, a pattern and a few numbers, with
+  a live preview. **Create Program** applies it immediately; **Open In Builder**
+  hands the result to the Program Builder for further shaping first.
+- **Program Builder** - full control: stations with their own timing, repeat
+  groups, and any block anywhere, or the same program typed as plain text on
+  its Script tab.
+
+A program is entirely optional. A settings file with no program built yet
+(`program=` blank, the default) runs exactly as it always has, off the plain
+`work`/`rest`/`rounds`/`plan`/`stations`/move-time fields on the **Timing &
+Wording** tab - nothing changes for anyone who never opens the Program tab.
+
+### Execution modes
+
+- **Shared Timing** - one countdown for the whole room; every station (if any
+  are listed) follows it together. This is what every simple session and every
+  Quick Setup pattern produces by default.
+- **Sequential Stations** - each station runs its own timeline, one after
+  another, with an optional shared block (e.g. a Rest or a Move) between each
+  pair. Adding a station in the Program Builder switches a program to this mode
+  automatically.
+- **Parallel Independent Stations** - planned, not implemented yet. It needs
+  its own multi-station dashboard rather than a generalisation of this display,
+  so the option is visible but disabled for now.
+
+### Quick Setup patterns
+
+| Pattern | Shape |
+|---|---|
+| Standard Interval | Even work/recovery, repeated |
+| Tabata | The classic fixed 20s work / 10s recovery |
+| Pyramid / Reverse Pyramid | Work climbs then falls back down (or the reverse) in even steps |
+| Ladder Up / Ladder Down | Work climbs, or falls, one step at a time with no way back down (or up) |
+| Wave | Alternates between two work lengths rather than settling on a peak |
+| Ascending / Descending Work | A straight ramp up or down, no symmetry |
+| EMOM / E2MOM | Every 1 (or 2) minutes on the minute, for a target total time |
+| Custom Sequence | A single block, ready to be reshaped in the Builder |
+
+Every pattern hands back ordinary, fully-editable blocks - never a locked
+template - so "Open In Builder" after Quick Setup is always an option, not just
+for Custom Sequence.
+
+### The Program Builder
+
+Three panes:
+
+- **Program Outline** (left) - the program root, then either the Shared
+  Timeline, or one entry per station plus a Between Stations entry once there
+  are two or more. `+Station` / `Duplicate` / `Delete` / `Up` / `Down` manage
+  the list; `+Rest` / `+Move` add a block that plays between every pair of
+  stations.
+- **Selected Timeline** (middle) - the blocks and repeat groups for whichever
+  outline entry is selected. `+Work` / `+Recovery` / `+Rest` / `+Move` add a
+  block; `+Repeat Group` wraps new blocks so they repeat together (e.g. 3x
+  Work/Recovery); `+Pattern...` inserts an entire generated pattern at this
+  point, same generators as Quick Setup. Double-click a repeat group to drill
+  into its own blocks, and use the `< Back` row to return. `Duplicate` /
+  `Delete` / `Up` / `Down` manage whatever is selected.
+- **Properties** (right) - edit whatever is selected in either pane: a block's
+  Type, Seconds, Label (overrides the default word), Announcement (a smaller
+  line shown alongside it), Colour and Sound; a repeat group's Count; a
+  station's Name, Colour, Work/Rest instructions and where its timing comes
+  from (the program default, linked to another station, or its own custom
+  timeline); or the program's own Name and execution Mode.
+
+Block types, with their default word and colour (a block's own Label/Colour
+override these): **Work** (green), **Recovery** (blue), **Rest** (amber),
+**Move** (teal), **Prepare** (blue), **Countdown** (purple), **Water Break**
+(cyan), **Instruction** (slate), **Custom** (magenta, always needs its own
+Label).
+
+### Script tab
+
+The same program, as plain text - handy for a quick edit, or for anyone who
+would rather type it than click through the Builder:
 
 ```
-Station / exercise    During WORK          During REST        Colour
-Exercise bike          80% resistance      no resistance      #2AA7A0
-Skip rope               full pace          walk
-Rower                  max effort          light pull          SkyBlue
+PROGRAM "Battle Ropes Circuit"
+
+BETWEEN
+    MOVE 15
+END BETWEEN
+
+STATION "Battle Ropes"
+    REPEAT 3
+        WORK 50
+        RECOVERY 10
+    END
+END STATION
+
+STATION "Rower"
+    WORK 45
+END STATION
 ```
 
-Use **Add** to append a blank row, **Duplicate** to copy the selected station
-(handy for reusing the same bike or a similar exercise elsewhere in the program),
-**Remove** to delete the selected row, and **Up** / **Down** to reorder the list -
-or just use the grid's own blank last row and the Delete key. A station can appear
-more than once in the list; that is completely normal for reusing equipment. What
-is not allowed is the *same* station running straight into itself with nothing in
-between, including where the list wraps from the last station back to the first -
-so **Ride bike, Skip rope, Ride bike** is fine, but **Ride bike, Ride bike** is not.
-Two labels under the grid update live as you type:
+Commands: `PROGRAM "name"`, `STATION "name"` / `END STATION`, `BETWEEN` / `END
+BETWEEN` for the block(s) that play between every pair of stations (written
+once, not once per gap), `REPEAT n` / `END` for a repeat group (one level
+deep), and a block per line - `WORK` `RECOVERY` `REST` `MOVE` `PREPARE`
+`COUNTDOWN` `WATER` `INSTRUCTION` `CUSTOM`, each followed by a duration (`20`,
+`20s`, `1m`, `1m 30s`) and an optional quoted label. An unrecognised or
+malformed line is skipped rather than failing the whole program, so a typo
+degrades gracefully. **Apply Script** loads the text into the Builder tab; if
+you leave the Script tab selected and press OK, it is applied automatically
+first so an edit you forgot to Apply is never silently lost.
 
-- A **back-to-back warning** naming any station that repeats with nothing
-  between the two - a **Duplicate** lands right next to its original for this
-  exact reason, as a prompt to move it with Up/Down to where it actually belongs.
-- A **session estimate** - station count, round count, and the total running
-  time the current Timing settings and move time add up to.
+### Import, export, and reuse
 
-**Import...** / **Export...** save or load just the station list as its own
-`.stations.txt` file (one station per line, `Name|work|rest|colour`), so a circuit
-built once can be reused on another computer or in another settings file, or
-handed to another teacher. Importing offers to add to the current list or replace
-it outright.
+**Import Program...** / **Export Program...** on the Program tab save or load a
+program as its own `.program.txt` file, using the exact same script grammar -
+so a program built once can be reused on another computer, kept as a backup, or
+handed to another teacher. In the settings file itself, the current program is
+stored in `program=`, with line breaks written as `\n`.
 
-On the right, checkboxes control how it plays out on the projector:
+### The simple-session checkboxes
 
-- **Show a stations table on screen** - the grid above, always visible down the
-  left third of the screen, rather than just a single station name scrolling
-  through the header.
-- **Replace the WORK/REST word with each station's own instruction, when it has
-  one** - the huge central word becomes "80% RESISTANCE" instead of "WORK" for a
-  station that has one set, and falls back to the plain WORK/REST wording
-  otherwise (including for any station left with no instructions).
-- **Highlight the station in progress** - turn this **on** for a linear session
-  where the whole class moves through the stations together, one per round, so
-  the table can point at the one they should be on. Turn it **off** for a
-  rotating circuit, where every station is already staffed by a different group
-  every round - highlighting just one there would be actively misleading.
+The **On the main screen** and **Move between stations** groups on the Program
+tab only affect a *simple* session - one with no program built yet:
 
-Below that, **Move between stations** adds an optional extra phase after the rest
-(or straight after work, if there is none) for the physical move to the next
-station, with its own length and an editable instruction - e.g. 8 seconds of
-"MOVE CLOCKWISE TO THE NEXT STATION" in its own colour, shown as the big central
-word and as the banner line above it. It is skipped after the final round, and
-`Ctrl`+`1`–`9` on the clock jumps straight to a given station's work phase if a
-class needs correcting onto the right one mid-session.
+- **Show a stations table on screen** / **Show the station name as the
+  description instead of WORK/REST/MOVE** / **Highlight the active station** -
+  the same rotating-station display this app has always had for a plain
+  `stations=` list, turning one station name per round on the wall.
+- **Move between stations** - an optional extra phase after the rest (or
+  straight after work, if there is none), with its own length, message and
+  colour, skipped after the final round.
 
-A **Save** button next to OK writes straight to `settings.txt` without closing the
-dialog, so a session can be built up and checked on disk before moving on; OK
-still saves and applies it as before, and Cancel discards the changes.
+Once a real program is built, its own stations and execution mode take over
+completely: **Sequential Stations** highlights whichever station is actually
+running, and **Shared Timing** never highlights one, since every station plays
+at once. Either way, `Ctrl`+`1`–`9` jumps the clock straight to a given
+station's work phase, for a teacher correcting a mistake mid-session.
 
-In the settings file itself, a plain list still works exactly as it always has:
-
-```
-stations=Burpees,Squats,Push-ups,Rower,Box jumps
-```
-
-Add instructions and a colour with `Name|during work|during rest|colour`, stations
-joined by `;` (trailing fields can be left blank or omitted):
-
-```
-stations=Exercise bike|80% resistance|no resistance|#2AA7A0;Skip rope|full pace|walk
-usestationwording=true
-showstationstable=true
-highlightcurrentstation=true
-usemovetime=true
-moveseconds=8
-movemessage=Move clockwise to the next station
-```
-
-See [`settings-examples/station-builder.txt`](settings-examples/station-builder.txt)
-for a complete example, and drop a `*.stations.txt` file exported from the dialog
-next to it to reuse just the station list on its own.
+See [`settings-examples/`](settings-examples) for a plain legacy example and a
+ready-made `.program.txt` circuit to import, side by side.
 
 ## Repository layout
 
@@ -263,10 +339,16 @@ GymClock.sln                       Visual Studio 2022 solution
 src/GymClock/
   Program.cs                       Entry point, licence gate, high-DPI setup
   MainForm.cs                      Timing engine + all custom painting
-  SettingsForm.cs                  Settings dialog, built in code
+  SettingsForm(.Designer).cs       Settings dialog: timing/wording + the Program tab
   TimerSettings.cs                 Settings model, presets, text-file persistence
+  WorkoutProgram.cs                Program model: Block, Timeline, RepeatGroup, StationDef
+  ProgramScript.cs                 Reads/writes the plain-text program script grammar
+  PatternGenerator.cs              Builds a Timeline from a pattern (Tabata, Pyramid, ...)
+  QuickSetupForm(.Designer).cs     Name + mode + pattern + numbers -> a program
+  ProgramBuilderForm(.Designer).cs Full editor: outline / timeline / properties / script
+  PatternPickerForm.cs             "+Pattern..." dialog inside the Program Builder
   Beeper.cs                        Generates PCM WAV cues in memory
-  IntervalPlan.cs                  Variable session structure (blocks of rounds)
+  IntervalPlan.cs                  Legacy variable-plan structure (blocks of rounds)
   DiagnosticReport.cs              Support report the user can save and send
   Licensing.cs                     Expiry date, signed key verification
   LicenceDialog.cs                 Activation prompt, doubles as the About box
@@ -277,9 +359,8 @@ distribution/READ-ME-FIRST.txt     Bundled with the exe for recipients
 .github/workflows/build.yml        Builds, bundles exe + licence, publishes tags
 ```
 
-No NuGet packages and no designer (`.Designer.cs`) files — every form is built in
-code, so there is nothing to merge-conflict on and the whole thing is readable
-top to bottom.
+No NuGet packages - the whole thing is plain C# and WinForms, so there is nothing
+to merge-conflict on beyond the usual `.Designer.cs` layout code.
 
 ## Cutting a release
 

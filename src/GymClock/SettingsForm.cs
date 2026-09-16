@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
-using System.Text;
 using System.Windows.Forms;
 
 namespace GymClock
@@ -15,6 +14,16 @@ namespace GymClock
     public partial class SettingsForm : Form
     {
         private readonly TimerSettings _original;
+
+        /// <summary>
+        /// The program built so far this dialog session (Quick Setup / the
+        /// Program Builder / an import all write here). Kept separately from
+        /// Result, the same way every other field lives in a control until
+        /// ApplyControlsTo copies it across - Ok_Click rebuilds Result fresh
+        /// from _original each time, which would otherwise silently discard a
+        /// program built earlier in the same session.
+        /// </summary>
+        private string _workingProgramScript;
 
         public TimerSettings Result { get; private set; }
 
@@ -77,7 +86,7 @@ namespace GymClock
             _onTop.Checked = settings.AlwaysOnTop;
 
             _showStationsTable.Checked = settings.ShowStationsTable;
-            _useStationWording.Checked = settings.UseStationWording;
+            _showStationNameAsDescription.Checked = settings.ShowStationNameAsDescription;
             _highlightCurrentStation.Checked = settings.HighlightCurrentStation;
 
             _moveSeconds.Minimum = 1;
@@ -86,20 +95,8 @@ namespace GymClock
             _useMoveTime.Checked = settings.UseMoveTime;
             _moveMessage.Text = settings.MoveMessage;
 
-            LoadStationsGrid(settings.Stations);
-            RefreshStationsDiagnostics();
-
-            // Anything that changes the estimated session length keeps the
-            // stations-tab summary honest, even though it lives on the other tab.
-            _prep.ValueChanged += delegate { RefreshStationsDiagnostics(); };
-            _work.ValueChanged += delegate { RefreshStationsDiagnostics(); };
-            _rest.ValueChanged += delegate { RefreshStationsDiagnostics(); };
-            _rounds.ValueChanged += delegate { RefreshStationsDiagnostics(); };
-            _plan.TextChanged += delegate { RefreshStationsDiagnostics(); };
-            _restAfterFinal.CheckedChanged += delegate { RefreshStationsDiagnostics(); };
-            _useMoveTime.CheckedChanged += delegate { RefreshStationsDiagnostics(); };
-            _moveSeconds.ValueChanged += delegate { RefreshStationsDiagnostics(); };
-
+            _workingProgramScript = settings.ProgramScript;
+            RefreshProgramSummary();
             UpdatePlanPreview();
 
             Button[] presetButtons = new[]
@@ -123,8 +120,7 @@ namespace GymClock
                     button.Visible = false;
                 }
             }
-
-            }
+        }
 
         /// <summary>
         /// Shows what the plan actually resolves to, so a typo is obvious before you
@@ -160,272 +156,132 @@ namespace GymClock
                 + "   (overrides work, rest and rounds above)";
         }
 
-        // ------------------------------------------------------------ stations
+        // ------------------------------------------------------------ program
 
-        private void LoadStationsGrid(List<Station> stations)
+        /// <summary>The program built so far this session, parsed from _workingProgramScript, or the legacy synthesis if there isn't one yet.</summary>
+        private WorkoutProgram CurrentWorkingProgram()
         {
-            _stationsGrid.Rows.Clear();
-            foreach (Station st in stations)
+            if (!string.IsNullOrEmpty(_workingProgramScript))
             {
-                _stationsGrid.Rows.Add(st.Name, st.WorkDetail, st.RestDetail, st.Colour);
+                WorkoutProgram parsed = ProgramScriptFormat.Parse(_workingProgramScript);
+                if (!parsed.SharedTimeline.IsEmpty || parsed.Stations.Count > 0) return parsed;
             }
+            return Result.EffectiveProgram();
         }
 
-        /// <summary>
-        /// Rows with no name are skipped, so the grid's always-present blank "new
-        /// row" at the bottom does not turn into a nameless station.
-        /// </summary>
-        private List<Station> ReadStationsFromGrid()
+        /// <summary>Shows the current program's name, mode and shape, whether it was built or synthesised from the simple fields.</summary>
+        private void RefreshProgramSummary()
         {
-            List<Station> list = new List<Station>();
+            WorkoutProgram program = CurrentWorkingProgram();
+            bool builtProgram = !string.IsNullOrEmpty(_workingProgramScript);
 
-            foreach (DataGridViewRow row in _stationsGrid.Rows)
+            string modeText = program.Mode == ExecutionMode.Sequential
+                ? "Sequential stations (" + program.Stations.Count + ")"
+                : "Shared timing";
+
+            string summary = builtProgram
+                ? program.Name + Environment.NewLine + modeText
+                : "No program built yet - running the simple work/rest/rounds settings on the other tab."
+                    + Environment.NewLine + "Use Quick Setup or the Program Builder to build a real program"
+                    + " (Tabata, Pyramid, stations with their own timing, and so on).";
+
+            _programSummaryLabel.Text = summary;
+        }
+
+        private void QuickSetup_Click(object sender, EventArgs e)
+        {
+            using (QuickSetupForm dialog = new QuickSetupForm(Result))
             {
-                if (row.IsNewRow) continue;
-
-                string name = Convert.ToString(row.Cells[0].Value ?? string.Empty).Trim();
-                if (name.Length == 0) continue;
-
-                string work = Convert.ToString(row.Cells[1].Value ?? string.Empty).Trim();
-                string rest = Convert.ToString(row.Cells[2].Value ?? string.Empty).Trim();
-                string colour = Convert.ToString(row.Cells[3].Value ?? string.Empty).Trim();
-                list.Add(new Station(name, work, rest, colour));
-            }
-
-            return list;
-        }
-
-        private void StationsGrid_Changed(object sender, EventArgs e)
-        {
-            RefreshStationsDiagnostics();
-        }
-
-        /// <summary>
-        /// Flags a station repeated back-to-back and estimates how long the
-        /// resulting session will run, including any move time - both read
-        /// straight off whatever is currently in the controls, on either tab.
-        /// A station reused further down the list is completely normal (e.g. a
-        /// bike used at two different points in a circuit) - it is only a
-        /// problem when it would run into itself with nothing in between, which
-        /// includes the list wrapping from the last station back to the first.
-        /// </summary>
-        private void RefreshStationsDiagnostics()
-        {
-            List<Station> stations = ReadStationsFromGrid();
-
-            List<string> backToBack = new List<string>();
-            int count = stations.Count;
-            if (count >= 2)
-            {
-                for (int i = 0; i < count - 1; i++)
+                if (dialog.ShowDialog(this) == DialogResult.OK && dialog.Result != null)
                 {
-                    if (string.Equals(stations[i].Name, stations[i + 1].Name, StringComparison.OrdinalIgnoreCase))
-                    {
-                        backToBack.Add(stations[i].Name + " (rows " + (i + 1) + "-" + (i + 2) + ")");
-                    }
-                }
-
-                // Only meaningful once there are 3+ stations - with exactly two,
-                // the wrap-around pair is the same pair the loop above already checked.
-                if (count > 2 && string.Equals(stations[count - 1].Name, stations[0].Name, StringComparison.OrdinalIgnoreCase))
-                {
-                    backToBack.Add(stations[0].Name + " (rows " + count + "-1, wraps around)");
+                    _workingProgramScript = ProgramScriptFormat.ToScript(dialog.Result);
+                    RefreshProgramSummary();
+                    _saveStatusLabel.Text = string.Empty;
                 }
             }
-
-            _duplicateWarningLabel.Text = backToBack.Count == 0 ? string.Empty
-                : "Back-to-back repeat" + (backToBack.Count > 1 ? "s" : "") + ": " + string.Join(", ", backToBack.ToArray());
-
-            IntervalPlan plan = IntervalPlan.Parse(_plan.Text.Trim());
-            if (plan.IsEmpty)
-            {
-                plan = IntervalPlan.Uniform((int)_work.Value, (int)_rest.Value, Math.Max(1, (int)_rounds.Value));
-            }
-
-            bool continuous = (int)_rounds.Value == 0;
-            int totalSeconds = plan.TotalSeconds((int)_prep.Value, _restAfterFinal.Checked);
-            int moveSeconds = _useMoveTime.Checked ? Math.Max(0, (int)_moveSeconds.Value) : 0;
-            int moveCount = 0;
-
-            if (moveSeconds > 0)
-            {
-                moveCount = continuous ? plan.RoundCount : Math.Max(0, plan.RoundCount - 1);
-                totalSeconds += moveSeconds * moveCount;
-            }
-
-            StringBuilder summary = new StringBuilder();
-            summary.Append(stations.Count).Append(stations.Count == 1 ? " station" : " stations");
-            summary.Append("  ·  ").Append(plan.RoundCount).Append(plan.RoundCount == 1 ? " round" : " rounds");
-            if (continuous) summary.Append(" (repeating)");
-            summary.Append("  ·  about ").Append(IntervalPlan.FormatDuration(totalSeconds)).Append(" total");
-            if (moveSeconds > 0)
-            {
-                summary.Append("  (includes ").Append(moveCount).Append(" × ").Append(moveSeconds).Append("s moves)");
-            }
-
-            _stationsSummaryLabel.Text = summary.ToString();
         }
 
-        private void AddStation_Click(object sender, EventArgs e)
+        private void OpenBuilder_Click(object sender, EventArgs e)
         {
-            int index = _stationsGrid.Rows.Add();
-            _stationsGrid.CurrentCell = _stationsGrid.Rows[index].Cells[0];
-            _stationsGrid.BeginEdit(true);
+            using (ProgramBuilderForm dialog = new ProgramBuilderForm(CurrentWorkingProgram()))
+            {
+                if (dialog.ShowDialog(this) == DialogResult.OK && dialog.Result != null)
+                {
+                    _workingProgramScript = ProgramScriptFormat.ToScript(dialog.Result);
+                    RefreshProgramSummary();
+                    _saveStatusLabel.Text = string.Empty;
+                }
+            }
         }
 
         /// <summary>
-        /// Copies the selected station into a new row right after it - the
-        /// quickest way to reuse a station (e.g. the same bike) elsewhere in the
-        /// program. It lands next to its original for now, which the back-to-back
-        /// warning will immediately flag, so the natural next step is to move it
-        /// with Up/Down to wherever it is actually meant to sit.
+        /// Exports the current program as script text - the same grammar the
+        /// Program Builder's Script tab reads and writes - so a teacher can build
+        /// a program once and reuse it on another computer or in another session.
         /// </summary>
-        private void DuplicateStation_Click(object sender, EventArgs e)
+        private void ExportProgram_Click(object sender, EventArgs e)
         {
-            DataGridViewRow row = _stationsGrid.CurrentRow;
-            if (row == null || row.IsNewRow) return;
-
-            string name = Convert.ToString(row.Cells[0].Value ?? string.Empty).Trim();
-            if (name.Length == 0) return;
-
-            object work = row.Cells[1].Value;
-            object rest = row.Cells[2].Value;
-            object colour = row.Cells[3].Value;
-
-            int insertAt = row.Index + 1;
-            _stationsGrid.Rows.Insert(insertAt, name, work, rest, colour);
-            _stationsGrid.CurrentCell = _stationsGrid.Rows[insertAt].Cells[0];
-            RefreshStationsDiagnostics();
-        }
-
-        private void RemoveStation_Click(object sender, EventArgs e)
-        {
-            if (_stationsGrid.CurrentRow == null || _stationsGrid.CurrentRow.IsNewRow) return;
-            _stationsGrid.Rows.Remove(_stationsGrid.CurrentRow);
-            RefreshStationsDiagnostics();
-        }
-
-        private void MoveStationUp_Click(object sender, EventArgs e)
-        {
-            MoveStation(-1);
-        }
-
-        private void MoveStationDown_Click(object sender, EventArgs e)
-        {
-            MoveStation(1);
-        }
-
-        private void MoveStation(int direction)
-        {
-            DataGridViewRow row = _stationsGrid.CurrentRow;
-            if (row == null || row.IsNewRow) return;
-
-            int from = row.Index;
-            int to = from + direction;
-            if (to < 0 || to >= _stationsGrid.Rows.Count || _stationsGrid.Rows[to].IsNewRow) return;
-
-            _stationsGrid.Rows.Remove(row);
-            _stationsGrid.Rows.Insert(to, row);
-            _stationsGrid.CurrentCell = row.Cells[0];
-        }
-
-        /// <summary>
-        /// Exports the current grid to a standalone file - one station per line,
-        /// so a teacher can build a circuit once and reuse it on another computer
-        /// or in another session file. Uses the same Name|work|rest|colour grammar
-        /// as settings.txt.
-        /// </summary>
-        private void ExportStations_Click(object sender, EventArgs e)
-        {
-            List<Station> stations = ReadStationsFromGrid();
-            if (stations.Count == 0)
-            {
-                MessageBox.Show(this, "There are no stations to export yet.", "Export stations",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
+            WorkoutProgram program = CurrentWorkingProgram();
 
             using (SaveFileDialog dialog = new SaveFileDialog())
             {
-                dialog.Filter = "Station list (*.stations.txt)|*.stations.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*";
-                dialog.FileName = "circuit.stations.txt";
-                dialog.Title = "Export station list";
+                dialog.Filter = "Program file (*.program.txt)|*.program.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*";
+                dialog.FileName = SafeFileName(program.Name) + ".program.txt";
+                dialog.Title = "Export program";
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
                 try
                 {
-                    StringBuilder sb = new StringBuilder();
-                    sb.AppendLine("# GymClock station list - one per line: Name|during work|during rest|colour");
-                    sb.AppendLine("# Import this from the Stations tab, on this computer or another one.");
-                    foreach (Station st in stations) sb.AppendLine(st.ToFileLine());
-
-                    File.WriteAllText(dialog.FileName, sb.ToString());
-                    _saveStatusLabel.Text = "Exported " + stations.Count + " station(s) to " + dialog.FileName;
+                    File.WriteAllText(dialog.FileName, ProgramScriptFormat.ToScript(program));
+                    _saveStatusLabel.Text = "Exported program to " + dialog.FileName;
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show(this, "Could not save that file:" + Environment.NewLine + ex.Message,
-                        "Export stations", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        "Export program", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
         }
 
-        private void ImportStations_Click(object sender, EventArgs e)
+        private void ImportProgram_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
-                dialog.Filter = "Station list (*.stations.txt;*.txt)|*.stations.txt;*.txt|All files (*.*)|*.*";
-                dialog.Title = "Import station list";
+                dialog.Filter = "Program file (*.program.txt;*.txt)|*.program.txt;*.txt|All files (*.*)|*.*";
+                dialog.Title = "Import program";
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
-                List<Station> imported = new List<Station>();
+                string text;
                 try
                 {
-                    foreach (string raw in File.ReadAllLines(dialog.FileName))
-                    {
-                        string line = raw.Trim();
-                        if (line.Length == 0 || line.StartsWith("#") || line.StartsWith(";")) continue;
-
-                        Station station;
-                        if (Station.TryParse(line, out station)) imported.Add(station);
-                    }
+                    text = File.ReadAllText(dialog.FileName);
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show(this, "Could not read that file:" + Environment.NewLine + ex.Message,
-                        "Import stations", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        "Import program", MessageBoxButtons.OK, MessageBoxIcon.Error);
                     return;
                 }
 
-                if (imported.Count == 0)
+                WorkoutProgram program = ProgramScriptFormat.Parse(text);
+                if (program.SharedTimeline.IsEmpty && program.Stations.Count == 0)
                 {
-                    MessageBox.Show(this, "No stations were found in that file.", "Import stations",
+                    MessageBox.Show(this, "No program was found in that file.", "Import program",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
-                List<Station> current = ReadStationsFromGrid();
-                List<Station> finalList = imported;
-
-                if (current.Count > 0)
-                {
-                    DialogResult choice = MessageBox.Show(this,
-                        "Add these " + imported.Count + " station(s) to the current list?" + Environment.NewLine
-                        + Environment.NewLine + "Choose \"No\" to replace the current list instead.",
-                        "Import stations", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-
-                    if (choice == DialogResult.Cancel) return;
-                    if (choice == DialogResult.Yes)
-                    {
-                        finalList = new List<Station>(current);
-                        finalList.AddRange(imported);
-                    }
-                }
-
-                LoadStationsGrid(finalList);
-                RefreshStationsDiagnostics();
-                _saveStatusLabel.Text = "Imported " + imported.Count + " station(s) from " + dialog.FileName;
+                _workingProgramScript = ProgramScriptFormat.ToScript(program);
+                RefreshProgramSummary();
+                _saveStatusLabel.Text = "Imported program from " + dialog.FileName;
             }
+        }
+
+        private static string SafeFileName(string name)
+        {
+            string text = string.IsNullOrEmpty(name) ? "workout" : name;
+            foreach (char c in Path.GetInvalidFileNameChars()) text = text.Replace(c, '-');
+            return text;
         }
 
         // --------------------------------------------------------------- save
@@ -477,14 +333,18 @@ namespace GymClock
 
             target.WorkLabel = string.IsNullOrEmpty(_workLabel.Text.Trim()) ? "WORK" : _workLabel.Text.Trim();
             target.RestLabel = string.IsNullOrEmpty(_restLabel.Text.Trim()) ? "REST" : _restLabel.Text.Trim();
-            target.Stations = ReadStationsFromGrid();
             target.ShowStationsTable = _showStationsTable.Checked;
-            target.UseStationWording = _useStationWording.Checked;
+            target.ShowStationNameAsDescription = _showStationNameAsDescription.Checked;
             target.HighlightCurrentStation = _highlightCurrentStation.Checked;
             target.UseMoveTime = _useMoveTime.Checked;
             target.MoveSeconds = Math.Max(1, (int)_moveSeconds.Value);
             target.MoveMessage = string.IsNullOrEmpty(_moveMessage.Text.Trim())
                 ? "Move to the next station" : _moveMessage.Text.Trim();
+
+            // The program built through Quick Setup / the Program Builder / an
+            // import lives in _workingProgramScript until now, the same way
+            // every other field lives in a control until this point.
+            target.ProgramScript = _workingProgramScript ?? string.Empty;
 
             string format = _clockFormat.Text.Trim();
             if (format.Length > 0)

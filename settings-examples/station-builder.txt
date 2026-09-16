@@ -1,6 +1,9 @@
-# Linear circuit built with the Stations tab (press S, second tab): the whole
-# class moves through the same stations together, one per round, and each one
-# carries its own instruction for the work phase and the rest phase.
+# A simple linear circuit - no program built, just the plain work/rest/rounds
+# fields plus a station list, exactly as this app has always supported. The
+# whole class moves through the same stations together, one per round, and
+# each one carries its own instruction for the work phase and the rest phase.
+# (For real per-station timing, repeat groups, and more, build a program
+# instead - press S, then use the Program tab. See the main README.)
 prep=15
 work=40
 rest=20
@@ -15,9 +18,9 @@ restlabel=REST
 # The colour is optional and shows as a small swatch next to the name.
 stations=Exercise bike|80% resistance|no resistance|#2AA7A0;Skip rope|full pace|walk|#D9822B;Rower|max effort|light pull|#5B8DEF;Battle ropes|fast waves|rest arms|#C0453C
 
-# Show each station's own instruction instead of the plain WORK/REST word...
-usestationwording=true
-# ...in a table down the left third of the screen...
+# Show each station's own name instead of the plain WORK/REST/MOVE word...
+showstationnameasdescription=true
+# ...in a table down the left of the screen...
 showstationstable=true
 # ...with the one in progress highlighted, because this is a linear session
 # (everyone on the same station at the same time). Set this to false instead

@@ -41,3 +41,6 @@ keys/
 # Issued licence keys for individual users
 licences/
 *.licence
+
+# Scratch settings folder used while testing file I/O locally
+.fake

@@ -174,11 +174,13 @@ namespace GymClock
         public List<Station> Stations = new List<Station>();
 
         /// <summary>
-        /// When true, a station's own WorkDetail/RestDetail (if it has one) replaces
-        /// the generic WorkLabel/RestLabel on the big central display. When false, or
-        /// for a station with no detail set, the generic wording is always used.
+        /// When true, the station's own name replaces the generic WORK/REST word as
+        /// the big central description, with the generic word moving to the smaller
+        /// banner line instead - only takes effect for a linear session
+        /// (HighlightCurrentStation) with stations defined; a rotating circuit has no
+        /// single station to show, so it silently falls back to the generic wording.
         /// </summary>
-        public bool UseStationWording = false;
+        public bool ShowStationNameAsDescription = false;
 
         /// <summary>Shows the station list as a table down the left third of the screen.</summary>
         public bool ShowStationsTable = true;
@@ -203,6 +205,23 @@ namespace GymClock
         public int MoveSeconds = 8;
         public string MoveMessage = "Move clockwise to the next station";
         public string MoveColour = "#1E9AA6";
+
+        // Default colours for the newer block types a Program can use. A block's
+        // own Colour (see Block.Colour) overrides these when it is set.
+        public string RecoveryColour = "#4A90D9";
+        public string CountdownColour = "#6C3FC5";
+        public string WaterBreakColour = "#17A2B8";
+        public string InstructionColour = "#546E7A";
+        public string CustomColour = "#B23A78";
+
+        /// <summary>
+        /// The current program, written as script text (see ProgramScriptFormat).
+        /// Empty means no program has been built yet - EffectiveProgram() then
+        /// synthesises one from the legacy Work/Rest/Plan/Stations fields above,
+        /// so every settings file written before programs existed still loads
+        /// and runs exactly as it always has.
+        /// </summary>
+        public string ProgramScript = string.Empty;
 
         public List<Preset> Presets = new List<Preset>();
 
@@ -230,6 +249,97 @@ namespace GymClock
             return IntervalPlan.Uniform(WorkSeconds, RestSeconds, Rounds < 1 ? 1 : Rounds);
         }
 
+        /// <summary>
+        /// The program actually in force: the one written to ProgramScript if it
+        /// parses into something runnable, and a program synthesised from the
+        /// legacy fields otherwise - so a settings file with no program yet
+        /// behaves exactly as it did before programs existed.
+        /// </summary>
+        public WorkoutProgram EffectiveProgram()
+        {
+            if (!string.IsNullOrEmpty(ProgramScript))
+            {
+                WorkoutProgram parsed = ProgramScriptFormat.Parse(ProgramScript);
+                if (!parsed.SharedTimeline.IsEmpty || parsed.Stations.Count > 0) return parsed;
+            }
+
+            return SynthesizeProgram();
+        }
+
+        /// <summary>
+        /// Builds a Shared-timing program from the legacy Work/Rest/Plan/Move
+        /// fields, reproducing the existing engine's behaviour exactly: a move
+        /// (like a rest) never plays after the very last round, and a rest after
+        /// the last round only plays when RestAfterFinalRound is set - unless the
+        /// session is continuous (Rounds == 0), in which case there is no "last"
+        /// round and every pass gets its rest/move, including the wrap back to
+        /// the first round.
+        /// </summary>
+        private WorkoutProgram SynthesizeProgram()
+        {
+            WorkoutProgram program = new WorkoutProgram { Name = "Workout", Mode = ExecutionMode.Shared };
+            bool continuous = Rounds == 0;
+            program.Continuous = continuous;
+
+            IntervalPlan plan = EffectivePlan();
+            List<PlanRound> rounds = plan.Rounds;
+            bool moveEnabled = UseMoveTime && MoveSeconds > 0;
+
+            for (int i = 0; i < rounds.Count; i++)
+            {
+                PlanRound round = rounds[i];
+                bool finalRound = !continuous && i == rounds.Count - 1;
+
+                program.SharedTimeline.Add(new Block(BlockType.Work, round.Work));
+
+                if (round.Rest > 0 && (!finalRound || RestAfterFinalRound))
+                {
+                    program.SharedTimeline.Add(new Block(BlockType.Recovery, round.Rest));
+                }
+
+                if (!finalRound && moveEnabled)
+                {
+                    program.SharedTimeline.Add(new Block(BlockType.Move, MoveSeconds) { Label = MoveMessage });
+                }
+            }
+
+            foreach (Station st in Stations)
+            {
+                program.Stations.Add(new StationDef
+                {
+                    Name = st.Name,
+                    Colour = st.Colour,
+                    WorkInstruction = st.WorkDetail,
+                    RestInstruction = st.RestDetail
+                });
+            }
+
+            return program;
+        }
+
+        /// <summary>The colour for a block: its own override if it has one, otherwise this type's default.</summary>
+        public Color ColourFor(BlockType type, string blockColourOverride)
+        {
+            if (!string.IsNullOrEmpty(blockColourOverride))
+            {
+                Color overridden = ParseColour(blockColourOverride, Color.Transparent);
+                if (overridden.A > 0) return overridden;
+            }
+
+            switch (type)
+            {
+                case BlockType.Prepare: return PrepBg;
+                case BlockType.Work: return WorkBg;
+                case BlockType.Recovery: return RecoveryBg;
+                case BlockType.Rest: return RestBg;
+                case BlockType.Move: return MoveBg;
+                case BlockType.Countdown: return CountdownBg;
+                case BlockType.WaterBreak: return WaterBreakBg;
+                case BlockType.Instruction: return InstructionBg;
+                default: return CustomBg;
+            }
+        }
+
         public TimerSettings Clone()
         {
             TimerSettings c = new TimerSettings();
@@ -254,13 +364,19 @@ namespace GymClock
             c.IdleColour = IdleColour;
             c.Stations = new List<Station>();
             foreach (Station st in Stations) c.Stations.Add(st.Clone());
-            c.UseStationWording = UseStationWording;
+            c.ShowStationNameAsDescription = ShowStationNameAsDescription;
             c.ShowStationsTable = ShowStationsTable;
             c.HighlightCurrentStation = HighlightCurrentStation;
             c.UseMoveTime = UseMoveTime;
             c.MoveSeconds = MoveSeconds;
             c.MoveMessage = MoveMessage;
             c.MoveColour = MoveColour;
+            c.RecoveryColour = RecoveryColour;
+            c.CountdownColour = CountdownColour;
+            c.WaterBreakColour = WaterBreakColour;
+            c.InstructionColour = InstructionColour;
+            c.CustomColour = CustomColour;
+            c.ProgramScript = ProgramScript;
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
@@ -337,7 +453,7 @@ namespace GymClock
                         case "idlecolour":
                         case "idlecolor": s.IdleColour = value; break;
                         case "stations": s.Stations = ParseStations(value); break;
-                        case "usestationwording": s.UseStationWording = ReadBool(value, s.UseStationWording); break;
+                        case "showstationnameasdescription": s.ShowStationNameAsDescription = ReadBool(value, s.ShowStationNameAsDescription); break;
                         case "showstationstable": s.ShowStationsTable = ReadBool(value, s.ShowStationsTable); break;
                         case "highlightcurrentstation": s.HighlightCurrentStation = ReadBool(value, s.HighlightCurrentStation); break;
                         case "usemovetime": s.UseMoveTime = ReadBool(value, s.UseMoveTime); break;
@@ -345,6 +461,17 @@ namespace GymClock
                         case "movemessage": s.MoveMessage = value; break;
                         case "movecolour":
                         case "movecolor": s.MoveColour = value; break;
+                        case "recoverycolour":
+                        case "recoverycolor": s.RecoveryColour = value; break;
+                        case "countdowncolour":
+                        case "countdowncolor": s.CountdownColour = value; break;
+                        case "waterbreakcolour":
+                        case "waterbreakcolor": s.WaterBreakColour = value; break;
+                        case "instructioncolour":
+                        case "instructioncolor": s.InstructionColour = value; break;
+                        case "customcolour":
+                        case "customcolor": s.CustomColour = value; break;
+                        case "program": s.ProgramScript = value.Replace("\\n", "\n"); break;
                         case "presets":
                             List<Preset> parsed = new List<Preset>();
                             foreach (string item in SplitList(value))
@@ -413,13 +540,15 @@ namespace GymClock
                 sb.AppendLine("#   stations=Exercise bike|80% resistance|no resistance;Skip rope|full pace|walk");
                 sb.AppendLine("stations=" + FormatStations(Stations));
                 sb.AppendLine();
-                sb.AppendLine("# Replace the big WORK/REST word with a station's own instruction, when it has one.");
-                sb.AppendLine("usestationwording=" + (UseStationWording ? "true" : "false"));
-                sb.AppendLine("# Show the station list as a table down the left third of the screen.");
+                sb.AppendLine("# Show the station list as a table down the left of the screen.");
                 sb.AppendLine("showstationstable=" + (ShowStationsTable ? "true" : "false"));
-                sb.AppendLine("# Highlight the station in progress - turn off for a rotating circuit where");
-                sb.AppendLine("# every station is in use at once by a different group.");
+                sb.AppendLine("# Linear session (true) - the whole class moves through stations together, and");
+                sb.AppendLine("# the table highlights whichever one is in progress. Rotating circuit (false) -");
+                sb.AppendLine("# every station is in use at once by a different group, so none is highlighted.");
                 sb.AppendLine("highlightcurrentstation=" + (HighlightCurrentStation ? "true" : "false"));
+                sb.AppendLine("# Show the station's own name as the big description instead of WORK/REST.");
+                sb.AppendLine("# Only takes effect for a linear session with stations defined.");
+                sb.AppendLine("showstationnameasdescription=" + (ShowStationNameAsDescription ? "true" : "false"));
                 sb.AppendLine();
                 sb.AppendLine("# Optional move phase between stations, after the rest (or straight after");
                 sb.AppendLine("# work if there is none). Skipped after the final round.");
@@ -427,6 +556,18 @@ namespace GymClock
                 sb.AppendLine("moveseconds=" + MoveSeconds.ToString(CultureInfo.InvariantCulture));
                 sb.AppendLine("movemessage=" + MoveMessage);
                 sb.AppendLine("movecolour=" + MoveColour);
+                sb.AppendLine();
+                sb.AppendLine("# Default colours for the newer block types a program can use.");
+                sb.AppendLine("recoverycolour=" + RecoveryColour);
+                sb.AppendLine("countdowncolour=" + CountdownColour);
+                sb.AppendLine("waterbreakcolour=" + WaterBreakColour);
+                sb.AppendLine("instructioncolour=" + InstructionColour);
+                sb.AppendLine("customcolour=" + CustomColour);
+                sb.AppendLine();
+                sb.AppendLine("# The current program, written with the script grammar (see the Program");
+                sb.AppendLine("# Builder's Script tab). Blank means no program has been built yet, so the");
+                sb.AppendLine("# clock runs the plain work/rest/rounds settings above instead.");
+                sb.AppendLine("program=" + ProgramScript.Replace("\n", "\\n"));
                 sb.AppendLine();
                 sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
                 List<string> ps = new List<string>();
@@ -450,6 +591,11 @@ namespace GymClock
         public Color DoneBg { get { return ParseColour(DoneColour, Color.FromArgb(91, 75, 158)); } }
         public Color IdleBg { get { return ParseColour(IdleColour, Color.FromArgb(26, 30, 37)); } }
         public Color MoveBg { get { return ParseColour(MoveColour, Color.FromArgb(30, 154, 166)); } }
+        public Color RecoveryBg { get { return ParseColour(RecoveryColour, Color.FromArgb(74, 144, 217)); } }
+        public Color CountdownBg { get { return ParseColour(CountdownColour, Color.FromArgb(108, 63, 197)); } }
+        public Color WaterBreakBg { get { return ParseColour(WaterBreakColour, Color.FromArgb(23, 162, 184)); } }
+        public Color InstructionBg { get { return ParseColour(InstructionColour, Color.FromArgb(84, 110, 122)); } }
+        public Color CustomBg { get { return ParseColour(CustomColour, Color.FromArgb(178, 58, 120)); } }
 
         public static Color ParseColour(string text, Color fallback)
         {

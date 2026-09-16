@@ -92,19 +92,43 @@ namespace GymClock
             Heading(sb, "SETTINGS");
             if (settings != null)
             {
-                sb.AppendLine("Plan         : " + settings.EffectivePlan().Summary());
-                sb.AppendLine("Rounds       : " + settings.EffectivePlan().RoundCount.ToString(CultureInfo.InvariantCulture)
-                    + (settings.Rounds == 0 ? " (repeating continuously)" : string.Empty));
+                bool builtProgram = !string.IsNullOrEmpty(settings.ProgramScript);
+                WorkoutProgram program = settings.EffectiveProgram();
+
+                sb.AppendLine("Program      : " + (builtProgram
+                    ? program.Name + " - " + (program.Mode == ExecutionMode.Sequential
+                        ? "Sequential stations (" + program.Stations.Count + ")" : "Shared timing")
+                    : "none built - running the simple work/rest/rounds settings below"));
+
+                if (program.Mode == ExecutionMode.Sequential)
+                {
+                    List<string> names = new List<string>();
+                    foreach (StationDef st in program.Stations) names.Add(st.Name);
+                    sb.AppendLine("Stations     : " + (names.Count == 0 ? "none" : string.Join(", ", names)));
+                }
+                else
+                {
+                    sb.AppendLine("Timeline     : " + program.SharedTimeline.Summary());
+                }
+
+                int totalSeconds = 0;
+                foreach (RuntimeBlock rb in program.BuildRuntimeSequence()) totalSeconds += rb.Block.Seconds;
+                sb.AppendLine("Total time   : " + IntervalPlan.FormatDuration(totalSeconds)
+                    + (program.Continuous ? " (repeating continuously)" : string.Empty));
                 sb.AppendLine("Prep         : " + settings.PrepSeconds.ToString(CultureInfo.InvariantCulture) + "s");
                 sb.AppendLine("Wording      : " + settings.WorkLabel + " / " + settings.RestLabel);
                 sb.AppendLine("Sound        : " + (settings.SoundEnabled ? "on" : "muted"));
-                List<string> stationNames = new List<string>();
-                foreach (Station st in settings.Stations) stationNames.Add(st.Name);
-                sb.AppendLine("Stations     : " + (stationNames.Count == 0
-                    ? "none" : string.Join(", ", stationNames)));
-                sb.AppendLine("Move time    : " + (settings.UseMoveTime
-                    ? settings.MoveSeconds.ToString(CultureInfo.InvariantCulture) + "s - \"" + settings.MoveMessage + "\""
-                    : "off"));
+
+                if (!builtProgram)
+                {
+                    List<string> stationNames = new List<string>();
+                    foreach (Station st in settings.Stations) stationNames.Add(st.Name);
+                    sb.AppendLine("Legacy stations: " + (stationNames.Count == 0
+                        ? "none" : string.Join(", ", stationNames)));
+                    sb.AppendLine("Move time    : " + (settings.UseMoveTime
+                        ? settings.MoveSeconds.ToString(CultureInfo.InvariantCulture) + "s - \"" + settings.MoveMessage + "\""
+                        : "off"));
+                }
             }
             sb.AppendLine("Settings file: " + TimerSettings.FilePath);
             sb.AppendLine();

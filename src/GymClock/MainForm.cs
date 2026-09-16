@@ -13,22 +13,30 @@ namespace GymClock
     {
         Idle,
         Prep,
-        Work,
-        Rest,
-        Move,
+        Active,
         Finished
     }
 
     /// <summary>
     /// The whole display is custom painted so every element scales to the projector
     /// resolution automatically - there are no fixed-size controls to fight with.
+    ///
+    /// The timing engine walks a flattened List&lt;RuntimeBlock&gt; (built by
+    /// WorkoutProgram.BuildRuntimeSequence) one block at a time - the same
+    /// approach for Shared Timing (one sequence, no station is ever "active") and
+    /// Sequential Stations (each station's own blocks appear back to back,
+    /// tagged with which station they belong to). A settings file with no
+    /// program built yet (TimerSettings.ProgramScript empty) is synthesised into
+    /// a Shared-timing program by TimerSettings.EffectiveProgram - see
+    /// UsingLegacyStationRotation below for how that keeps today's rotating
+    /// station highlight working unchanged even though Shared Timing itself
+    /// never highlights a station.
     /// </summary>
     public class MainForm : Form
     {
         private TimerSettings _settings;
 
         private Phase _phase = Phase.Idle;
-        private int _round = 1;
         private double _phaseLength;                       // seconds in the current phase
         private int _lastCueSecond = -1;
 
@@ -46,7 +54,15 @@ namespace GymClock
         private FontStyle _numberStyle = FontStyle.Bold;
 
         private UpdateInfo _update;
-        private IntervalPlan _plan;
+
+        private WorkoutProgram _program;
+        private List<RuntimeBlock> _sequence = new List<RuntimeBlock>();
+        private int _index = -1;                            // position in _sequence of the block in progress
+
+        /// <summary>1-based legacy round number for each entry in _sequence - only
+        /// meaningful on the legacy synthesis path (see UsingLegacyStationRotation),
+        /// where every round contributes exactly one Work block.</summary>
+        private int[] _legacyRound = new int[0];
 
         private static readonly Color Ink = Color.White;
         private static readonly Color InkSoft = Color.FromArgb(205, 255, 255, 255);
@@ -95,7 +111,7 @@ namespace GymClock
             };
 
             ApplyAudioSettings();
-            RebuildPlan();
+            RebuildProgram();
             ResetSession();
             ShowHint(14);
             UsageLog.Begin();
@@ -124,7 +140,7 @@ namespace GymClock
 
         private bool InTimedPhase
         {
-            get { return _phase == Phase.Prep || _phase == Phase.Work || _phase == Phase.Rest || _phase == Phase.Move; }
+            get { return _phase == Phase.Prep || _phase == Phase.Active; }
         }
 
         private bool IsPaused
@@ -132,107 +148,157 @@ namespace GymClock
             get { return InTimedPhase && !_phaseClock.IsRunning; }
         }
 
-        private void RebuildPlan()
-        {
-            _plan = _settings.EffectivePlan();
-        }
-
-        /// <summary>The work/rest pair for the round in progress.</summary>
-        private PlanRound CurrentRound()
-        {
-            PlanRound round = _plan == null ? null : _plan.RoundAt(_round);
-            return round ?? FallbackRound();
-        }
-
-        private PlanRound RoundNumber(int number)
-        {
-            PlanRound round = _plan == null ? null : _plan.RoundAt(number);
-            return round ?? FallbackRound();
-        }
-
-        private PlanRound FallbackRound()
-        {
-            PlanRound round = new PlanRound();
-            round.Work = Math.Max(1, _settings.WorkSeconds);
-            round.Rest = Math.Max(0, _settings.RestSeconds);
-            round.BlockNumber = 1;
-            round.PositionInBlock = 1;
-            round.BlockLength = 1;
-            return round;
-        }
-
-        /// <summary>Rounds in the session, or 0 when it repeats until stopped.</summary>
-        private int TotalRounds
+        /// <summary>
+        /// True while running the legacy synthesis path (no program has been
+        /// built yet) with the classic "linear session" rotating station
+        /// highlight turned on. That legacy behaviour - one station label per
+        /// round, cycling forever - doesn't map onto either new execution mode
+        /// (Shared never highlights a station; Sequential highlights a station
+        /// for its own whole timeline, not one round at a time), so it keeps
+        /// its own small codepath here rather than being forced into one.
+        /// </summary>
+        private bool UsingLegacyStationRotation
         {
             get
             {
-                if (_settings.Rounds == 0) return 0;
-                return _plan == null ? _settings.Rounds : _plan.RoundCount;
+                return string.IsNullOrEmpty(_settings.ProgramScript)
+                    && _settings.Stations.Count > 0
+                    && _settings.HighlightCurrentStation;
             }
+        }
+
+        private void RebuildProgram()
+        {
+            _program = _settings.EffectiveProgram();
+            _sequence = _program.BuildRuntimeSequence();
+            if (_sequence.Count == 0)
+            {
+                _sequence.Add(RuntimeBlock.From(new ResolvedBlock { Block = new Block(BlockType.Work, 45) }, -1));
+            }
+
+            // Every legacy round contributes exactly one Work block (see
+            // TimerSettings.SynthesizeProgram) - counting them back up recovers
+            // the round number for UsingLegacyStationRotation without needing to
+            // plumb it through the general Program/Timeline model.
+            _legacyRound = new int[_sequence.Count];
+            int round = 0;
+            for (int i = 0; i < _sequence.Count; i++)
+            {
+                if (_sequence[i].Block.Type == BlockType.Work) round++;
+                _legacyRound[i] = round;
+            }
+        }
+
+        private RuntimeBlock CurrentBlock()
+        {
+            if (_sequence.Count == 0) return null;
+            if (_index < 0 || _index >= _sequence.Count) return _sequence[0];
+            return _sequence[_index];
+        }
+
+        /// <summary>The block at an arbitrary index, wrapping around for a continuous program and clamping otherwise.</summary>
+        private RuntimeBlock BlockAt(int index)
+        {
+            if (_sequence.Count == 0) return null;
+
+            if (_program.Continuous)
+            {
+                int i = index % _sequence.Count;
+                if (i < 0) i += _sequence.Count;
+                return _sequence[i];
+            }
+
+            if (index < 0) index = 0;
+            if (index >= _sequence.Count) index = _sequence.Count - 1;
+            return _sequence[index];
+        }
+
+        private int NextIndex()
+        {
+            if (_sequence.Count == 0) return 0;
+            return _program.Continuous ? (_index + 1) % _sequence.Count : Math.Min(_index + 1, _sequence.Count - 1);
+        }
+
+        private Station LegacyStationAt(int index)
+        {
+            if (_settings.Stations.Count == 0 || _legacyRound.Length == 0) return null;
+            if (index < 0) index = 0;
+            if (index >= _legacyRound.Length) index = _legacyRound.Length - 1;
+
+            int round = _legacyRound[index];
+            int stationIndex = ((round - 1) % _settings.Stations.Count + _settings.Stations.Count) % _settings.Stations.Count;
+            return _settings.Stations[stationIndex];
+        }
+
+        private Station LegacyCurrentStation()
+        {
+            return UsingLegacyStationRotation ? LegacyStationAt(_index) : null;
         }
 
         private void ResetSession()
         {
             _phase = Phase.Idle;
-            _round = 1;
+            _index = -1;
             _lastCueSecond = -1;
             _phaseClock.Reset();
             _sessionClock.Reset();
-            _phaseLength = Math.Max(1, RoundNumber(1).Work);
+            _phaseLength = Math.Max(1, _sequence[0].Block.Seconds);
             Invalidate();
         }
 
         private void StartSession()
         {
-            _round = 1;
+            _index = -1;
             _sessionClock.Restart();
-            BeginPhase(_settings.PrepSeconds > 0 ? Phase.Prep : Phase.Work);
+            if (_settings.PrepSeconds > 0)
+            {
+                BeginPrep();
+            }
+            else
+            {
+                _index = 0;
+                BeginBlock();
+            }
         }
 
-        private void BeginPhase(Phase phase)
+        private void BeginPrep()
         {
-            _phase = phase;
-            _phaseLength = PhaseLength(phase);
+            _phase = Phase.Prep;
+            _phaseLength = Math.Max(1, _settings.PrepSeconds);
             _lastCueSecond = -1;
             _phaseClock.Restart();
             if (!_sessionClock.IsRunning) _sessionClock.Start();
-
-            switch (phase)
-            {
-                case Phase.Prep: Beeper.CuePrepStart(); break;
-                case Phase.Work: Beeper.CueWorkStart(); break;
-                case Phase.Rest: Beeper.CueRestStart(); break;
-                case Phase.Move: Beeper.CueMoveStart(); break;
-            }
-
+            Beeper.CuePrepStart();
             Invalidate();
         }
 
-        private double PhaseLength(Phase phase)
+        private void BeginBlock()
         {
-            switch (phase)
-            {
-                case Phase.Prep: return Math.Max(1, _settings.PrepSeconds);
-                case Phase.Work: return Math.Max(1, CurrentRound().Work);
-                case Phase.Rest: return Math.Max(1, CurrentRound().Rest);
-                case Phase.Move: return Math.Max(1, _settings.MoveSeconds);
-                default: return 0;
-            }
+            RuntimeBlock current = CurrentBlock();
+            _phase = Phase.Active;
+            _phaseLength = Math.Max(1, current.Block.Seconds);
+            _lastCueSecond = -1;
+            _phaseClock.Restart();
+            if (!_sessionClock.IsRunning) _sessionClock.Start();
+            PlayCueFor(current.Block.Type);
+            Invalidate();
         }
 
-        /// <summary>
-        /// Whether a move phase belongs between this round and the next: the option
-        /// is on, it has a positive length, and there is actually a next round to
-        /// move towards.
-        /// </summary>
-        private bool ShouldInsertMove()
+        private static void PlayCueFor(BlockType type)
         {
-            return _settings.UseMoveTime && _settings.MoveSeconds > 0;
+            switch (type)
+            {
+                case BlockType.Work: Beeper.CueWorkStart(); break;
+                case BlockType.Move: Beeper.CueMoveStart(); break;
+                case BlockType.Prepare:
+                case BlockType.Countdown: Beeper.CuePrepStart(); break;
+                default: Beeper.CueRestStart(); break;   // Recovery, Rest, WaterBreak, Instruction, Custom
+            }
         }
 
         private double RemainingSeconds()
         {
-            if (_phase == Phase.Idle) return Math.Max(1, RoundNumber(1).Work);
+            if (_phase == Phase.Idle) return Math.Max(1, _sequence[0].Block.Seconds);
             if (_phase == Phase.Finished) return 0;
             double remaining = _phaseLength - _phaseClock.Elapsed.TotalSeconds;
             return remaining < 0 ? 0 : remaining;
@@ -272,49 +338,19 @@ namespace GymClock
                     return;
 
                 case Phase.Prep:
-                    BeginPhase(Phase.Work);
+                    _index = 0;
+                    BeginBlock();
                     return;
 
-                case Phase.Work:
+                case Phase.Active:
                 {
-                    bool finalRound = TotalRounds > 0 && _round >= TotalRounds;
+                    bool last = !_program.Continuous && _index >= _sequence.Count - 1;
+                    if (last) { FinishSession(); return; }
 
-                    if (finalRound && !_settings.RestAfterFinalRound)
-                    {
-                        FinishSession();
-                        return;
-                    }
-
-                    if (CurrentRound().Rest <= 0)
-                    {
-                        if (finalRound) { FinishSession(); return; }
-                        if (ShouldInsertMove()) { BeginPhase(Phase.Move); return; }
-                        _round++;
-                        BeginPhase(Phase.Work);
-                        return;
-                    }
-
-                    BeginPhase(Phase.Rest);
+                    _index = _program.Continuous ? (_index + 1) % _sequence.Count : _index + 1;
+                    BeginBlock();
                     return;
                 }
-
-                case Phase.Rest:
-                {
-                    if (TotalRounds > 0 && _round >= TotalRounds)
-                    {
-                        FinishSession();
-                        return;
-                    }
-                    if (ShouldInsertMove()) { BeginPhase(Phase.Move); return; }
-                    _round++;
-                    BeginPhase(Phase.Work);
-                    return;
-                }
-
-                case Phase.Move:
-                    _round++;
-                    BeginPhase(Phase.Work);
-                    return;
             }
         }
 
@@ -323,43 +359,25 @@ namespace GymClock
             // More than a couple of seconds in, "back" means restart this interval.
             if (InTimedPhase && _phaseClock.Elapsed.TotalSeconds > 2.5)
             {
-                BeginPhase(_phase);
+                if (_phase == Phase.Prep) BeginPrep(); else BeginBlock();
                 return;
             }
 
             switch (_phase)
             {
-                case Phase.Move:
-                    BeginPhase(CurrentRound().Rest > 0 ? Phase.Rest : Phase.Work);
-                    return;
-
-                case Phase.Rest:
-                    BeginPhase(Phase.Work);
-                    return;
-
-                case Phase.Work:
-                    if (_round > 1)
-                    {
-                        _round--;
-                        BeginPhase(CurrentRound().Rest > 0 ? Phase.Rest : Phase.Work);
-                    }
-                    else if (_settings.PrepSeconds > 0)
-                    {
-                        BeginPhase(Phase.Prep);
-                    }
-                    else
-                    {
-                        BeginPhase(Phase.Work);
-                    }
+                case Phase.Active:
+                    if (_index > 0) { _index--; BeginBlock(); }
+                    else if (_settings.PrepSeconds > 0) BeginPrep();
+                    else BeginBlock();
                     return;
 
                 case Phase.Prep:
-                    BeginPhase(Phase.Prep);
+                    BeginPrep();
                     return;
 
                 case Phase.Finished:
-                    _round = TotalRounds > 0 ? TotalRounds : _round;
-                    BeginPhase(Phase.Work);
+                    _index = Math.Max(0, _sequence.Count - 1);
+                    BeginBlock();
                     return;
             }
         }
@@ -412,17 +430,23 @@ namespace GymClock
         private void ApplySettingsLive()
         {
             ApplyAudioSettings();
-            RebuildPlan();
+            RebuildProgram();
             TopMost = _settings.AlwaysOnTop;
 
-            if (InTimedPhase)
+            if (_phase == Phase.Prep)
             {
-                _phaseLength = PhaseLength(_phase);
+                _phaseLength = Math.Max(1, _settings.PrepSeconds);
+                if (_phaseClock.Elapsed.TotalSeconds >= _phaseLength) Advance();
+            }
+            else if (_phase == Phase.Active)
+            {
+                if (_index >= _sequence.Count) _index = _sequence.Count - 1;
+                _phaseLength = Math.Max(1, CurrentBlock().Block.Seconds);
                 if (_phaseClock.Elapsed.TotalSeconds >= _phaseLength) Advance();
             }
             else if (_phase == Phase.Idle)
             {
-                _phaseLength = Math.Max(1, RoundNumber(1).Work);
+                _phaseLength = Math.Max(1, _sequence[0].Block.Seconds);
             }
 
             Invalidate();
@@ -530,8 +554,9 @@ namespace GymClock
         private void ApplyPreset(Preset preset)
         {
             // A preset key is the quick way back to an even session, so it clears any
-            // custom plan rather than leaving one silently in force.
+            // custom plan or program rather than leaving one silently in force.
             _settings.Plan = string.Empty;
+            _settings.ProgramScript = string.Empty;
             _settings.WorkSeconds = preset.Work;
             _settings.RestSeconds = preset.Rest;
             if (preset.Rounds > 0) _settings.Rounds = preset.Rounds;
@@ -541,24 +566,58 @@ namespace GymClock
         }
 
         /// <summary>
-        /// Jumps straight to the work phase of the given station (0-based), for a
-        /// teacher correcting a mistake or starting mid-way through a class that is
-        /// already spread across the stations. Wraps forward to the nearest round
-        /// that lands on it, so it always moves the session on rather than back.
+        /// Jumps straight to the given station (0-based), for a teacher correcting
+        /// a mistake or starting mid-way through a class already spread across the
+        /// stations. Wraps forward so it always moves the session on rather than
+        /// back. Works against whichever station model is actually in force - the
+        /// legacy rotating labels, or a real Sequential-mode program.
         /// </summary>
-        private void JumpToStation(int index)
+        private void JumpToStation(int stationIndex)
         {
-            int count = _settings.Stations.Count;
-            if (count == 0 || index >= count) { ShowHint(4); return; }
+            if (UsingLegacyStationRotation)
+            {
+                int count = _settings.Stations.Count;
+                if (stationIndex >= count) { ShowHint(4); return; }
+
+                if (_phase == Phase.Idle || _phase == Phase.Finished) StartSession();
+
+                int fromIndex = Math.Max(0, Math.Min(_index, _legacyRound.Length - 1));
+                int currentStation = (_legacyRound[fromIndex] - 1) % count;
+                if (currentStation < 0) currentStation += count;
+
+                int delta = stationIndex - currentStation;
+                if (delta < 0) delta += count;
+
+                int target = _index;
+                int steps = delta;
+                while (steps > 0 && target < _sequence.Count - 1)
+                {
+                    target++;
+                    if (_sequence[target].Block.Type == BlockType.Work) steps--;
+                }
+
+                _index = target;
+                BeginBlock();
+                ShowHint(4);
+                return;
+            }
+
+            if (_program.Mode != ExecutionMode.Sequential || stationIndex >= _program.Stations.Count)
+            {
+                ShowHint(4);
+                return;
+            }
+
+            int found = -1;
+            for (int i = 0; i < _sequence.Count; i++)
+            {
+                if (_sequence[i].StationIndex == stationIndex) { found = i; break; }
+            }
+            if (found < 0) { ShowHint(4); return; }
 
             if (_phase == Phase.Idle || _phase == Phase.Finished) StartSession();
-
-            int current = ((_round - 1) % count + count) % count;
-            int delta = index - current;
-            if (delta < 0) delta += count;
-
-            _round += delta;
-            BeginPhase(Phase.Work);
+            _index = found;
+            BeginBlock();
             ShowHint(4);
         }
 
@@ -738,11 +797,11 @@ namespace GymClock
 
             float margin = h * 0.035f;
 
-            // The station table, when shown, takes the left third of the screen.
+            // The station table, when shown, takes the left quarter of the screen.
             // Everything else that used to span the full width now lives in the
             // remaining pane, flush to the true right edge.
-            bool showTable = _settings.ShowStationsTable && _settings.Stations.Count > 0;
-            float paneLeft = showTable ? (w / 3f) : 0f;
+            bool showTable = _settings.ShowStationsTable && _program.Stations.Count > 0;
+            float paneLeft = showTable ? (w / 4f) : 0f;
             float paneWidth = w - paneLeft;
 
             if (showTable)
@@ -779,11 +838,11 @@ namespace GymClock
                 new RectangleF(paneLeft + margin, margin + (h * 0.095f), paneWidth * 0.5f, h * 0.040f),
                 StringAlignment.Near, StringAlignment.Near);
 
-            // ---- station / exercise name, or the move instruction while moving
-            string station = _phase == Phase.Move ? MoveLabel() : CurrentStationText();
-            if (!string.IsNullOrEmpty(station))
+            // ---- secondary description line - station name, an announcement, or blank
+            string secondary = SecondaryDescriptionText();
+            if (!string.IsNullOrEmpty(secondary))
             {
-                DrawFitted(g, station, _labelFamily, h * 0.075f, FontStyle.Bold, InkSoft,
+                DrawFitted(g, secondary, _labelFamily, h * 0.075f, FontStyle.Bold, InkSoft,
                     new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.115f, paneWidth * 0.90f, h * 0.075f));
             }
 
@@ -862,12 +921,17 @@ namespace GymClock
         }
 
         /// <summary>
-        /// The station list, drawn as a table down the left third of the screen, with
-        /// the station for the round in progress highlighted.
+        /// The station list, drawn as a table down the left quarter of the screen.
+        /// In Shared Timing every station plays at once, so this is purely
+        /// informational and nothing is ever highlighted - the only exception is
+        /// the legacy rotating-station-label session (see
+        /// UsingLegacyStationRotation), preserved exactly as it worked before
+        /// programs existed. In Sequential mode the one station currently
+        /// running is highlighted.
         /// </summary>
         private void DrawStationsTable(Graphics g, RectangleF area, float clientHeight)
         {
-            List<Station> stations = _settings.Stations;
+            List<StationDef> stations = _program.Stations;
             if (stations.Count == 0 || area.Width < 10 || area.Height < 10) return;
 
             using (SolidBrush panel = new SolidBrush(Color.FromArgb(70, 0, 0, 0)))
@@ -876,13 +940,17 @@ namespace GymClock
             }
 
             int currentIndex = -1;
-            if (_settings.HighlightCurrentStation && _phase != Phase.Idle && _phase != Phase.Finished)
+            if (_phase != Phase.Idle && _phase != Phase.Finished)
             {
-                // While moving, the round counter has not advanced yet, so point at
-                // where the class is headed rather than the station just finished.
-                int roundForHighlight = _phase == Phase.Move ? _round + 1 : _round;
-                currentIndex = (roundForHighlight - 1) % stations.Count;
-                if (currentIndex < 0) currentIndex += stations.Count;
+                if (UsingLegacyStationRotation)
+                {
+                    Station legacy = LegacyCurrentStation();
+                    if (legacy != null) currentIndex = _settings.Stations.IndexOf(legacy);
+                }
+                else if (_program.Mode == ExecutionMode.Sequential)
+                {
+                    currentIndex = ActiveStationIndexForDisplay();
+                }
             }
 
             float rowHeight = area.Height / stations.Count;
@@ -909,7 +977,7 @@ namespace GymClock
                     }
                 }
 
-                Station st = stations[i];
+                StationDef st = stations[i];
                 Color nameInk = current ? Ink : InkSoft;
                 Color detailInk = current ? InkSoft : InkFaint;
 
@@ -939,18 +1007,18 @@ namespace GymClock
                 float detailTop = rowTop + (rowHeight * 0.42f);
                 float detailHeight = rowHeight * 0.27f;
 
-                if (!string.IsNullOrEmpty(st.WorkDetail))
+                if (!string.IsNullOrEmpty(st.WorkInstruction))
                 {
                     RectangleF workRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), detailHeight);
-                    DrawTableCell(g, _settings.WorkLabel.ToUpperInvariant() + ": " + st.WorkDetail,
+                    DrawTableCell(g, _settings.WorkLabel.ToUpperInvariant() + ": " + st.WorkInstruction,
                         detailSize, FontStyle.Regular, detailInk, workRect);
                     detailTop += detailHeight;
                 }
 
-                if (!string.IsNullOrEmpty(st.RestDetail))
+                if (!string.IsNullOrEmpty(st.RestInstruction))
                 {
                     RectangleF restRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), detailHeight);
-                    DrawTableCell(g, _settings.RestLabel.ToUpperInvariant() + ": " + st.RestDetail,
+                    DrawTableCell(g, _settings.RestLabel.ToUpperInvariant() + ": " + st.RestInstruction,
                         detailSize, FontStyle.Regular, detailInk, restRect);
                 }
             }
@@ -982,9 +1050,13 @@ namespace GymClock
             switch (_phase)
             {
                 case Phase.Prep: return _settings.PrepBg;
-                case Phase.Work: return _settings.WorkBg;
-                case Phase.Rest: return _settings.RestBg;
-                case Phase.Move: return _settings.MoveBg;
+
+                case Phase.Active:
+                {
+                    RuntimeBlock current = CurrentBlock();
+                    return current == null ? _settings.IdleBg : _settings.ColourFor(current.Block.Type, current.Block.Colour);
+                }
+
                 case Phase.Finished: return _settings.DoneBg;
                 default: return _settings.IdleBg;
             }
@@ -1006,33 +1078,52 @@ namespace GymClock
         {
             string text;
 
-            if (_plan != null && !_plan.IsUniform)
+            if (_program.Mode == ExecutionMode.Sequential && _program.Stations.Count > 0)
             {
-                // Variable session: show the block structure and how long it runs.
-                text = _plan.Summary() + "   ("
-                    + IntervalPlan.FormatDuration(_plan.TotalSeconds(_settings.PrepSeconds,
-                        _settings.RestAfterFinalRound)) + ")";
-
-                if (_settings.Rounds == 0) text += "  repeating";
+                int stationIndex = ActiveStationIndexForDisplay();
+                text = stationIndex >= 0
+                    ? string.Format(CultureInfo.InvariantCulture, "STATION {0} OF {1}", stationIndex + 1, _program.Stations.Count)
+                    : _program.Name;
             }
             else
             {
-                PlanRound first = RoundNumber(1);
-                string rounds = TotalRounds > 0
-                    ? " x " + TotalRounds.ToString(CultureInfo.InvariantCulture)
-                    : " - continuous";
-
-                text = string.Format(CultureInfo.InvariantCulture, "{0}s {1} / {2}s {3}{4}",
-                    first.Work, _settings.WorkLabel.ToUpperInvariant(),
-                    first.Rest, _settings.RestLabel.ToUpperInvariant(), rounds);
-            }
-
-            if (ShouldInsertMove())
-            {
-                text += string.Format(CultureInfo.InvariantCulture, "  +{0}s move", _settings.MoveSeconds);
+                text = SharedTimelineSummary() + "   (" + IntervalPlan.FormatDuration(_program.SharedTimeline.TotalSeconds()) + ")";
+                if (_program.Continuous) text += "  repeating";
             }
 
             return text + (_settings.SoundEnabled ? string.Empty : "   (MUTED)");
+        }
+
+        /// <summary>
+        /// A compact "45s WORK / 15s REST x10" summary for the common single-block
+        /// shared timeline (what every legacy session and every simple Quick Setup
+        /// pattern produces), falling back to the plain itemised Timeline.Summary()
+        /// for anything more elaborate a teacher has hand-built.
+        /// </summary>
+        private string SharedTimelineSummary()
+        {
+            Timeline timeline = _program.SharedTimeline;
+
+            if (timeline.Items.Count == 1 && timeline.Items[0].Group != null)
+            {
+                RepeatGroup group = timeline.Items[0].Group;
+
+                if (group.Blocks.Count == 1)
+                {
+                    Block only = group.Blocks[0];
+                    return string.Format(CultureInfo.InvariantCulture, "{0}s {1} x {2}", only.Seconds, only.Word, group.Count);
+                }
+
+                if (group.Blocks.Count == 2)
+                {
+                    Block a = group.Blocks[0];
+                    Block b = group.Blocks[1];
+                    return string.Format(CultureInfo.InvariantCulture, "{0}s {1} / {2}s {3} x {4}",
+                        a.Seconds, a.Word, b.Seconds, b.Word, group.Count);
+                }
+            }
+
+            return timeline.Summary();
         }
 
         private string SessionElapsedText()
@@ -1043,60 +1134,106 @@ namespace GymClock
                 (int)t.TotalMinutes, t.Seconds);
         }
 
-        private string CurrentStationText()
+        /// <summary>The station currently shown as "active" in a real Sequential-mode program, or null.</summary>
+        private StationDef ActiveStation()
         {
-            if (_settings.Stations.Count == 0) return string.Empty;
-            if (_phase == Phase.Idle || _phase == Phase.Finished) return string.Empty;
-
-            Station station = CurrentStation();
-            if (station == null) return string.Empty;
-
-            if (_phase == Phase.Prep) return "UP FIRST: " + station.Name.ToUpperInvariant();
-            if (_phase == Phase.Rest) return "COMING UP: " + NextStationName().ToUpperInvariant();
-            return station.Name.ToUpperInvariant();
-        }
-
-        /// <summary>The station for the round in progress, or null if none are defined.</summary>
-        private Station CurrentStation()
-        {
-            return StationAt(_round);
-        }
-
-        private Station StationAt(int round)
-        {
-            if (_settings.Stations.Count == 0) return null;
-            int index = (round - 1) % _settings.Stations.Count;
-            if (index < 0) index += _settings.Stations.Count;
-            return _settings.Stations[index];
-        }
-
-        private string NextStationName()
-        {
-            Station station = StationAt(_round + 1);
-            return station == null ? string.Empty : station.Name;
+            int index = ActiveStationIndexForDisplay();
+            return (index >= 0 && index < _program.Stations.Count) ? _program.Stations[index] : null;
         }
 
         /// <summary>
-        /// The word to show for a phase: a station's own instruction when the
-        /// "station wording" option is on and that station has one set for this
-        /// phase, otherwise the generic Work/Rest label from settings.
+        /// The station to treat as active for a real Sequential-mode program:
+        /// the current block's own station, or - while playing a between-station
+        /// block with none - whichever station comes up next, so the display
+        /// always points at where the class is headed. Always -1 for Shared
+        /// mode (including the legacy synthesis path, which uses
+        /// LegacyCurrentStation instead).
         /// </summary>
-        private string WordingFor(bool work, Station station)
+        private int ActiveStationIndexForDisplay()
         {
-            string generic = work ? _settings.WorkLabel : _settings.RestLabel;
-            if (string.IsNullOrEmpty(generic)) generic = work ? "WORK" : "REST";
+            if (_program.Mode != ExecutionMode.Sequential || _program.Stations.Count == 0) return -1;
+            if (_phase == Phase.Prep) return 0;
+            if (_phase != Phase.Active) return -1;
 
-            string detail = station == null ? null : (work ? station.WorkDetail : station.RestDetail);
-            if (_settings.UseStationWording && !string.IsNullOrEmpty(detail)) return detail.ToUpperInvariant();
+            RuntimeBlock current = CurrentBlock();
+            if (current == null) return -1;
+            if (current.StationIndex >= 0) return current.StationIndex;
 
-            return generic.ToUpperInvariant();
+            for (int i = _index + 1; i < _sequence.Count; i++)
+            {
+                if (_sequence[i].StationIndex >= 0) return _sequence[i].StationIndex;
+            }
+            return _program.Stations.Count - 1;
         }
 
-        /// <summary>The move instruction, upper-cased for display, with a sensible fallback.</summary>
-        private string MoveLabel()
+        /// <summary>
+        /// True only when a station name is a sensible thing to show as THE big
+        /// description for a Work block: the option is on, and either the legacy
+        /// rotating-station session or a real Sequential-mode program actually
+        /// has one active right now.
+        /// </summary>
+        private bool ShowStationNameAsBigLabel(RuntimeBlock current)
         {
-            string message = _settings.MoveMessage;
-            return string.IsNullOrEmpty(message) ? "MOVE TO THE NEXT STATION" : message.ToUpperInvariant();
+            if (!_settings.ShowStationNameAsDescription || current == null || current.Block.Type != BlockType.Work) return false;
+            if (UsingLegacyStationRotation) return LegacyCurrentStation() != null;
+            return ActiveStation() != null;
+        }
+
+        /// <summary>
+        /// The smaller banner line above the big word. A block's own Announcement
+        /// always wins (e.g. a Move block's "Move to the next station" message).
+        /// Otherwise: the legacy rotating station label with its familiar
+        /// UP FIRST/COMING UP wording, or - for a real Sequential-mode program -
+        /// the plain active station name, or nothing at all in Shared Timing,
+        /// which never names a single station.
+        /// </summary>
+        private string SecondaryDescriptionText()
+        {
+            if (_phase == Phase.Idle || _phase == Phase.Finished) return string.Empty;
+
+            if (_phase == Phase.Prep)
+            {
+                if (UsingLegacyStationRotation)
+                {
+                    Station first = LegacyStationAt(0);
+                    return first == null ? string.Empty : "UP FIRST: " + first.Name.ToUpperInvariant();
+                }
+
+                if (_program.Mode == ExecutionMode.Sequential)
+                {
+                    StationDef first = ActiveStation();
+                    return first == null ? string.Empty : first.Name.ToUpperInvariant();
+                }
+
+                return string.Empty;
+            }
+
+            RuntimeBlock current = CurrentBlock();
+            if (current == null) return string.Empty;
+
+            if (!string.IsNullOrEmpty(current.Block.Announcement)) return current.Block.Announcement.ToUpperInvariant();
+
+            if (UsingLegacyStationRotation)
+            {
+                bool work = current.Block.Type == BlockType.Work;
+                if (ShowStationNameAsBigLabel(current)) return current.Block.Word;
+
+                if (work)
+                {
+                    Station station = LegacyCurrentStation();
+                    return station == null ? string.Empty : station.Name.ToUpperInvariant();
+                }
+
+                Station next = LegacyStationAt(NextIndex());
+                return next == null ? string.Empty : "COMING UP: " + next.Name.ToUpperInvariant();
+            }
+
+            if (_program.Mode != ExecutionMode.Sequential) return string.Empty;
+
+            if (ShowStationNameAsBigLabel(current)) return current.Block.Word;
+
+            StationDef active = ActiveStation();
+            return active == null ? string.Empty : active.Name.ToUpperInvariant();
         }
 
         private string PhaseLabelText()
@@ -1106,10 +1243,24 @@ namespace GymClock
             switch (_phase)
             {
                 case Phase.Prep: return "GET READY";
-                case Phase.Work: return WordingFor(true, CurrentStation());
-                case Phase.Rest: return WordingFor(false, CurrentStation());
-                case Phase.Move: return "MOVE";
                 case Phase.Finished: return "DONE";
+
+                case Phase.Active:
+                {
+                    RuntimeBlock current = CurrentBlock();
+                    if (current == null) return "READY";
+
+                    if (ShowStationNameAsBigLabel(current))
+                    {
+                        string name = UsingLegacyStationRotation
+                            ? LegacyCurrentStation().Name
+                            : (ActiveStation() != null ? ActiveStation().Name : string.Empty);
+                        if (!string.IsNullOrEmpty(name)) return name.ToUpperInvariant();
+                    }
+
+                    return current.Block.Word;
+                }
+
                 default: return "READY";
             }
         }
@@ -1125,28 +1276,32 @@ namespace GymClock
             switch (_phase)
             {
                 case Phase.Idle:
-                    return TotalRounds > 0
-                        ? string.Format(CultureInfo.InvariantCulture, "{0} ROUNDS READY", TotalRounds)
-                        : "CONTINUOUS - NO ROUND LIMIT";
+                    return _program.Continuous
+                        ? "CONTINUOUS - NO ROUND LIMIT"
+                        : string.Format(CultureInfo.InvariantCulture, "{0} STEPS READY", _sequence.Count);
 
                 case Phase.Finished:
-                    return string.Format(CultureInfo.InvariantCulture, "SESSION COMPLETE - {0} ROUNDS", _round);
+                    return "SESSION COMPLETE";
 
                 default:
                 {
-                    string text = TotalRounds > 0
-                        ? string.Format(CultureInfo.InvariantCulture, "ROUND {0} OF {1}", _round, TotalRounds)
-                        : string.Format(CultureInfo.InvariantCulture, "ROUND {0}", _round);
-
-                    // On a variable plan, where you are within the block matters as much
-                    // as the overall round number.
-                    if (_plan != null && _plan.BlockCount > 1)
+                    RuntimeBlock current = CurrentBlock();
+                    if (current == null || current.GroupCount == 0)
                     {
-                        PlanRound round = CurrentRound();
+                        return _program.Continuous
+                            ? string.Empty
+                            : string.Format(CultureInfo.InvariantCulture, "STEP {0} OF {1}", _index + 1, _sequence.Count);
+                    }
+
+                    string word = _program.Mode == ExecutionMode.Sequential ? "REP" : "ROUND";
+                    string text = string.Format(CultureInfo.InvariantCulture, "{0} {1} OF {2}",
+                        word, current.RepeatIndex, current.RepeatTotal);
+
+                    if (current.GroupCount > 1)
+                    {
                         text += string.Format(CultureInfo.InvariantCulture,
-                            "   -   BLOCK {0} OF {1}  ({2} of {3})",
-                            round.BlockNumber, _plan.BlockCount,
-                            round.PositionInBlock, round.BlockLength);
+                            "   -   GROUP {0} OF {1}  ({2} of {3})",
+                            current.GroupNumber, current.GroupCount, current.PositionInGroup, current.GroupLength);
                     }
 
                     return text;
@@ -1171,61 +1326,30 @@ namespace GymClock
                     return "Press SPACE to run it again   -   R to reset";
 
                 case Phase.Prep:
-                    return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
-                        WordingFor(true, StationAt(1)), RoundNumber(1).Work);
-
-                case Phase.Work:
                 {
-                    bool finalRound = TotalRounds > 0 && _round >= TotalRounds;
-                    if (finalRound && !_settings.RestAfterFinalRound) return "Last effort - finish strong";
-
-                    PlanRound current = CurrentRound();
-                    if (current.Rest <= 0)
-                    {
-                        if (ShouldInsertMove())
-                        {
-                            return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
-                                MoveLabel(), _settings.MoveSeconds);
-                        }
-
-                        return string.Format(CultureInfo.InvariantCulture,
-                            "Next: straight into {0}s {1}",
-                            RoundNumber(_round + 1).Work, WordingFor(true, StationAt(_round + 1)));
-                    }
-
-                    return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
-                        WordingFor(false, CurrentStation()), current.Rest);
+                    RuntimeBlock first = _sequence.Count > 0 ? _sequence[0] : null;
+                    return first == null ? string.Empty : string.Format(CultureInfo.InvariantCulture,
+                        "Next: {0} for {1}s", first.Block.Word, first.Block.Seconds);
                 }
 
-                case Phase.Rest:
+                case Phase.Active:
                 {
-                    if (TotalRounds > 0 && _round >= TotalRounds) return "Next: finish";
+                    bool last = !_program.Continuous && _index >= _sequence.Count - 1;
+                    if (last) return "Last effort - finish strong";
 
-                    if (ShouldInsertMove())
+                    RuntimeBlock current = CurrentBlock();
+                    RuntimeBlock next = BlockAt(_index + 1);
+                    if (next == null) return "Next: finish";
+
+                    string text = string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
+                        next.Block.Word, next.Block.Seconds);
+
+                    if (current != null && next.GroupNumber > 0 && next.GroupNumber != current.GroupNumber)
                     {
-                        return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s",
-                            MoveLabel(), _settings.MoveSeconds);
-                    }
-
-                    PlanRound next = RoundNumber(_round + 1);
-                    string text = string.Format(CultureInfo.InvariantCulture,
-                        "Next: {0} for {1}s   (round {2})",
-                        WordingFor(true, StationAt(_round + 1)), next.Work, _round + 1);
-
-                    // Call out a change of pace, since the number is about to jump.
-                    if (_plan != null && _plan.BlockCount > 1 && next.BlockNumber != CurrentRound().BlockNumber)
-                    {
-                        text += "   -   pace changes to " + next.Work + "/" + next.Rest;
+                        text += "   -   pace changes";
                     }
 
                     return text;
-                }
-
-                case Phase.Move:
-                {
-                    PlanRound next = RoundNumber(_round + 1);
-                    return string.Format(CultureInfo.InvariantCulture, "Next: {0} for {1}s   (round {2})",
-                        WordingFor(true, StationAt(_round + 1)), next.Work, _round + 1);
                 }
             }
 
@@ -1237,9 +1361,11 @@ namespace GymClock
             switch (phase)
             {
                 case Phase.Prep: return "the countdown";
-                case Phase.Work: return WordingFor(true, CurrentStation());
-                case Phase.Rest: return WordingFor(false, CurrentStation());
-                case Phase.Move: return "the move between stations";
+                case Phase.Active:
+                {
+                    RuntimeBlock current = CurrentBlock();
+                    return current == null ? "the session" : current.Block.Word;
+                }
                 default: return "the session";
             }
         }
@@ -1248,7 +1374,7 @@ namespace GymClock
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             sb.Append("SPACE start/pause  -  R reset  -  S settings  -  ");
-            sb.Append("\u2190/\u2192 back/skip  -  ");
+            sb.Append("←/→ back/skip  -  ");
 
             if (_settings.Presets.Count > 0)
             {
@@ -1259,7 +1385,7 @@ namespace GymClock
                 sb.Append("-  ");
             }
 
-            if (_settings.Stations.Count > 0) sb.Append("CTRL+1-9 jump to station  -  ");
+            if (_program.Stations.Count > 0) sb.Append("CTRL+1-9 jump to station  -  ");
 
             sb.Append("M mute  -  F11 full screen  -  F6 next display  -  F3 licence  -  Q quit");
             return sb.ToString();

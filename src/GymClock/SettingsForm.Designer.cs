@@ -10,7 +10,7 @@ namespace GymClock
 
         private TabControl _tabs;
         private TabPage _timingTab;
-        private TabPage _stationsTab;
+        private TabPage _programTab;
 
         private Label _prepLabel;
         private NumericUpDown _prep;
@@ -61,26 +61,16 @@ namespace GymClock
         private Button _presetButton9;
         private Button _presetButton10;
 
-        // ---- Stations tab
-        private Label _stationsHelp;
-        private DataGridView _stationsGrid;
-        private DataGridViewTextBoxColumn _stationNameColumn;
-        private DataGridViewTextBoxColumn _stationWorkColumn;
-        private DataGridViewTextBoxColumn _stationRestColumn;
-        private DataGridViewTextBoxColumn _stationColourColumn;
-        private Button _addStationButton;
-        private Button _duplicateStationButton;
-        private Button _removeStationButton;
-        private Button _moveStationUpButton;
-        private Button _moveStationDownButton;
-        private Button _importStationsButton;
-        private Button _exportStationsButton;
-        private Label _duplicateWarningLabel;
-        private Label _stationsSummaryLabel;
+        // ---- Program tab
+        private Label _programSummaryLabel;
+        private Button _quickSetupButton;
+        private Button _openBuilderButton;
+        private Button _importProgramButton;
+        private Button _exportProgramButton;
 
         private Label _onScreenLabel;
         private CheckBox _showStationsTable;
-        private CheckBox _useStationWording;
+        private CheckBox _showStationNameAsDescription;
         private CheckBox _highlightCurrentStation;
 
         private Label _moveGroupLabel;
@@ -96,15 +86,17 @@ namespace GymClock
         private Button _saveButton;
         private Button _okButton;
         private Button _cancelButton;
+        private ToolTip _toolTip;
 
         /// <summary>
         /// Clean up any resources being used.
         /// </summary>
         protected override void Dispose(bool disposing)
         {
-            if (disposing && (components != null))
+            if (disposing)
             {
-                components.Dispose();
+                if (components != null) components.Dispose();
+                if (_toolTip != null) _toolTip.Dispose();
             }
             base.Dispose(disposing);
         }
@@ -115,7 +107,7 @@ namespace GymClock
         {
             _tabs = new TabControl();
             _timingTab = new TabPage();
-            _stationsTab = new TabPage();
+            _programTab = new TabPage();
 
             _prepLabel = new Label();
             _prep = new NumericUpDown();
@@ -156,25 +148,15 @@ namespace GymClock
             _presetButton9 = new Button();
             _presetButton10 = new Button();
 
-            _stationsHelp = new Label();
-            _stationsGrid = new DataGridView();
-            _stationNameColumn = new DataGridViewTextBoxColumn();
-            _stationWorkColumn = new DataGridViewTextBoxColumn();
-            _stationRestColumn = new DataGridViewTextBoxColumn();
-            _stationColourColumn = new DataGridViewTextBoxColumn();
-            _addStationButton = new Button();
-            _duplicateStationButton = new Button();
-            _removeStationButton = new Button();
-            _moveStationUpButton = new Button();
-            _moveStationDownButton = new Button();
-            _importStationsButton = new Button();
-            _exportStationsButton = new Button();
-            _duplicateWarningLabel = new Label();
-            _stationsSummaryLabel = new Label();
+            _programSummaryLabel = new Label();
+            _quickSetupButton = new Button();
+            _openBuilderButton = new Button();
+            _importProgramButton = new Button();
+            _exportProgramButton = new Button();
 
             _onScreenLabel = new Label();
             _showStationsTable = new CheckBox();
-            _useStationWording = new CheckBox();
+            _showStationNameAsDescription = new CheckBox();
             _highlightCurrentStation = new CheckBox();
 
             _moveGroupLabel = new Label();
@@ -190,13 +172,13 @@ namespace GymClock
             _saveButton = new Button();
             _okButton = new Button();
             _cancelButton = new Button();
+            _toolTip = new ToolTip();
 
             ((System.ComponentModel.ISupportInitialize)_prep).BeginInit();
             ((System.ComponentModel.ISupportInitialize)_work).BeginInit();
             ((System.ComponentModel.ISupportInitialize)_rest).BeginInit();
             ((System.ComponentModel.ISupportInitialize)_rounds).BeginInit();
             ((System.ComponentModel.ISupportInitialize)_volume).BeginInit();
-            ((System.ComponentModel.ISupportInitialize)_stationsGrid).BeginInit();
             ((System.ComponentModel.ISupportInitialize)_moveSeconds).BeginInit();
             SuspendLayout();
             //
@@ -507,7 +489,8 @@ namespace GymClock
             // _timingTab
             //
             _timingTab.Name = "_timingTab";
-            _timingTab.Text = "Timing && display";
+            _timingTab.Text = "Timing && Wording";
+            _timingTab.ToolTipText = "Prep/work/rest/rounds, the WORK/REST wording, clock format, quick presets, and the simple variable plan.";
             _timingTab.UseVisualStyleBackColor = true;
             _timingTab.Controls.Add(_prepLabel);
             _timingTab.Controls.Add(_prep);
@@ -548,176 +531,93 @@ namespace GymClock
             _timingTab.Controls.Add(_presetButton9);
             _timingTab.Controls.Add(_presetButton10);
             //
-            // _stationsHelp
+            // _programSummaryLabel
             //
-            _stationsHelp.Location = new Point(12, 10);
-            _stationsHelp.Name = "_stationsHelp";
-            _stationsHelp.Size = new Size(550, 22);
-            _stationsHelp.Text = "One row per station. Repeats are fine, but not directly back-to-back.";
+            _programSummaryLabel.Location = new Point(12, 10);
+            _programSummaryLabel.Name = "_programSummaryLabel";
+            _programSummaryLabel.Size = new Size(430, 110);
+            _programSummaryLabel.Text = "";
             //
-            // _stationNameColumn
+            // _quickSetupButton
             //
-            _stationNameColumn.HeaderText = "Station / exercise";
-            _stationNameColumn.Name = "_stationNameColumn";
-            _stationNameColumn.FillWeight = 28F;
+            _quickSetupButton.Location = new Point(12, 130);
+            _quickSetupButton.Name = "_quickSetupButton";
+            _quickSetupButton.Size = new Size(140, 38);
+            _quickSetupButton.Text = "Quick Setup...";
+            _quickSetupButton.Click += QuickSetup_Click;
             //
-            // _stationWorkColumn
+            // _openBuilderButton
             //
-            _stationWorkColumn.HeaderText = "During WORK";
-            _stationWorkColumn.Name = "_stationWorkColumn";
-            _stationWorkColumn.FillWeight = 30F;
+            _openBuilderButton.Location = new Point(160, 130);
+            _openBuilderButton.Name = "_openBuilderButton";
+            _openBuilderButton.Size = new Size(150, 38);
+            _openBuilderButton.Text = "Open in Builder...";
+            _openBuilderButton.Click += OpenBuilder_Click;
             //
-            // _stationRestColumn
+            // _importProgramButton
             //
-            _stationRestColumn.HeaderText = "During REST";
-            _stationRestColumn.Name = "_stationRestColumn";
-            _stationRestColumn.FillWeight = 30F;
+            _importProgramButton.Location = new Point(12, 176);
+            _importProgramButton.Name = "_importProgramButton";
+            _importProgramButton.Size = new Size(140, 34);
+            _importProgramButton.Text = "Import Program...";
+            _importProgramButton.Click += ImportProgram_Click;
             //
-            // _stationColourColumn
+            // _exportProgramButton
             //
-            _stationColourColumn.HeaderText = "Colour";
-            _stationColourColumn.Name = "_stationColourColumn";
-            _stationColourColumn.ToolTipText = "Optional, e.g. #2AA7A0 or SkyBlue";
-            _stationColourColumn.FillWeight = 12F;
-            //
-            // _stationsGrid
-            //
-            _stationsGrid.AllowUserToAddRows = true;
-            _stationsGrid.AllowUserToDeleteRows = true;
-            _stationsGrid.AllowUserToResizeRows = false;
-            _stationsGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            _stationsGrid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
-            _stationsGrid.Columns.AddRange(new DataGridViewColumn[] {
-                _stationNameColumn, _stationWorkColumn, _stationRestColumn, _stationColourColumn });
-            _stationsGrid.Location = new Point(12, 36);
-            _stationsGrid.MultiSelect = false;
-            _stationsGrid.Name = "_stationsGrid";
-            _stationsGrid.RowHeadersWidth = 30;
-            _stationsGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            _stationsGrid.Size = new Size(550, 336);
-            _stationsGrid.CellEndEdit += StationsGrid_Changed;
-            _stationsGrid.RowsRemoved += StationsGrid_Changed;
-            //
-            // _addStationButton
-            //
-            _addStationButton.Location = new Point(12, 380);
-            _addStationButton.Name = "_addStationButton";
-            _addStationButton.Size = new Size(70, 34);
-            _addStationButton.Text = "Add";
-            _addStationButton.Click += AddStation_Click;
-            //
-            // _duplicateStationButton
-            //
-            _duplicateStationButton.Location = new Point(88, 380);
-            _duplicateStationButton.Name = "_duplicateStationButton";
-            _duplicateStationButton.Size = new Size(90, 34);
-            _duplicateStationButton.Text = "Duplicate";
-            _duplicateStationButton.Click += DuplicateStation_Click;
-            //
-            // _removeStationButton
-            //
-            _removeStationButton.Location = new Point(184, 380);
-            _removeStationButton.Name = "_removeStationButton";
-            _removeStationButton.Size = new Size(90, 34);
-            _removeStationButton.Text = "Remove";
-            _removeStationButton.Click += RemoveStation_Click;
-            //
-            // _moveStationUpButton
-            //
-            _moveStationUpButton.Location = new Point(280, 380);
-            _moveStationUpButton.Name = "_moveStationUpButton";
-            _moveStationUpButton.Size = new Size(65, 34);
-            _moveStationUpButton.Text = "Up";
-            _moveStationUpButton.Click += MoveStationUp_Click;
-            //
-            // _moveStationDownButton
-            //
-            _moveStationDownButton.Location = new Point(351, 380);
-            _moveStationDownButton.Name = "_moveStationDownButton";
-            _moveStationDownButton.Size = new Size(75, 34);
-            _moveStationDownButton.Text = "Down";
-            _moveStationDownButton.Click += MoveStationDown_Click;
-            //
-            // _importStationsButton
-            //
-            _importStationsButton.Location = new Point(12, 420);
-            _importStationsButton.Name = "_importStationsButton";
-            _importStationsButton.Size = new Size(110, 34);
-            _importStationsButton.Text = "Import...";
-            _importStationsButton.Click += ImportStations_Click;
-            //
-            // _exportStationsButton
-            //
-            _exportStationsButton.Location = new Point(132, 420);
-            _exportStationsButton.Name = "_exportStationsButton";
-            _exportStationsButton.Size = new Size(110, 34);
-            _exportStationsButton.Text = "Export...";
-            _exportStationsButton.Click += ExportStations_Click;
-            //
-            // _duplicateWarningLabel
-            //
-            _duplicateWarningLabel.ForeColor = Color.FromArgb(200, 60, 40);
-            _duplicateWarningLabel.Location = new Point(12, 460);
-            _duplicateWarningLabel.Name = "_duplicateWarningLabel";
-            _duplicateWarningLabel.Size = new Size(550, 20);
-            _duplicateWarningLabel.Text = "";
-            //
-            // _stationsSummaryLabel
-            //
-            _stationsSummaryLabel.ForeColor = Color.DimGray;
-            _stationsSummaryLabel.Location = new Point(12, 482);
-            _stationsSummaryLabel.Name = "_stationsSummaryLabel";
-            _stationsSummaryLabel.Size = new Size(550, 40);
-            _stationsSummaryLabel.Text = "";
+            _exportProgramButton.Location = new Point(160, 176);
+            _exportProgramButton.Name = "_exportProgramButton";
+            _exportProgramButton.Size = new Size(150, 34);
+            _exportProgramButton.Text = "Export Program...";
+            _exportProgramButton.Click += ExportProgram_Click;
             //
             // _onScreenLabel
             //
             _onScreenLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _onScreenLabel.Location = new Point(576, 10);
+            _onScreenLabel.Location = new Point(460, 10);
             _onScreenLabel.Name = "_onScreenLabel";
-            _onScreenLabel.Size = new Size(288, 22);
+            _onScreenLabel.Size = new Size(320, 22);
             _onScreenLabel.Text = "On the main screen:";
             //
             // _showStationsTable
             //
-            _showStationsTable.Location = new Point(576, 36);
+            _showStationsTable.Location = new Point(460, 36);
             _showStationsTable.Name = "_showStationsTable";
-            _showStationsTable.Size = new Size(288, 26);
+            _showStationsTable.Size = new Size(320, 26);
             _showStationsTable.Text = "Show a stations table on screen";
             //
-            // _useStationWording
+            // _showStationNameAsDescription
             //
-            _useStationWording.Location = new Point(576, 66);
-            _useStationWording.Name = "_useStationWording";
-            _useStationWording.Size = new Size(288, 44);
-            _useStationWording.Text = "Replace the WORK/REST word with each station's own instruction, when it has one";
+            _showStationNameAsDescription.Location = new Point(460, 64);
+            _showStationNameAsDescription.Name = "_showStationNameAsDescription";
+            _showStationNameAsDescription.Size = new Size(320, 48);
+            _showStationNameAsDescription.Text = "Show the station name as the description instead of " +
+                "WORK / REST / MOVE";
             //
             // _highlightCurrentStation
             //
-            _highlightCurrentStation.Location = new Point(576, 114);
+            _highlightCurrentStation.Location = new Point(460, 116);
             _highlightCurrentStation.Name = "_highlightCurrentStation";
-            _highlightCurrentStation.Size = new Size(288, 64);
-            _highlightCurrentStation.Text = "Highlight the station in progress — turn off if the class rotates through " +
-                "every station each round instead of moving through them together";
+            _highlightCurrentStation.Size = new Size(320, 40);
+            _highlightCurrentStation.Text = "Highlight the active station (simple sessions with no program built)";
             //
             // _moveGroupLabel
             //
             _moveGroupLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _moveGroupLabel.Location = new Point(576, 186);
+            _moveGroupLabel.Location = new Point(460, 166);
             _moveGroupLabel.Name = "_moveGroupLabel";
-            _moveGroupLabel.Size = new Size(288, 22);
-            _moveGroupLabel.Text = "Move between stations:";
+            _moveGroupLabel.Size = new Size(320, 22);
+            _moveGroupLabel.Text = "Move between stations (simple sessions):";
             //
             // _useMoveTime
             //
-            _useMoveTime.Location = new Point(576, 212);
+            _useMoveTime.Location = new Point(460, 192);
             _useMoveTime.Name = "_useMoveTime";
-            _useMoveTime.Size = new Size(288, 28);
+            _useMoveTime.Size = new Size(320, 28);
             _useMoveTime.Text = "Include a move time between stations";
             //
             // _moveSecondsLabel
             //
-            _moveSecondsLabel.Location = new Point(576, 250);
+            _moveSecondsLabel.Location = new Point(460, 228);
             _moveSecondsLabel.Name = "_moveSecondsLabel";
             _moveSecondsLabel.Size = new Size(140, 30);
             _moveSecondsLabel.Text = "Move duration";
@@ -725,68 +625,64 @@ namespace GymClock
             //
             // _moveSeconds
             //
-            _moveSeconds.Location = new Point(726, 246);
+            _moveSeconds.Location = new Point(610, 224);
             _moveSeconds.Name = "_moveSeconds";
             _moveSeconds.Size = new Size(70, 34);
             _moveSeconds.TextAlign = HorizontalAlignment.Right;
             //
             // _moveSecondsUnit
             //
-            _moveSecondsUnit.Location = new Point(800, 250);
+            _moveSecondsUnit.Location = new Point(684, 228);
             _moveSecondsUnit.Name = "_moveSecondsUnit";
             _moveSecondsUnit.Size = new Size(50, 30);
             _moveSecondsUnit.Text = "sec";
             //
             // _moveMessageLabel
             //
-            _moveMessageLabel.Location = new Point(576, 288);
+            _moveMessageLabel.Location = new Point(460, 264);
             _moveMessageLabel.Name = "_moveMessageLabel";
-            _moveMessageLabel.Size = new Size(288, 22);
+            _moveMessageLabel.Size = new Size(320, 22);
             _moveMessageLabel.Text = "Move message";
             //
             // _moveMessage
             //
-            _moveMessage.Location = new Point(576, 312);
+            _moveMessage.Location = new Point(460, 288);
             _moveMessage.Name = "_moveMessage";
-            _moveMessage.Size = new Size(288, 34);
+            _moveMessage.Size = new Size(320, 34);
             //
-            // _stationsTab
+            // _programTab
             //
-            _stationsTab.Name = "_stationsTab";
-            _stationsTab.Text = "Stations";
-            _stationsTab.UseVisualStyleBackColor = true;
-            _stationsTab.Controls.Add(_stationsHelp);
-            _stationsTab.Controls.Add(_stationsGrid);
-            _stationsTab.Controls.Add(_addStationButton);
-            _stationsTab.Controls.Add(_duplicateStationButton);
-            _stationsTab.Controls.Add(_removeStationButton);
-            _stationsTab.Controls.Add(_moveStationUpButton);
-            _stationsTab.Controls.Add(_moveStationDownButton);
-            _stationsTab.Controls.Add(_importStationsButton);
-            _stationsTab.Controls.Add(_exportStationsButton);
-            _stationsTab.Controls.Add(_duplicateWarningLabel);
-            _stationsTab.Controls.Add(_stationsSummaryLabel);
-            _stationsTab.Controls.Add(_onScreenLabel);
-            _stationsTab.Controls.Add(_showStationsTable);
-            _stationsTab.Controls.Add(_useStationWording);
-            _stationsTab.Controls.Add(_highlightCurrentStation);
-            _stationsTab.Controls.Add(_moveGroupLabel);
-            _stationsTab.Controls.Add(_useMoveTime);
-            _stationsTab.Controls.Add(_moveSecondsLabel);
-            _stationsTab.Controls.Add(_moveSeconds);
-            _stationsTab.Controls.Add(_moveSecondsUnit);
-            _stationsTab.Controls.Add(_moveMessageLabel);
-            _stationsTab.Controls.Add(_moveMessage);
+            _programTab.Name = "_programTab";
+            _programTab.Text = "Program";
+            _programTab.ToolTipText = "Build a program with Quick Setup or the Program Builder, and set how stations look on screen.";
+            _programTab.UseVisualStyleBackColor = true;
+            _programTab.Controls.Add(_programSummaryLabel);
+            _programTab.Controls.Add(_quickSetupButton);
+            _programTab.Controls.Add(_openBuilderButton);
+            _programTab.Controls.Add(_importProgramButton);
+            _programTab.Controls.Add(_exportProgramButton);
+            _programTab.Controls.Add(_onScreenLabel);
+            _programTab.Controls.Add(_showStationsTable);
+            _programTab.Controls.Add(_showStationNameAsDescription);
+            _programTab.Controls.Add(_highlightCurrentStation);
+            _programTab.Controls.Add(_moveGroupLabel);
+            _programTab.Controls.Add(_useMoveTime);
+            _programTab.Controls.Add(_moveSecondsLabel);
+            _programTab.Controls.Add(_moveSeconds);
+            _programTab.Controls.Add(_moveSecondsUnit);
+            _programTab.Controls.Add(_moveMessageLabel);
+            _programTab.Controls.Add(_moveMessage);
             //
             // _tabs
             //
             _tabs.Location = new Point(12, 12);
             _tabs.Name = "_tabs";
             _tabs.SelectedIndex = 0;
+            _tabs.ShowToolTips = true;
             _tabs.Size = new Size(876, 690);
             _tabs.TabIndex = 0;
             _tabs.Controls.Add(_timingTab);
-            _tabs.Controls.Add(_stationsTab);
+            _tabs.Controls.Add(_programTab);
             //
             // _pathLabel
             //
@@ -867,7 +763,6 @@ namespace GymClock
             ((System.ComponentModel.ISupportInitialize)_rest).EndInit();
             ((System.ComponentModel.ISupportInitialize)_rounds).EndInit();
             ((System.ComponentModel.ISupportInitialize)_volume).EndInit();
-            ((System.ComponentModel.ISupportInitialize)_stationsGrid).EndInit();
             ((System.ComponentModel.ISupportInitialize)_moveSeconds).EndInit();
             ResumeLayout(false);
             PerformLayout();

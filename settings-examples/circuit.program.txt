@@ -1,0 +1,35 @@
+# Example program for the Program Builder / Program tab - import this with
+# "Import Program..." (not by pasting it into settings.txt; the on-disk
+# program= line uses this same grammar but with real line breaks written as
+# literal \n instead of actual newlines).
+#
+# A three-station Sequential circuit: each station runs its own repeat group,
+# and the BETWEEN block plays once between every pair of stations - it is
+# written here exactly once, not once per gap.
+
+PROGRAM "Three Station Circuit"
+
+BETWEEN
+    MOVE 10 "Move clockwise to the next station"
+END BETWEEN
+
+STATION "Exercise Bike"
+    REPEAT 3
+        WORK 40
+        RECOVERY 20
+    END
+END STATION
+
+STATION "Skip Rope"
+    REPEAT 3
+        WORK 40
+        RECOVERY 20
+    END
+END STATION
+
+STATION "Rower"
+    REPEAT 3
+        WORK 40
+        RECOVERY 20
+    END
+END STATION
