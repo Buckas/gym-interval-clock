@@ -73,6 +73,11 @@ namespace GymClock
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
 
+            // ProgramBuilderForm (its owner here) is TopMost, so this needs to be
+            // too - otherwise it would render behind its own owner, same issue as
+            // QuickSetupForm/ProgramBuilderForm needing it against SettingsForm.
+            TopMost = true;
+
             foreach (KeyValuePair<PatternType, string> entry in Patterns) _pattern.Items.Add(entry.Value);
             _pattern.SelectedIndex = 0;
             _pattern.Location = new Point(12, 12);

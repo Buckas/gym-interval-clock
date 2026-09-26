@@ -16,3 +16,17 @@ a shared Move block between every pair of stations. Load it with **Import
 Program...** on the Program tab (it is not a `gymclock.settings.txt` file
 itself). See [Building a program](../README.md#building-a-program) in the main
 README for the full explanation.
+
+Three more real-world programmes, each built from an actual PE department
+timing sheet, showing both execution modes in practice:
+
+- `45-15-interval-cardio-circuit.program.txt` and `pyramid-cardio-circuit.program.txt`
+  are **rotating circuits** - several groups on different stations at once, all
+  following the same Shared Timing countdown, so the station panel is
+  informational only (nothing is highlighted, since every station is in use
+  simultaneously). Both wrap up with a set number of rotations through all the
+  stations, with a Move block before each next rotation but not after the
+  final one.
+- `whole-group-hiit.program.txt` is a **single group** moving through 8
+  stations one at a time - Sequential Stations, so the panel highlights
+  whichever station is currently active as the group moves through it.

@@ -332,6 +332,9 @@ namespace GymClock
         public string WorkInstruction { get; set; } = string.Empty;
         public string RestInstruction { get; set; } = string.Empty;
 
+        /// <summary>Whether this station appears in the on-screen station panel at all - independent of the panel's own show/hide setting.</summary>
+        public bool ShowInPanel { get; set; } = true;
+
         public TimingSource Source { get; set; } = TimingSource.ProgramDefault;
         public int LinkedStationIndex { get; set; } = -1;
         public Timeline CustomTimeline = new Timeline();
@@ -344,6 +347,7 @@ namespace GymClock
                 Colour = Colour,
                 WorkInstruction = WorkInstruction,
                 RestInstruction = RestInstruction,
+                ShowInPanel = ShowInPanel,
                 Source = Source,
                 LinkedStationIndex = LinkedStationIndex,
                 CustomTimeline = CustomTimeline.Clone()
@@ -351,15 +355,85 @@ namespace GymClock
         }
     }
 
-    /// <summary>
-    /// How the program's stations relate to the timing. Parallel Independent
-    /// Stations is planned but deliberately not implemented yet - it needs a new
-    /// multi-station dashboard display rather than a generalisation of this one.
-    /// </summary>
+    /// <summary>How the program's stations relate to the timing.</summary>
     public enum ExecutionMode
     {
         Shared,
-        Sequential
+        Sequential,
+
+        /// <summary>Every station runs its own pattern simultaneously and independently - see ParallelClock.</summary>
+        Parallel
+    }
+
+    /// <summary>Where a station is right now, located by elapsed time rather than by a stepped index - see ParallelClock.</summary>
+    public class StationPosition
+    {
+        public int Index = -1;
+        public ResolvedBlock Block;
+        public double RemainingSeconds;
+        public bool Finished;
+    }
+
+    /// <summary>
+    /// Locates a Parallel-mode station's current block by elapsed time rather
+    /// than by stepping through events one at a time. This is what lets every
+    /// station share one clock (MainForm's _phaseClock) instead of needing its
+    /// own independent stopwatch and state machine: "what block is station i in
+    /// right now" becomes a pure function of how long the run has been going,
+    /// so pausing, resuming and resetting the one shared clock does the same for
+    /// every station automatically, with no drift between them.
+    /// </summary>
+    public static class ParallelClock
+    {
+        public static StationPosition Locate(List<ResolvedBlock> blocks, double elapsedSeconds, bool continuous)
+        {
+            StationPosition position = new StationPosition();
+            if (blocks == null || blocks.Count == 0) { position.Finished = true; return position; }
+
+            int total = 0;
+            foreach (ResolvedBlock rb in blocks) total += Math.Max(0, rb.Block.Seconds);
+            if (total <= 0) { position.Finished = true; return position; }
+
+            double t = elapsedSeconds;
+            if (continuous)
+            {
+                t = t % total;
+                if (t < 0) t += total;
+            }
+            else if (t >= total)
+            {
+                position.Index = blocks.Count - 1;
+                position.Block = blocks[position.Index];
+                position.RemainingSeconds = 0;
+                position.Finished = true;
+                return position;
+            }
+            else if (t < 0)
+            {
+                t = 0;
+            }
+
+            double accumulated = 0;
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                double length = Math.Max(0, blocks[i].Block.Seconds);
+                if (t < accumulated + length)
+                {
+                    position.Index = i;
+                    position.Block = blocks[i];
+                    position.RemainingSeconds = (accumulated + length) - t;
+                    return position;
+                }
+                accumulated += length;
+            }
+
+            // Floating-point edge case landing exactly on the total - treat as the last block, just finished.
+            position.Index = blocks.Count - 1;
+            position.Block = blocks[position.Index];
+            position.RemainingSeconds = 0;
+            position.Finished = !continuous;
+            return position;
+        }
     }
 
     /// <summary>
@@ -424,6 +498,11 @@ namespace GymClock
         /// <summary>The timeline actually in force for a station, resolving Linked/Custom/ProgramDefault.</summary>
         public Timeline TimelineForStation(int index)
         {
+            return TimelineForStation(index, null);
+        }
+
+        private Timeline TimelineForStation(int index, HashSet<int> visited)
+        {
             if (index < 0 || index >= Stations.Count) return SharedTimeline;
             StationDef station = Stations[index];
 
@@ -436,7 +515,9 @@ namespace GymClock
                     if (station.LinkedStationIndex >= 0 && station.LinkedStationIndex < Stations.Count
                         && station.LinkedStationIndex != index)
                     {
-                        return TimelineForStation(station.LinkedStationIndex);
+                        if (visited == null) visited = new HashSet<int> { index };
+                        if (!visited.Add(station.LinkedStationIndex)) return SharedTimeline;
+                        return TimelineForStation(station.LinkedStationIndex, visited);
                     }
                     return SharedTimeline;
 
@@ -473,6 +554,27 @@ namespace GymClock
             }
 
             return sequence;
+        }
+
+        /// <summary>
+        /// One resolved block list per station, for Parallel mode - the
+        /// equivalent of BuildRuntimeSequence() for a mode where every station
+        /// runs independently instead of one after another. Falls back to a
+        /// single "station" wrapping SharedTimeline when none have been added
+        /// yet, the same way BuildRuntimeSequence() falls back for Sequential.
+        /// </summary>
+        public List<List<ResolvedBlock>> BuildParallelSequences()
+        {
+            List<List<ResolvedBlock>> result = new List<List<ResolvedBlock>>();
+
+            if (Stations.Count == 0)
+            {
+                result.Add(SharedTimeline.Resolve());
+                return result;
+            }
+
+            for (int i = 0; i < Stations.Count; i++) result.Add(TimelineForStation(i).Resolve());
+            return result;
         }
     }
 }

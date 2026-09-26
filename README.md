@@ -200,8 +200,8 @@ Two ways in, both producing the same thing:
   a live preview. **Create Program** applies it immediately; **Open In Builder**
   hands the result to the Program Builder for further shaping first.
 - **Program Builder** - full control: stations with their own timing, repeat
-  groups, and any block anywhere, or the same program typed as plain text on
-  its Script tab.
+  groups, and any block anywhere, or the same program typed as plain text in
+  its Script window.
 
 A program is entirely optional. A settings file with no program built yet
 (`program=` blank, the default) runs exactly as it always has, off the plain
@@ -217,9 +217,11 @@ Wording** tab - nothing changes for anyone who never opens the Program tab.
   another, with an optional shared block (e.g. a Rest or a Move) between each
   pair. Adding a station in the Program Builder switches a program to this mode
   automatically.
-- **Parallel Independent Stations** - planned, not implemented yet. It needs
-  its own multi-station dashboard rather than a generalisation of this display,
-  so the option is visible but disabled for now.
+- **Parallel Independent Stations** - every station runs its own pattern at
+  once, completely independently (they can finish at different times). Its own
+  multi-station dashboard replaces the single countdown while it is running; a
+  station that finishes early sits on a muted "done" tile while the others
+  keep going.
 
 ### Quick Setup patterns
 
@@ -240,7 +242,8 @@ for Custom Sequence.
 
 ### The Program Builder
 
-Three panes:
+A single screen, numbered to match its own instructions ("1. Pick a station...
+2. Add blocks... 3. Edit its details..."), with three panes:
 
 - **Program Outline** (left) - the program root, then either the Shared
   Timeline, or one entry per station plus a Between Stations entry once there
@@ -257,9 +260,11 @@ Three panes:
 - **Properties** (right) - edit whatever is selected in either pane: a block's
   Type, Seconds, Label (overrides the default word), Announcement (a smaller
   line shown alongside it), Colour and Sound; a repeat group's Count; a
-  station's Name, Colour, Work/Rest instructions and where its timing comes
-  from (the program default, linked to another station, or its own custom
-  timeline); or the program's own Name and execution Mode.
+  station's Name, Colour, Work/Rest instructions, whether it shows in the
+  on-screen panel at all (independent of the panel's own show/hide setting),
+  and where its timing comes from (the program default, linked to another
+  station, or its own custom timeline); or the program's own Name and
+  execution Mode.
 
 Block types, with their default word and colour (a block's own Label/Colour
 override these): **Work** (green), **Recovery** (blue), **Rest** (amber),
@@ -267,13 +272,15 @@ override these): **Work** (green), **Recovery** (blue), **Rest** (amber),
 (cyan), **Instruction** (slate), **Custom** (magenta, always needs its own
 Label).
 
-### Script tab
+### The Script window
 
-The same program, as plain text - handy for a quick edit, or for anyone who
-would rather type it than click through the Builder:
+Click **Script...** on the Builder to open the same program as plain text, in
+its own window - handy for a quick edit, or for anyone who would rather type
+it than click through the panes:
 
 ```
 PROGRAM "Battle Ropes Circuit"
+MODE SEQUENTIAL
 
 BETWEEN
     MOVE 15
@@ -291,16 +298,19 @@ STATION "Rower"
 END STATION
 ```
 
-Commands: `PROGRAM "name"`, `STATION "name"` / `END STATION`, `BETWEEN` / `END
-BETWEEN` for the block(s) that play between every pair of stations (written
-once, not once per gap), `REPEAT n` / `END` for a repeat group (one level
-deep), and a block per line - `WORK` `RECOVERY` `REST` `MOVE` `PREPARE`
-`COUNTDOWN` `WATER` `INSTRUCTION` `CUSTOM`, each followed by a duration (`20`,
-`20s`, `1m`, `1m 30s`) and an optional quoted label. An unrecognised or
-malformed line is skipped rather than failing the whole program, so a typo
-degrades gracefully. **Apply Script** loads the text into the Builder tab; if
-you leave the Script tab selected and press OK, it is applied automatically
-first so an edit you forgot to Apply is never silently lost.
+Commands: `PROGRAM "name"`, `MODE SHARED` / `SEQUENTIAL` / `PARALLEL` (only
+needed to force a mode the program wouldn't otherwise imply - e.g. `SHARED`
+with an informational station list, since a bare `STATION` line otherwise
+means Sequential), `STATION "name"` / `END STATION` (`PANEL HIDE` inside one
+keeps that station off the on-screen panel), `BETWEEN` / `END BETWEEN` for the
+block(s) that play between every pair of stations (written once, not once per
+gap), `REPEAT n` / `END` for a repeat group (one level deep), and a block per
+line - `WORK` `RECOVERY` `REST` `MOVE` `PREPARE` `COUNTDOWN` `WATER`
+`INSTRUCTION` `CUSTOM`, each followed by a duration (`20`, `20s`, `1m`, `1m
+30s`) and an optional quoted label. An unrecognised or malformed line is
+skipped rather than failing the whole program, so a typo degrades gracefully.
+**Apply** loads the text into the Builder; closing the Script window without
+clicking Apply discards whatever was typed rather than silently applying it.
 
 ### Import, export, and reuse
 

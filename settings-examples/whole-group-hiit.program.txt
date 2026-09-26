@@ -1,0 +1,74 @@
+# Real-world example: a single whole-group HIIT circuit (22 participants,
+# everyone together rather than split across simultaneous stations) - Sequential
+# Stations, so the TV highlights whichever station the group is currently on as
+# it moves through all 8, one at a time.
+#
+# 3 rounds of 40s work / 20s recovery at each station, then 1 minute to move to
+# the next - the source material only gives the warm-up and cool-down either
+# side of this a total time with no per-exercise split, so they are left out
+# here rather than guessed at (run them coach-led). Total run time: 31:00.
+#
+# Import with "Import Program..." on the Program tab.
+
+PROGRAM "Whole Group HIIT"
+MODE SEQUENTIAL
+
+BETWEEN
+    MOVE 1m
+END BETWEEN
+
+STATION "Shuttle Runs"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION
+
+STATION "Bodyweight Squats"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION
+
+STATION "Skipping"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION
+
+STATION "Step-Ups"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION
+
+STATION "Mountain Climbers"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION
+
+STATION "Skater Bounds"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION
+
+STATION "Burpees"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION
+
+STATION "High Knees"
+    REPEAT 3
+        WORK 40s
+        RECOVERY 20s
+    END
+END STATION

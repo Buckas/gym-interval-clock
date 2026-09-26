@@ -48,6 +48,10 @@ namespace GymClock
         private Rectangle _windowedBounds;
         private DateTime _hintHideAt;
 
+        /// <summary>A brief on-screen confirmation, e.g. right after building a program with Quick Setup - see ShowToast.</summary>
+        private string _toastMessage = string.Empty;
+        private DateTime _toastHideAt;
+
         private readonly Dictionary<string, Font> _fontCache = new Dictionary<string, Font>();
         private string _labelFamily;
         private string _numberFamily;
@@ -58,6 +62,14 @@ namespace GymClock
         private WorkoutProgram _program;
         private List<RuntimeBlock> _sequence = new List<RuntimeBlock>();
         private int _index = -1;                            // position in _sequence of the block in progress
+
+        /// <summary>
+        /// One resolved block list per station, only populated in Parallel mode.
+        /// Every station is located within its own list by elapsed time (see
+        /// ParallelClock.Locate) rather than stepped through with an index, since
+        /// stations run independently and _phaseClock is shared by all of them.
+        /// </summary>
+        private List<List<ResolvedBlock>> _parallelStations = new List<List<ResolvedBlock>>();
 
         /// <summary>1-based legacy round number for each entry in _sequence - only
         /// meaningful on the legacy synthesis path (see UsingLegacyStationRotation),
@@ -161,10 +173,21 @@ namespace GymClock
         {
             get
             {
-                return string.IsNullOrEmpty(_settings.ProgramScript)
+                return !_settings.UseBuiltProgram
                     && _settings.Stations.Count > 0
                     && _settings.HighlightCurrentStation;
             }
+        }
+
+        /// <summary>
+        /// True while N independent stations are actually running at once. In
+        /// this state _phaseClock is read as elapsed time since every station
+        /// started rather than time left in one shared block - see
+        /// ComputeParallelPositions and ParallelClock.Locate.
+        /// </summary>
+        private bool IsParallelActive
+        {
+            get { return _program.Mode == ExecutionMode.Parallel && _phase == Phase.Active; }
         }
 
         private void RebuildProgram()
@@ -173,7 +196,11 @@ namespace GymClock
             _sequence = _program.BuildRuntimeSequence();
             if (_sequence.Count == 0)
             {
-                _sequence.Add(RuntimeBlock.From(new ResolvedBlock { Block = new Block(BlockType.Work, 45) }, -1));
+                _sequence.Add(RuntimeBlock.From(new ResolvedBlock { Block = new Block(BlockType.Work, Math.Max(1, _settings.WorkSeconds)) }, -1));
+                if (_settings.RestSeconds > 0)
+                {
+                    _sequence.Add(RuntimeBlock.From(new ResolvedBlock { Block = new Block(BlockType.Recovery, _settings.RestSeconds) }, -1));
+                }
             }
 
             // Every legacy round contributes exactly one Work block (see
@@ -187,6 +214,10 @@ namespace GymClock
                 if (_sequence[i].Block.Type == BlockType.Work) round++;
                 _legacyRound[i] = round;
             }
+
+            _parallelStations = _program.Mode == ExecutionMode.Parallel
+                ? _program.BuildParallelSequences()
+                : new List<List<ResolvedBlock>>();
         }
 
         private RuntimeBlock CurrentBlock()
@@ -274,14 +305,46 @@ namespace GymClock
 
         private void BeginBlock()
         {
-            RuntimeBlock current = CurrentBlock();
             _phase = Phase.Active;
-            _phaseLength = Math.Max(1, current.Block.Seconds);
             _lastCueSecond = -1;
             _phaseClock.Restart();
             if (!_sessionClock.IsRunning) _sessionClock.Start();
+
+            if (_program.Mode == ExecutionMode.Parallel)
+            {
+                // There is no single "current block" once every station runs
+                // independently - _phaseClock becomes elapsed time since they
+                // all started, read per-station by ComputeParallelPositions, and
+                // is never restarted again by per-block advancement because
+                // there is no such thing here (see Ticker_Tick/Advance/GoBack).
+                Beeper.CueWorkStart();
+                Invalidate();
+                return;
+            }
+
+            RuntimeBlock current = CurrentBlock();
+            _phaseLength = Math.Max(1, current.Block.Seconds);
             PlayCueFor(current.Block.Type);
             Invalidate();
+        }
+
+        /// <summary>Every Parallel-mode station's current position, located by elapsed time off the one shared _phaseClock.</summary>
+        private List<StationPosition> ComputeParallelPositions()
+        {
+            double elapsed = _phaseClock.Elapsed.TotalSeconds;
+            List<StationPosition> positions = new List<StationPosition>(_parallelStations.Count);
+            foreach (List<ResolvedBlock> blocks in _parallelStations)
+            {
+                positions.Add(ParallelClock.Locate(blocks, elapsed, _program.Continuous));
+            }
+            return positions;
+        }
+
+        private bool AllParallelStationsFinished(List<StationPosition> positions)
+        {
+            if (_program.Continuous || positions.Count == 0) return false;
+            foreach (StationPosition position in positions) if (!position.Finished) return false;
+            return true;
         }
 
         private static void PlayCueFor(BlockType type)
@@ -306,6 +369,19 @@ namespace GymClock
 
         private void Ticker_Tick(object sender, EventArgs e)
         {
+            if (IsParallelActive)
+            {
+                // No single block to count down or cue here - each station's own
+                // countdown is drawn straight off elapsed time in OnPaint, and
+                // per-station cues are deliberately silent (see BeginBlock) so N
+                // stations transitioning at different moments don't turn into
+                // constant beeping. The only thing this loop watches for is the
+                // whole session ending once every station is done.
+                if (_phaseClock.IsRunning && AllParallelStationsFinished(ComputeParallelPositions())) FinishSession();
+                Invalidate();
+                return;
+            }
+
             if (_phaseClock.IsRunning && InTimedPhase)
             {
                 double remaining = _phaseLength - _phaseClock.Elapsed.TotalSeconds;
@@ -330,6 +406,14 @@ namespace GymClock
 
         private void Advance()
         {
+            if (IsParallelActive)
+            {
+                // No single "skip to next block" makes sense when every station
+                // is at a different point in its own pattern.
+                ShowHint(4);
+                return;
+            }
+
             switch (_phase)
             {
                 case Phase.Idle:
@@ -356,6 +440,17 @@ namespace GymClock
 
         private void GoBack()
         {
+            if (IsParallelActive)
+            {
+                // "Back" means restart the whole parallel run from 0:00 - there is
+                // no single block to step back to, but restarting everything
+                // together is still a useful, well-defined action.
+                _phaseClock.Restart();
+                _lastCueSecond = -1;
+                Invalidate();
+                return;
+            }
+
             // More than a couple of seconds in, "back" means restart this interval.
             if (InTimedPhase && _phaseClock.Elapsed.TotalSeconds > 2.5)
             {
@@ -438,6 +533,11 @@ namespace GymClock
                 _phaseLength = Math.Max(1, _settings.PrepSeconds);
                 if (_phaseClock.Elapsed.TotalSeconds >= _phaseLength) Advance();
             }
+            else if (IsParallelActive)
+            {
+                // Nothing to clamp - _phaseClock just keeps counting elapsed time
+                // and every station's position is recomputed fresh each tick.
+            }
             else if (_phase == Phase.Active)
             {
                 if (_index >= _sequence.Count) _index = _sequence.Count - 1;
@@ -452,18 +552,45 @@ namespace GymClock
             Invalidate();
         }
 
-        private void ShowSettings()
+        /// <summary>
+        /// The single combined window for general settings and building a
+        /// program. "B" jumps straight into its Quick Start Wizard for the
+        /// fastest path to a basic program; "S" just opens it at rest.
+        /// </summary>
+        private void ShowProgramEditor(bool launchWizard)
         {
-            using (SettingsForm dialog = new SettingsForm(_settings))
+            using (ProgramEditorForm dialog = new ProgramEditorForm(_settings))
             {
+                if (launchWizard) dialog.Shown += delegate { dialog.LaunchQuickWizard(); };
+
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
+                    bool justActivatedProgram = dialog.Result.UseBuiltProgram
+                        && (!_settings.UseBuiltProgram || _settings.ProgramScript != dialog.Result.ProgramScript);
+
                     _settings = dialog.Result;
                     _settings.Save();
                     ApplySettingsLive();
-                    ShowHint(4);
+                    ResetSession();
+
+                    if (justActivatedProgram)
+                    {
+                        ShowToast("PROGRAM READY: " + _settings.EffectiveProgram().Name.ToUpperInvariant(), 5);
+                        ShowHint(6);
+                    }
+                    else
+                    {
+                        ShowHint(4);
+                    }
                 }
             }
+        }
+
+        private void ShowToast(string message, double seconds)
+        {
+            _toastMessage = message;
+            _toastHideAt = DateTime.Now.AddSeconds(seconds);
+            Invalidate();
         }
 
         /// <summary>
@@ -553,10 +680,11 @@ namespace GymClock
 
         private void ApplyPreset(Preset preset)
         {
-            // A preset key is the quick way back to an even session, so it clears any
-            // custom plan or program rather than leaving one silently in force.
+            // A preset key is the quick way back to a simple session, so it switches
+            // off any built program rather than leaving one silently in force - but
+            // doesn't erase it, so it's still there if you switch back to it later.
             _settings.Plan = string.Empty;
-            _settings.ProgramScript = string.Empty;
+            _settings.UseBuiltProgram = false;
             _settings.WorkSeconds = preset.Work;
             _settings.RestSeconds = preset.Rest;
             if (preset.Rounds > 0) _settings.Rounds = preset.Rounds;
@@ -574,6 +702,14 @@ namespace GymClock
         /// </summary>
         private void JumpToStation(int stationIndex)
         {
+            if (_program.Mode == ExecutionMode.Parallel)
+            {
+                // Every station is already running from the start - there's
+                // nothing to jump to.
+                ShowHint(4);
+                return;
+            }
+
             if (UsingLegacyStationRotation)
             {
                 int count = _settings.Stations.Count;
@@ -707,7 +843,11 @@ namespace GymClock
 
                 case Keys.S:
                 case Keys.F2:
-                    ShowSettings();
+                    ShowProgramEditor(false);
+                    break;
+
+                case Keys.B:
+                    ShowProgramEditor(true);
                     break;
 
                 case Keys.Right:
@@ -781,15 +921,12 @@ namespace GymClock
             float h = client.Height;
 
             double remaining = RemainingSeconds();
-            int secondsLeft = (int)Math.Ceiling(remaining - 0.0001);
 
             // Background: colour alone tells the room which phase they are in.
+            // Each Parallel tile pulses its own background individually instead
+            // (see DrawStationTile), so the shared neutral base behind them stays put.
             Color background = BackgroundColour();
-            if (_phaseClock.IsRunning && InTimedPhase && secondsLeft >= 1 && secondsLeft <= 3)
-            {
-                double pulse = 0.5 + (0.5 * Math.Sin(_phaseClock.Elapsed.TotalMilliseconds / 90.0));
-                background = Blend(background, Color.White, 0.10 + (0.20 * pulse));
-            }
+            if (!IsParallelActive && InTimedPhase) background = ApplyPulse(background, remaining, _phaseClock.IsRunning);
             using (SolidBrush brush = new SolidBrush(background))
             {
                 g.FillRectangle(brush, client);
@@ -799,8 +936,9 @@ namespace GymClock
 
             // The station table, when shown, takes the left quarter of the screen.
             // Everything else that used to span the full width now lives in the
-            // remaining pane, flush to the true right edge.
-            bool showTable = _settings.ShowStationsTable && _program.Stations.Count > 0;
+            // remaining pane, flush to the true right edge. Not shown once the
+            // Parallel dashboard is up - it already lists every station.
+            bool showTable = _settings.ShowStationsTable && !IsParallelActive && _program.Stations.Exists(s => s.ShowInPanel);
             float paneLeft = showTable ? (w / 4f) : 0f;
             float paneWidth = w - paneLeft;
 
@@ -838,48 +976,64 @@ namespace GymClock
                 new RectangleF(paneLeft + margin, margin + (h * 0.095f), paneWidth * 0.5f, h * 0.040f),
                 StringAlignment.Near, StringAlignment.Near);
 
-            // ---- secondary description line - station name, an announcement, or blank
-            string secondary = SecondaryDescriptionText();
-            if (!string.IsNullOrEmpty(secondary))
+            if (IsParallelActive)
             {
-                DrawFitted(g, secondary, _labelFamily, h * 0.075f, FontStyle.Bold, InkSoft,
-                    new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.115f, paneWidth * 0.90f, h * 0.075f));
+                // Every station's own colour, word, countdown and progress bar,
+                // laid out as a grid - the one part of the screen that genuinely
+                // can't be the existing single countdown, since N stations are
+                // each at a different point in their own pattern right now.
+                // Bounded well clear of the wall clock/licence text above (which
+                // end around 0.17h) and the hint bar below (which starts at
+                // 0.92h) - tiles are solid-filled rectangles, so unlike text they
+                // would otherwise visibly paint over anything under them.
+                RectangleF dashboardArea = new RectangleF(paneLeft + margin, h * 0.185f, paneWidth - (margin * 2f), h * 0.705f);
+                PaintParallelDashboard(g, dashboardArea);
             }
-
-            // ---- phase label
-            DrawFitted(g, PhaseLabelText(), _labelFamily, h * 0.105f, FontStyle.Bold, Ink,
-                new RectangleF(paneLeft + (paneWidth * 0.04f), h * 0.195f, paneWidth * 0.92f, h * 0.105f));
-
-            // ---- the big number
-            DrawFitted(g, BigNumberText(), _numberFamily, h * 0.44f, _numberStyle, Ink,
-                new RectangleF(paneLeft + (paneWidth * 0.03f), h * 0.285f, paneWidth * 0.94f, h * 0.475f));
-
-            // ---- round counter
-            DrawFitted(g, RoundText(), _labelFamily, h * 0.055f, FontStyle.Bold, InkSoft,
-                new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.760f, paneWidth * 0.90f, h * 0.065f));
-
-            // ---- what is coming next
-            DrawFitted(g, NextUpText(), _labelFamily, h * 0.038f, FontStyle.Regular, InkFaint,
-                new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.832f, paneWidth * 0.90f, h * 0.050f));
-
-            // ---- progress bar for the current interval
-            if (InTimedPhase)
+            else
             {
-                float barHeight = Math.Max(4f, h * 0.018f);
-                float barLeft = paneLeft + (paneWidth * 0.06f);
-                float barWidth = paneWidth * 0.88f;
-                float barTop = h * 0.893f;
-                double fraction = _phaseLength > 0 ? remaining / _phaseLength : 0;
-                if (fraction < 0) fraction = 0;
-                if (fraction > 1) fraction = 1;
-
-                using (SolidBrush track = new SolidBrush(Color.FromArgb(55, 255, 255, 255)))
+                // ---- secondary description line - station name, an announcement, or blank
+                string secondary = SecondaryDescriptionText();
+                if (!string.IsNullOrEmpty(secondary))
                 {
-                    g.FillRectangle(track, barLeft, barTop, barWidth, barHeight);
+                    DrawFitted(g, secondary, _labelFamily, h * 0.075f, FontStyle.Bold, InkSoft,
+                        new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.115f, paneWidth * 0.90f, h * 0.075f));
                 }
-                using (SolidBrush fill = new SolidBrush(Color.FromArgb(235, 255, 255, 255)))
+
+                // ---- phase label
+                DrawFitted(g, PhaseLabelText(), _labelFamily, h * 0.105f, FontStyle.Bold, Ink,
+                    new RectangleF(paneLeft + (paneWidth * 0.04f), h * 0.195f, paneWidth * 0.92f, h * 0.105f));
+
+                // ---- the big number
+                DrawFitted(g, BigNumberText(), _numberFamily, h * 0.44f, _numberStyle, Ink,
+                    new RectangleF(paneLeft + (paneWidth * 0.03f), h * 0.285f, paneWidth * 0.94f, h * 0.475f));
+
+                // ---- round counter
+                DrawFitted(g, RoundText(), _labelFamily, h * 0.055f, FontStyle.Bold, InkSoft,
+                    new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.760f, paneWidth * 0.90f, h * 0.065f));
+
+                // ---- what is coming next
+                DrawFitted(g, NextUpText(), _labelFamily, h * 0.038f, FontStyle.Regular, InkFaint,
+                    new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.832f, paneWidth * 0.90f, h * 0.050f));
+
+                // ---- progress bar for the current interval
+                if (InTimedPhase)
                 {
-                    g.FillRectangle(fill, barLeft, barTop, (float)(barWidth * fraction), barHeight);
+                    float barHeight = Math.Max(4f, h * 0.018f);
+                    float barLeft = paneLeft + (paneWidth * 0.06f);
+                    float barWidth = paneWidth * 0.88f;
+                    float barTop = h * 0.893f;
+                    double fraction = _phaseLength > 0 ? remaining / _phaseLength : 0;
+                    if (fraction < 0) fraction = 0;
+                    if (fraction > 1) fraction = 1;
+
+                    using (SolidBrush track = new SolidBrush(Color.FromArgb(55, 255, 255, 255)))
+                    {
+                        g.FillRectangle(track, barLeft, barTop, barWidth, barHeight);
+                    }
+                    using (SolidBrush fill = new SolidBrush(Color.FromArgb(235, 255, 255, 255)))
+                    {
+                        g.FillRectangle(fill, barLeft, barTop, (float)(barWidth * fraction), barHeight);
+                    }
                 }
             }
 
@@ -918,6 +1072,152 @@ namespace GymClock
                     new RectangleF(paneLeft + margin, margin + (h * 0.130f), paneWidth * 0.5f, h * 0.036f),
                     StringAlignment.Near, StringAlignment.Near);
             }
+
+            // ---- toast confirmation (e.g. "PROGRAM READY: X" right after Quick Setup) - drawn last, on top of everything
+            if (!string.IsNullOrEmpty(_toastMessage) && DateTime.Now < _toastHideAt)
+            {
+                RectangleF toastArea = new RectangleF(paneLeft + (paneWidth * 0.12f), h * 0.40f, paneWidth * 0.76f, h * 0.12f);
+                using (SolidBrush toastBg = new SolidBrush(Color.FromArgb(220, 15, 20, 26)))
+                {
+                    g.FillRectangle(toastBg, toastArea);
+                }
+                using (Pen toastBorder = new Pen(Color.FromArgb(220, 60, 200, 120), Math.Max(2f, h * 0.003f)))
+                {
+                    g.DrawRectangle(toastBorder, toastArea.X, toastArea.Y, toastArea.Width, toastArea.Height);
+                }
+                DrawFitted(g, _toastMessage, _labelFamily, h * 0.055f, FontStyle.Bold,
+                    Color.FromArgb(255, 120, 230, 150), toastArea);
+            }
+        }
+
+        /// <summary>
+        /// The Parallel-mode dashboard: every station's own tile, each with its
+        /// own colour, word, countdown and progress bar - the one part of the
+        /// screen that genuinely needs new layout, since N different phases can
+        /// be on screen at once here in a way Shared and Sequential never allow.
+        /// </summary>
+        private void PaintParallelDashboard(Graphics g, RectangleF area)
+        {
+            List<StationPosition> positions = ComputeParallelPositions();
+            int n = positions.Count;
+            if (n == 0 || area.Width < 10 || area.Height < 10) return;
+
+            // Biases toward more columns than rows, since the display is normally
+            // a wide projector/TV screen rather than a square one.
+            double aspect = area.Width / Math.Max(1f, area.Height);
+            int columns = (int)Math.Ceiling(Math.Sqrt(n * Math.Max(0.3, aspect)));
+            columns = Math.Max(1, Math.Min(columns, n));
+            int rows = (int)Math.Ceiling(n / (double)columns);
+
+            float gap = Math.Min(area.Width, area.Height) * 0.02f;
+            float tileWidth = (area.Width - (gap * (columns + 1))) / columns;
+            float tileHeight = (area.Height - (gap * (rows + 1))) / rows;
+
+            for (int i = 0; i < n; i++)
+            {
+                int col = i % columns;
+                int row = i / columns;
+                RectangleF tile = new RectangleF(
+                    area.X + gap + (col * (tileWidth + gap)),
+                    area.Y + gap + (row * (tileHeight + gap)),
+                    tileWidth, tileHeight);
+
+                DrawStationTile(g, tile, i, positions[i]);
+            }
+        }
+
+        /// <summary>One station's tile: its own colour + final-seconds pulse, name, word, countdown and progress bar.</summary>
+        private void DrawStationTile(Graphics g, RectangleF tile, int index, StationPosition position)
+        {
+            string name = index < _program.Stations.Count ? _program.Stations[index].Name : _program.Name;
+            string stationColourText = index < _program.Stations.Count ? _program.Stations[index].Colour : string.Empty;
+
+            Color background;
+            string word;
+            string countdown = string.Empty;
+            double fraction = 0;
+
+            if (position.Block == null || position.Finished)
+            {
+                background = _settings.DoneBg;
+                word = "DONE";
+            }
+            else
+            {
+                Block block = position.Block.Block;
+                Color baseColour = _settings.ColourFor(block.Type, block.Colour);
+                background = ApplyPulse(baseColour, position.RemainingSeconds, _phaseClock.IsRunning);
+                word = block.Word;
+                countdown = FormatSeconds(position.RemainingSeconds);
+                fraction = block.Seconds > 0 ? position.RemainingSeconds / block.Seconds : 0;
+                if (fraction < 0) fraction = 0;
+                if (fraction > 1) fraction = 1;
+            }
+
+            using (SolidBrush brush = new SolidBrush(background))
+            {
+                g.FillRectangle(brush, tile);
+            }
+
+            float pad = tile.Height * 0.06f;
+
+            // Station name + optional colour swatch, top of the tile.
+            RectangleF nameRect = new RectangleF(tile.X + pad, tile.Y + pad, tile.Width - (pad * 2), tile.Height * 0.14f);
+            if (!string.IsNullOrEmpty(stationColourText))
+            {
+                Color swatch = TimerSettings.ParseColour(stationColourText, Color.Transparent);
+                if (swatch.A > 0)
+                {
+                    float swatchSize = nameRect.Height * 0.7f;
+                    using (SolidBrush swatchBrush = new SolidBrush(swatch))
+                    {
+                        g.FillEllipse(swatchBrush, nameRect.X, nameRect.Y + ((nameRect.Height - swatchSize) / 2f), swatchSize, swatchSize);
+                    }
+                    nameRect = new RectangleF(nameRect.X + swatchSize + (pad * 0.5f), nameRect.Y,
+                        nameRect.Width - swatchSize - (pad * 0.5f), nameRect.Height);
+                }
+            }
+            DrawTableCell(g, name, tile.Height * 0.075f, FontStyle.Bold, Ink, nameRect);
+
+            // Word (WORK/RECOVERY/... or DONE), upper-middle.
+            DrawFitted(g, word, _labelFamily, tile.Height * 0.10f, FontStyle.Bold, InkSoft,
+                new RectangleF(tile.X + pad, tile.Y + (tile.Height * 0.22f), tile.Width - (pad * 2), tile.Height * 0.14f));
+
+            if (!string.IsNullOrEmpty(countdown))
+            {
+                // The countdown number, the bulk of the tile.
+                DrawFitted(g, countdown, _numberFamily, tile.Height * 0.36f, _numberStyle, Ink,
+                    new RectangleF(tile.X + pad, tile.Y + (tile.Height * 0.36f), tile.Width - (pad * 2), tile.Height * 0.46f));
+
+                // Progress bar, bottom of the tile.
+                float barHeight = Math.Max(3f, tile.Height * 0.035f);
+                float barTop = tile.Y + tile.Height - pad - barHeight;
+                float barLeft = tile.X + pad;
+                float barWidth = tile.Width - (pad * 2);
+
+                using (SolidBrush track = new SolidBrush(Color.FromArgb(55, 255, 255, 255)))
+                {
+                    g.FillRectangle(track, barLeft, barTop, barWidth, barHeight);
+                }
+                using (SolidBrush fill = new SolidBrush(Color.FromArgb(235, 255, 255, 255)))
+                {
+                    g.FillRectangle(fill, barLeft, barTop, (float)(barWidth * fraction), barHeight);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The final-few-seconds flash, factored out so both the single-screen
+        /// background and every Parallel tile apply exactly the same effect
+        /// instead of two copies of the same sine-wave blend drifting apart.
+        /// </summary>
+        private Color ApplyPulse(Color background, double remainingSeconds, bool running)
+        {
+            int secondsLeft = (int)Math.Ceiling(remainingSeconds - 0.0001);
+            if (!running || secondsLeft < 1 || secondsLeft > 3) return background;
+
+            double pulse = 0.5 + (0.5 * Math.Sin(_phaseClock.Elapsed.TotalMilliseconds / 90.0));
+            return Blend(background, Color.White, 0.10 + (0.20 * pulse));
         }
 
         /// <summary>
@@ -931,26 +1231,38 @@ namespace GymClock
         /// </summary>
         private void DrawStationsTable(Graphics g, RectangleF area, float clientHeight)
         {
-            List<StationDef> stations = _program.Stations;
-            if (stations.Count == 0 || area.Width < 10 || area.Height < 10) return;
+            List<StationDef> allStations = _program.Stations;
+            if (allStations.Count == 0 || area.Width < 10 || area.Height < 10) return;
 
-            using (SolidBrush panel = new SolidBrush(Color.FromArgb(70, 0, 0, 0)))
-            {
-                g.FillRectangle(panel, area);
-            }
-
-            int currentIndex = -1;
+            int currentAllIndex = -1;
             if (_phase != Phase.Idle && _phase != Phase.Finished)
             {
                 if (UsingLegacyStationRotation)
                 {
                     Station legacy = LegacyCurrentStation();
-                    if (legacy != null) currentIndex = _settings.Stations.IndexOf(legacy);
+                    if (legacy != null) currentAllIndex = _settings.Stations.IndexOf(legacy);
                 }
                 else if (_program.Mode == ExecutionMode.Sequential)
                 {
-                    currentIndex = ActiveStationIndexForDisplay();
+                    currentAllIndex = ActiveStationIndexForDisplay();
                 }
+            }
+
+            // Only stations the teacher has chosen to show on screen - a station
+            // hidden this way simply never appears here, active or not.
+            List<StationDef> stations = new List<StationDef>();
+            int currentIndex = -1;
+            for (int i = 0; i < allStations.Count; i++)
+            {
+                if (!allStations[i].ShowInPanel) continue;
+                if (i == currentAllIndex) currentIndex = stations.Count;
+                stations.Add(allStations[i]);
+            }
+            if (stations.Count == 0) return;
+
+            using (SolidBrush panel = new SolidBrush(Color.FromArgb(70, 0, 0, 0)))
+            {
+                g.FillRectangle(panel, area);
             }
 
             float rowHeight = area.Height / stations.Count;
@@ -1053,6 +1365,11 @@ namespace GymClock
 
                 case Phase.Active:
                 {
+                    // No single phase colours the whole screen once N stations are
+                    // each showing their own - just a neutral base behind the tiles,
+                    // which draw their own colour and pulse individually.
+                    if (IsParallelActive) return _settings.IdleBg;
+
                     RuntimeBlock current = CurrentBlock();
                     return current == null ? _settings.IdleBg : _settings.ColourFor(current.Block.Type, current.Block.Colour);
                 }
@@ -1078,7 +1395,12 @@ namespace GymClock
         {
             string text;
 
-            if (_program.Mode == ExecutionMode.Sequential && _program.Stations.Count > 0)
+            if (_program.Mode == ExecutionMode.Parallel)
+            {
+                int count = _parallelStations.Count;
+                text = _program.Name + "   -   Parallel (" + count + (count == 1 ? " station" : " stations") + ")";
+            }
+            else if (_program.Mode == ExecutionMode.Sequential && _program.Stations.Count > 0)
             {
                 int stationIndex = ActiveStationIndexForDisplay();
                 text = stationIndex >= 0
@@ -1373,8 +1695,16 @@ namespace GymClock
         private string HintText()
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("SPACE start/pause  -  R reset  -  S settings  -  ");
-            sb.Append("←/→ back/skip  -  ");
+            sb.Append("SPACE start/pause  -  R reset  -  B build a program  -  S settings  -  ");
+
+            if (_program.Mode == ExecutionMode.Parallel)
+            {
+                sb.Append("← restart all stations  -  ");
+            }
+            else
+            {
+                sb.Append("←/→ back/skip  -  ");
+            }
 
             if (_settings.Presets.Count > 0)
             {
@@ -1385,7 +1715,10 @@ namespace GymClock
                 sb.Append("-  ");
             }
 
-            if (_program.Stations.Count > 0) sb.Append("CTRL+1-9 jump to station  -  ");
+            if (_program.Mode != ExecutionMode.Parallel && _program.Stations.Count > 0)
+            {
+                sb.Append("CTRL+1-9 jump to station  -  ");
+            }
 
             sb.Append("M mute  -  F11 full screen  -  F6 next display  -  F3 licence  -  Q quit");
             return sb.ToString();

@@ -1,0 +1,53 @@
+# Real-world example: a 5-station rotating circuit with several groups working
+# at once (e.g. one group per station), all on the same 45s work / 15s
+# recovery countdown - Shared Timing, so the station panel is informational
+# only and nothing is highlighted, since every station is in use simultaneously.
+#
+# 8 rotations through all 5 stations, with 1 minute to move before each next
+# rotation - built as 7 repeats-with-move plus one final unwrapped pass with no
+# trailing move, since the workout ends there rather than moving on again.
+# Total run time: 47:00.
+#
+# Import with "Import Program..." on the Program tab.
+
+PROGRAM "45/15 Interval Cardio Circuit"
+MODE SHARED
+
+REPEAT 7
+    WORK 45s
+    RECOVERY 15s
+    WORK 45s
+    RECOVERY 15s
+    WORK 45s
+    RECOVERY 15s
+    WORK 45s
+    RECOVERY 15s
+    WORK 45s
+    RECOVERY 15s
+    MOVE 1m
+END
+WORK 45s
+RECOVERY 15s
+WORK 45s
+RECOVERY 15s
+WORK 45s
+RECOVERY 15s
+WORK 45s
+RECOVERY 15s
+WORK 45s
+RECOVERY 15s
+
+STATION "Treadmill"
+END STATION
+
+STATION "Exercise Cycle"
+END STATION
+
+STATION "Skipping"
+END STATION
+
+STATION "Step-Ups"
+END STATION
+
+STATION "Battle Ropes"
+END STATION

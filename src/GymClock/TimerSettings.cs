@@ -216,12 +216,20 @@ namespace GymClock
 
         /// <summary>
         /// The current program, written as script text (see ProgramScriptFormat).
-        /// Empty means no program has been built yet - EffectiveProgram() then
-        /// synthesises one from the legacy Work/Rest/Plan/Stations fields above,
-        /// so every settings file written before programs existed still loads
-        /// and runs exactly as it always has.
+        /// Kept even while UseBuiltProgram is off, so switching between "Simple
+        /// session" and "Built program" in the editor never throws either one
+        /// away - only UseBuiltProgram decides which is actually running.
         /// </summary>
         public string ProgramScript = string.Empty;
+
+        /// <summary>
+        /// Which of the two program sources EffectiveProgram() should use: a
+        /// built program (ProgramScript), or the legacy Work/Rest/Plan/Stations
+        /// fields. Defaults to false so every settings file written before
+        /// programs existed still loads and runs exactly as it always has, even
+        /// if it later happens to pick up a leftover ProgramScript value.
+        /// </summary>
+        public bool UseBuiltProgram = false;
 
         public List<Preset> Presets = new List<Preset>();
 
@@ -250,14 +258,15 @@ namespace GymClock
         }
 
         /// <summary>
-        /// The program actually in force: the one written to ProgramScript if it
-        /// parses into something runnable, and a program synthesised from the
-        /// legacy fields otherwise - so a settings file with no program yet
-        /// behaves exactly as it did before programs existed.
+        /// The program actually in force: the built one (ProgramScript) if
+        /// UseBuiltProgram is on and it parses into something runnable, and a
+        /// program synthesised from the legacy fields otherwise - so a settings
+        /// file with no program yet, or one that has a program but hasn't
+        /// switched to it, behaves exactly as it did before programs existed.
         /// </summary>
         public WorkoutProgram EffectiveProgram()
         {
-            if (!string.IsNullOrEmpty(ProgramScript))
+            if (UseBuiltProgram && !string.IsNullOrEmpty(ProgramScript))
             {
                 WorkoutProgram parsed = ProgramScriptFormat.Parse(ProgramScript);
                 if (!parsed.SharedTimeline.IsEmpty || parsed.Stations.Count > 0) return parsed;
@@ -377,6 +386,7 @@ namespace GymClock
             c.InstructionColour = InstructionColour;
             c.CustomColour = CustomColour;
             c.ProgramScript = ProgramScript;
+            c.UseBuiltProgram = UseBuiltProgram;
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
@@ -472,6 +482,7 @@ namespace GymClock
                         case "customcolour":
                         case "customcolor": s.CustomColour = value; break;
                         case "program": s.ProgramScript = value.Replace("\\n", "\n"); break;
+                        case "usebuiltprogram": s.UseBuiltProgram = ReadBool(value, s.UseBuiltProgram); break;
                         case "presets":
                             List<Preset> parsed = new List<Preset>();
                             foreach (string item in SplitList(value))
@@ -568,6 +579,9 @@ namespace GymClock
                 sb.AppendLine("# Builder's Script tab). Blank means no program has been built yet, so the");
                 sb.AppendLine("# clock runs the plain work/rest/rounds settings above instead.");
                 sb.AppendLine("program=" + ProgramScript.Replace("\n", "\\n"));
+                sb.AppendLine("# Which of the above is actually running - a built program, or the simple");
+                sb.AppendLine("# work/rest/rounds/plan fields. Keeping both around means switching never loses either.");
+                sb.AppendLine("usebuiltprogram=" + (UseBuiltProgram ? "true" : "false"));
                 sb.AppendLine();
                 sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
                 List<string> ps = new List<string>();

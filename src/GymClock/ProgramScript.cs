@@ -46,6 +46,11 @@ namespace GymClock
             StationDef currentStation = null;
             RepeatGroup currentGroup = null;   // single level only
 
+            // An explicit MODE line always wins over the implicit "seeing a
+            // STATION line means Sequential" default below, regardless of which
+            // comes first in the script.
+            bool modeExplicit = false;
+
             // Between-stations content is only ever written once (see ToScript) and
             // read back inside its own BETWEEN...END BETWEEN block - never inferred
             // from position - so a script can be round-tripped through Save/Load or
@@ -82,13 +87,33 @@ namespace GymClock
                     {
                         currentStation = new StationDef { Name = ExtractQuoted(rest), Source = TimingSource.Custom };
                         program.Stations.Add(currentStation);
-                        program.Mode = ExecutionMode.Sequential;
+                        if (!modeExplicit) program.Mode = ExecutionMode.Sequential;
+                        break;
+                    }
+
+                    case "PANEL":
+                    {
+                        if (currentStation != null)
+                        {
+                            currentStation.ShowInPanel = !string.Equals(rest.Trim(), "HIDE", StringComparison.OrdinalIgnoreCase);
+                        }
                         break;
                     }
 
                     case "BETWEEN":
                         inBetween = true;
                         break;
+
+                    case "MODE":
+                    {
+                        switch (rest.Trim().ToUpperInvariant())
+                        {
+                            case "SHARED": program.Mode = ExecutionMode.Shared; modeExplicit = true; break;
+                            case "SEQUENTIAL": program.Mode = ExecutionMode.Sequential; modeExplicit = true; break;
+                            case "PARALLEL": program.Mode = ExecutionMode.Parallel; modeExplicit = true; break;
+                        }
+                        break;
+                    }
 
                     case "REPEAT":
                     {
@@ -153,18 +178,32 @@ namespace GymClock
 
             StringBuilder sb = new StringBuilder();
             sb.Append("PROGRAM \"").Append((program.Name ?? "Workout").Replace("\"", "'")).Append('"').Append('\n');
+
+            // Only Sequential/Parallel with at least one station actually have a
+            // per-station timeline to write out; Parallel with none falls back to
+            // the plain shared-timeline form below, same as Sequential always did.
+            bool perStationTimelines = (program.Mode == ExecutionMode.Sequential || program.Mode == ExecutionMode.Parallel)
+                && program.Stations.Count > 0;
+
+            if (program.Mode == ExecutionMode.Sequential) sb.Append("MODE SEQUENTIAL").Append('\n');
+            else if (program.Mode == ExecutionMode.Parallel) sb.Append("MODE PARALLEL").Append('\n');
+            else if (program.Stations.Count > 0)
+            {
+                // Shared timing normally stays implicit/undecorated, but a STATION
+                // line below (needed for the informational panel - e.g. a rotating
+                // circuit where several groups are on different stations at once)
+                // would otherwise imply Sequential on reparse, so it has to be spelled out here.
+                sb.Append("MODE SHARED").Append('\n');
+            }
+
             sb.Append('\n');
 
-            if (program.Mode == ExecutionMode.Shared || program.Stations.Count == 0)
-            {
-                AppendTimeline(sb, program.SharedTimeline, string.Empty);
-            }
-            else
+            if (perStationTimelines)
             {
                 // Written once, up front - it is one shared timeline played between
                 // every pair of stations, not a separate copy per gap, so writing it
                 // more than once would double it up the next time this is parsed.
-                if (!program.BetweenStationsTimeline.IsEmpty)
+                if (program.Mode == ExecutionMode.Sequential && !program.BetweenStationsTimeline.IsEmpty)
                 {
                     sb.Append("BETWEEN").Append('\n');
                     AppendTimeline(sb, program.BetweenStationsTimeline, "    ");
@@ -176,9 +215,30 @@ namespace GymClock
                 {
                     StationDef station = program.Stations[i];
                     sb.Append("STATION \"").Append(station.Name.Replace("\"", "'")).Append('"').Append('\n');
+                    if (!station.ShowInPanel) sb.Append("    PANEL HIDE").Append('\n');
                     AppendTimeline(sb, program.TimelineForStation(i), "    ");
                     sb.Append("END STATION").Append('\n');
                     sb.Append('\n');
+                }
+            }
+            else
+            {
+                AppendTimeline(sb, program.SharedTimeline, string.Empty);
+
+                // An informational station list - e.g. a rotating circuit where
+                // several groups are on different stations at once, all following
+                // this same shared timeline. No timeline of its own to write per
+                // station here, since Shared mode only ever has the one above.
+                if (program.Stations.Count > 0)
+                {
+                    sb.Append('\n');
+                    foreach (StationDef station in program.Stations)
+                    {
+                        sb.Append("STATION \"").Append(station.Name.Replace("\"", "'")).Append('"').Append('\n');
+                        if (!station.ShowInPanel) sb.Append("    PANEL HIDE").Append('\n');
+                        sb.Append("END STATION").Append('\n');
+                        sb.Append('\n');
+                    }
                 }
             }
 

@@ -14,7 +14,8 @@ namespace GymClock
         private Label _modeLabel;
         private RadioButton _sharedMode;
         private RadioButton _sequentialMode;
-        private RadioButton _parallelMode;   // present but disabled - Parallel Independent Stations is a later phase
+        private RadioButton _parallelMode;
+        private Label _modeDescription;
 
         private Label _patternLabel;
         private ComboBox _pattern;
@@ -42,7 +43,6 @@ namespace GymClock
         private Label _preview;
 
         private Button _createButton;
-        private Button _openBuilderButton;
         private Button _cancelButton;
 
         protected override void Dispose(bool disposing)
@@ -60,6 +60,7 @@ namespace GymClock
             _sharedMode = new RadioButton();
             _sequentialMode = new RadioButton();
             _parallelMode = new RadioButton();
+            _modeDescription = new Label();
 
             _patternLabel = new Label();
             _pattern = new ComboBox();
@@ -87,7 +88,6 @@ namespace GymClock
             _preview = new Label();
 
             _createButton = new Button();
-            _openBuilderButton = new Button();
             _cancelButton = new Button();
 
             ((System.ComponentModel.ISupportInitialize)_work).BeginInit();
@@ -121,44 +121,55 @@ namespace GymClock
             _sharedMode.Checked = true;
             _sharedMode.Location = new Point(16, 84);
             _sharedMode.Size = new Size(420, 26);
-            _sharedMode.Text = "Shared Timing - every station follows the same countdown";
+            _sharedMode.Text = "Shared Timing";
             //
             // _sequentialMode
             //
             _sequentialMode.Location = new Point(16, 110);
             _sequentialMode.Size = new Size(420, 26);
-            _sequentialMode.Text = "Sequential Stations - one station at a time, each with its own timing";
+            _sequentialMode.Text = "Sequential Stations";
             //
             // _parallelMode
             //
-            _parallelMode.Enabled = false;
             _parallelMode.Location = new Point(16, 136);
             _parallelMode.Size = new Size(420, 26);
-            _parallelMode.Text = "Parallel Independent Stations - coming soon";
+            _parallelMode.Text = "Parallel Independent Stations";
+            //
+            // _modeDescription
+            //
+            // Updated live by UpdateModeDescription() to explain, in plain
+            // language with a concrete example, whichever mode is selected -
+            // the three one-word names alone weren't enough to tell them apart.
+            _modeDescription.BackColor = Color.FromArgb(240, 240, 245);
+            _modeDescription.Font = new Font("Segoe UI", 9F);
+            _modeDescription.Location = new Point(16, 166);
+            _modeDescription.Size = new Size(568, 62);
+            _modeDescription.Padding = new Padding(8, 6, 8, 6);
+            _modeDescription.Text = "";
             //
             // _patternLabel
             //
             _patternLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _patternLabel.Location = new Point(16, 176);
+            _patternLabel.Location = new Point(16, 240);
             _patternLabel.Size = new Size(200, 24);
             _patternLabel.Text = "Pattern";
             //
             // _pattern
             //
             _pattern.DropDownStyle = ComboBoxStyle.DropDownList;
-            _pattern.Location = new Point(16, 202);
+            _pattern.Location = new Point(16, 266);
             _pattern.Size = new Size(260, 36);
             //
             // _workLabel
             //
-            _workLabel.Location = new Point(16, 250);
+            _workLabel.Location = new Point(16, 314);
             _workLabel.Size = new Size(140, 30);
             _workLabel.Text = "Work seconds";
             _workLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _work
             //
-            _work.Location = new Point(160, 246);
+            _work.Location = new Point(160, 310);
             _work.Size = new Size(80, 34);
             _work.Minimum = 1;
             _work.Maximum = 3600;
@@ -166,20 +177,20 @@ namespace GymClock
             //
             // _workUnit
             //
-            _workUnit.Location = new Point(246, 250);
+            _workUnit.Location = new Point(246, 314);
             _workUnit.Size = new Size(40, 30);
             _workUnit.Text = "sec";
             //
             // _recoveryLabel
             //
-            _recoveryLabel.Location = new Point(16, 288);
+            _recoveryLabel.Location = new Point(16, 352);
             _recoveryLabel.Size = new Size(140, 30);
             _recoveryLabel.Text = "Recovery seconds";
             _recoveryLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _recovery
             //
-            _recovery.Location = new Point(160, 284);
+            _recovery.Location = new Point(160, 348);
             _recovery.Size = new Size(80, 34);
             _recovery.Minimum = 0;
             _recovery.Maximum = 3600;
@@ -187,20 +198,20 @@ namespace GymClock
             //
             // _recoveryUnit
             //
-            _recoveryUnit.Location = new Point(246, 288);
+            _recoveryUnit.Location = new Point(246, 352);
             _recoveryUnit.Size = new Size(40, 30);
             _recoveryUnit.Text = "sec";
             //
             // _roundsLabel
             //
-            _roundsLabel.Location = new Point(16, 326);
+            _roundsLabel.Location = new Point(16, 390);
             _roundsLabel.Size = new Size(140, 30);
             _roundsLabel.Text = "Rounds";
             _roundsLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _rounds
             //
-            _rounds.Location = new Point(160, 322);
+            _rounds.Location = new Point(160, 386);
             _rounds.Size = new Size(80, 34);
             _rounds.Minimum = 1;
             _rounds.Maximum = 999;
@@ -208,14 +219,14 @@ namespace GymClock
             //
             // _stepLabel
             //
-            _stepLabel.Location = new Point(300, 250);
+            _stepLabel.Location = new Point(300, 314);
             _stepLabel.Size = new Size(140, 30);
             _stepLabel.Text = "Step seconds";
             _stepLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _step
             //
-            _step.Location = new Point(440, 246);
+            _step.Location = new Point(440, 310);
             _step.Size = new Size(80, 34);
             _step.Minimum = 1;
             _step.Maximum = 300;
@@ -223,20 +234,20 @@ namespace GymClock
             //
             // _stepUnit
             //
-            _stepUnit.Location = new Point(526, 250);
+            _stepUnit.Location = new Point(526, 314);
             _stepUnit.Size = new Size(40, 30);
             _stepUnit.Text = "sec";
             //
             // _minutesLabel
             //
-            _minutesLabel.Location = new Point(300, 288);
+            _minutesLabel.Location = new Point(300, 352);
             _minutesLabel.Size = new Size(140, 30);
             _minutesLabel.Text = "Total minutes";
             _minutesLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _minutes
             //
-            _minutes.Location = new Point(440, 284);
+            _minutes.Location = new Point(440, 348);
             _minutes.Size = new Size(80, 34);
             _minutes.Minimum = 1;
             _minutes.Maximum = 180;
@@ -244,42 +255,35 @@ namespace GymClock
             //
             // _minutesUnit
             //
-            _minutesUnit.Location = new Point(526, 288);
+            _minutesUnit.Location = new Point(526, 352);
             _minutesUnit.Size = new Size(40, 30);
             _minutesUnit.Text = "min";
             //
             // _previewLabel
             //
             _previewLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _previewLabel.Location = new Point(16, 372);
+            _previewLabel.Location = new Point(16, 436);
             _previewLabel.Size = new Size(200, 24);
             _previewLabel.Text = "Preview";
             //
             // _preview
             //
             _preview.ForeColor = Color.DimGray;
-            _preview.Location = new Point(16, 398);
+            _preview.Location = new Point(16, 462);
             _preview.Size = new Size(568, 70);
             _preview.Text = "";
             //
             // _createButton
             //
-            _createButton.Location = new Point(300, 480);
-            _createButton.Size = new Size(140, 38);
+            _createButton.Location = new Point(414, 544);
+            _createButton.Size = new Size(170, 38);
             _createButton.Text = "Create Program";
             _createButton.Click += CreateProgram_Click;
-            //
-            // _openBuilderButton
-            //
-            _openBuilderButton.Location = new Point(448, 480);
-            _openBuilderButton.Size = new Size(136, 38);
-            _openBuilderButton.Text = "Open In Builder";
-            _openBuilderButton.Click += OpenInBuilder_Click;
             //
             // _cancelButton
             //
             _cancelButton.DialogResult = DialogResult.Cancel;
-            _cancelButton.Location = new Point(16, 480);
+            _cancelButton.Location = new Point(16, 544);
             _cancelButton.Size = new Size(90, 38);
             _cancelButton.Text = "Cancel";
             //
@@ -288,13 +292,14 @@ namespace GymClock
             AcceptButton = _createButton;
             CancelButton = _cancelButton;
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(600, 534);
+            ClientSize = new Size(600, 598);
             Controls.Add(_nameLabel);
             Controls.Add(_name);
             Controls.Add(_modeLabel);
             Controls.Add(_sharedMode);
             Controls.Add(_sequentialMode);
             Controls.Add(_parallelMode);
+            Controls.Add(_modeDescription);
             Controls.Add(_patternLabel);
             Controls.Add(_pattern);
             Controls.Add(_workLabel);
@@ -314,7 +319,6 @@ namespace GymClock
             Controls.Add(_previewLabel);
             Controls.Add(_preview);
             Controls.Add(_createButton);
-            Controls.Add(_openBuilderButton);
             Controls.Add(_cancelButton);
             Font = new Font("Segoe UI", 10F);
             FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -325,6 +329,11 @@ namespace GymClock
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
             Text = "Quick Setup";
+            // SettingsForm (and MainForm, when "keep window on top" is on) are
+            // TopMost - without this, this dialog would render behind them
+            // despite being modal, since TopMost wins the OS z-order regardless
+            // of ownership. Same convention as SettingsForm/LicenceDialog/LicenceRequestForm.
+            TopMost = true;
             ((System.ComponentModel.ISupportInitialize)_work).EndInit();
             ((System.ComponentModel.ISupportInitialize)_recovery).EndInit();
             ((System.ComponentModel.ISupportInitialize)_rounds).EndInit();

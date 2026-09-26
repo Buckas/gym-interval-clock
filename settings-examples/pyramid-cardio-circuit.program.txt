@@ -1,0 +1,105 @@
+# Real-world example: the same rotating-circuit shape as
+# 45-15-interval-cardio-circuit.program.txt, but each "rotation slot" is a full
+# 20/30/40/50/60/50/40/30/20 pyramid (rest is always half the work time),
+# done twice, before 1 minute to move to the next slot. Shared Timing, 5
+# stations, informational panel only.
+#
+# 5 rotation slots total ("repeat until all 5 stations have been completed") -
+# built as 4 repeats-with-move plus one final unwrapped pass with no trailing
+# move. Total run time: 1:29:00.
+#
+# Import with "Import Program..." on the Program tab.
+
+PROGRAM "Pyramid Cardio Circuit"
+MODE SHARED
+
+REPEAT 4
+    WORK 20s
+    RECOVERY 10s
+    WORK 30s
+    RECOVERY 15s
+    WORK 40s
+    RECOVERY 20s
+    WORK 50s
+    RECOVERY 25s
+    WORK 1m
+    RECOVERY 30s
+    WORK 50s
+    RECOVERY 25s
+    WORK 40s
+    RECOVERY 20s
+    WORK 30s
+    RECOVERY 15s
+    WORK 20s
+    RECOVERY 10s
+    WORK 20s
+    RECOVERY 10s
+    WORK 30s
+    RECOVERY 15s
+    WORK 40s
+    RECOVERY 20s
+    WORK 50s
+    RECOVERY 25s
+    WORK 1m
+    RECOVERY 30s
+    WORK 50s
+    RECOVERY 25s
+    WORK 40s
+    RECOVERY 20s
+    WORK 30s
+    RECOVERY 15s
+    WORK 20s
+    RECOVERY 10s
+    MOVE 1m
+END
+WORK 20s
+RECOVERY 10s
+WORK 30s
+RECOVERY 15s
+WORK 40s
+RECOVERY 20s
+WORK 50s
+RECOVERY 25s
+WORK 1m
+RECOVERY 30s
+WORK 50s
+RECOVERY 25s
+WORK 40s
+RECOVERY 20s
+WORK 30s
+RECOVERY 15s
+WORK 20s
+RECOVERY 10s
+WORK 20s
+RECOVERY 10s
+WORK 30s
+RECOVERY 15s
+WORK 40s
+RECOVERY 20s
+WORK 50s
+RECOVERY 25s
+WORK 1m
+RECOVERY 30s
+WORK 50s
+RECOVERY 25s
+WORK 40s
+RECOVERY 20s
+WORK 30s
+RECOVERY 15s
+WORK 20s
+RECOVERY 10s
+
+STATION "Burpees"
+END STATION
+
+STATION "Mountain Climbers"
+END STATION
+
+STATION "Squat Jumps"
+END STATION
+
+STATION "Skater Bounds"
+END STATION
+
+STATION "Step-Ups"
+END STATION

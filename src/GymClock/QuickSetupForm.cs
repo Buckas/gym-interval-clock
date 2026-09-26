@@ -5,11 +5,11 @@ using System.Windows.Forms;
 namespace GymClock
 {
     /// <summary>
-    /// The first thing you see when building a program: a name, an execution
-    /// mode, a pattern and its numbers, and a live preview. "Create Program"
-    /// applies it straight away; "Open In Builder" hands the generated program
-    /// to the Program Builder for further shaping (adding stations, rest blocks
-    /// anywhere, repeat groups, and so on) before it runs.
+    /// The fast path to a basic program: a name, an execution mode, a pattern
+    /// and its numbers, and a live preview. Opened from ProgramEditorForm's
+    /// "Quick Start Wizard..." button (or the clock's "B" shortcut, which opens
+    /// that same editor and launches this straight away) - "Create Program"
+    /// hands the result back to it, ready to refine further or just run as is.
     /// </summary>
     public partial class QuickSetupForm : Form
     {
@@ -31,6 +31,15 @@ namespace GymClock
 
         public WorkoutProgram Result { get; private set; }
 
+        /// <summary>
+        /// Parameterless constructor required by the Windows Forms designer at design time.
+        /// Not intended for runtime use.
+        /// </summary>
+        public QuickSetupForm()
+            : this(new TimerSettings())
+        {
+        }
+
         public QuickSetupForm(TimerSettings settings)
         {
             InitializeComponent();
@@ -46,16 +55,110 @@ namespace GymClock
             _minutes.Value = 10;
 
             EventHandler refresh = delegate { UpdatePreview(); };
-            _pattern.SelectedIndexChanged += refresh;
+            _pattern.SelectedIndexChanged += delegate { UpdateFieldVisibility(); UpdatePreview(); };
             _work.ValueChanged += refresh;
             _recovery.ValueChanged += refresh;
             _rounds.ValueChanged += refresh;
             _step.ValueChanged += refresh;
             _minutes.ValueChanged += refresh;
-            _sharedMode.CheckedChanged += refresh;
-            _sequentialMode.CheckedChanged += refresh;
+            EventHandler modeChanged = delegate { UpdateModeDescription(); UpdatePreview(); };
+            _sharedMode.CheckedChanged += modeChanged;
+            _sequentialMode.CheckedChanged += modeChanged;
+            _parallelMode.CheckedChanged += modeChanged;
 
+            UpdateFieldVisibility();
+            UpdateModeDescription();
             UpdatePreview();
+        }
+
+        /// <summary>
+        /// Plain-language explanation with a concrete example for whichever
+        /// execution mode is selected - the three names alone ("Shared",
+        /// "Sequential", "Parallel") weren't enough to tell people apart.
+        /// </summary>
+        private void UpdateModeDescription()
+        {
+            if (_parallelMode.Checked)
+            {
+                _modeDescription.Text =
+                    "Every station runs its OWN pattern at the same time, independently.\n"
+                    + "Example: Station A does a 4-minute Tabata while Station B does a 10-minute Pyramid - "
+                    + "both start together but finish at different times.";
+            }
+            else if (_sequentialMode.Checked)
+            {
+                _modeDescription.Text =
+                    "Stations run one after another - only one is active at a time, each with its own pattern.\n"
+                    + "Example: the group finishes all of Squats, moves to the Bike, then the Rower - "
+                    + "one station's whole pattern before moving to the next.";
+            }
+            else
+            {
+                _modeDescription.Text =
+                    "Every station follows the exact SAME countdown together, at the same time.\n"
+                    + "Example: the whole class does 30s work / 15s rest together - each station just says "
+                    + "which exercise to do, but everyone starts and stops together.";
+            }
+        }
+
+        /// <summary>
+        /// Shows only the numbers a pattern actually uses - e.g. Tabata's work
+        /// and recovery are fixed at 20/10, so showing those fields would just
+        /// be confusing dead weight; EMOM cares about total minutes rather than
+        /// a round count or a step size.
+        /// </summary>
+        private void UpdateFieldVisibility()
+        {
+            bool work = true;
+            bool recovery = true;
+            bool rounds = true;
+            bool step = false;
+            bool minutes = false;
+
+            switch (SelectedPattern)
+            {
+                case PatternType.Tabata:
+                    // Fixed at 20 on / 10 off - nothing to type.
+                    work = false;
+                    recovery = false;
+                    break;
+
+                case PatternType.Pyramid:
+                case PatternType.ReversePyramid:
+                case PatternType.LadderUp:
+                case PatternType.LadderDown:
+                case PatternType.Wave:
+                case PatternType.AscendingWork:
+                case PatternType.DescendingWork:
+                    step = true;
+                    break;
+
+                case PatternType.Emom:
+                case PatternType.E2mom:
+                    recovery = false;
+                    rounds = false;
+                    minutes = true;
+                    break;
+
+                case PatternType.Custom:
+                    recovery = false;
+                    rounds = false;
+                    break;
+            }
+
+            SetVisible(_workLabel, _work, _workUnit, work);
+            SetVisible(_recoveryLabel, _recovery, _recoveryUnit, recovery);
+            _roundsLabel.Visible = rounds;
+            _rounds.Visible = rounds;
+            SetVisible(_stepLabel, _step, _stepUnit, step);
+            SetVisible(_minutesLabel, _minutes, _minutesUnit, minutes);
+        }
+
+        private static void SetVisible(Control label, Control field, Control unit, bool visible)
+        {
+            label.Visible = visible;
+            field.Visible = visible;
+            unit.Visible = visible;
         }
 
         private PatternType SelectedPattern
@@ -64,6 +167,15 @@ namespace GymClock
             {
                 int index = _pattern.SelectedIndex;
                 return index >= 0 && index < Patterns.Length ? Patterns[index].Key : PatternType.Standard;
+            }
+        }
+
+        private ExecutionMode SelectedMode
+        {
+            get
+            {
+                if (_parallelMode.Checked) return ExecutionMode.Parallel;
+                return _sequentialMode.Checked ? ExecutionMode.Sequential : ExecutionMode.Shared;
             }
         }
 
@@ -82,7 +194,13 @@ namespace GymClock
         private void UpdatePreview()
         {
             Timeline timeline = PatternGenerator.Generate(SelectedPattern, ReadSettings());
-            string mode = _sequentialMode.Checked ? "Sequential Stations" : "Shared Timing";
+            string mode;
+            switch (SelectedMode)
+            {
+                case ExecutionMode.Sequential: mode = "Sequential Stations"; break;
+                case ExecutionMode.Parallel: mode = "Parallel Independent Stations"; break;
+                default: mode = "Shared Timing"; break;
+            }
 
             _preview.Text = mode + Environment.NewLine + timeline.Summary()
                 + "   (" + IntervalPlan.FormatDuration(timeline.TotalSeconds()) + ")";
@@ -93,7 +211,7 @@ namespace GymClock
             WorkoutProgram program = new WorkoutProgram
             {
                 Name = string.IsNullOrEmpty(_name.Text.Trim()) ? "Workout" : _name.Text.Trim(),
-                Mode = _sequentialMode.Checked ? ExecutionMode.Sequential : ExecutionMode.Shared,
+                Mode = SelectedMode,
                 SharedTimeline = PatternGenerator.Generate(SelectedPattern, ReadSettings())
             };
             return program;
@@ -104,19 +222,6 @@ namespace GymClock
             Result = BuildProgram();
             DialogResult = DialogResult.OK;
             Close();
-        }
-
-        private void OpenInBuilder_Click(object sender, EventArgs e)
-        {
-            using (ProgramBuilderForm dialog = new ProgramBuilderForm(BuildProgram()))
-            {
-                if (dialog.ShowDialog(this) == DialogResult.OK && dialog.Result != null)
-                {
-                    Result = dialog.Result;
-                    DialogResult = DialogResult.OK;
-                    Close();
-                }
-            }
         }
     }
 }
