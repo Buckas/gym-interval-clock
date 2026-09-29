@@ -43,21 +43,24 @@ namespace GymClock
         private readonly Timer _scriptSyncTimer = new Timer { Interval = 600 };
 
         /// <summary>
-        /// Parameterless constructor required by the Windows Forms designer at design time
-        /// (so this can be opened and tweaked visually in Visual Studio). Not intended for
-        /// runtime use - MainForm always calls the other constructor.
+        /// Design-time constructor. The designer needs a parameterless one, and it must
+        /// do nothing but InitializeComponent() - any of the runtime setup below (file
+        /// I/O, program parsing, ComboBox/TreeView population, event wiring, etc.) throws
+        /// or misbehaves when executed by the designer, which stops the design surface
+        /// from loading. Not intended to be used at runtime - MainForm always calls the
+        /// other constructor.
         /// </summary>
         public ProgramEditorForm()
-            : this(new TimerSettings())
         {
+            InitializeComponent();
         }
 
         public ProgramEditorForm(TimerSettings settings)
+            : this()
         {
             _original = settings;
             Result = settings.Clone();
 
-            InitializeComponent();
             _scriptSyncTimer.Tick += ScriptSyncTimer_Tick;
 
             _pathLabel.Text = "Settings file (editable in Notepad):" + Environment.NewLine + TimerSettings.FilePath;

@@ -1268,6 +1268,13 @@ namespace GymClock
             float rowHeight = area.Height / stations.Count;
             float pad = Math.Max(6f, area.Width * 0.06f);
 
+            // Font-size caps are expressed against clientHeight so a handful of
+            // stations still look substantial, but that same fixed cap would
+            // badly overflow a short row once several more stations are packed
+            // in - so it's scaled down as the list grows, always leaving each
+            // row's actual height (via rowHeight * factor below) as the final say.
+            float density = Math.Min(1f, 3f / stations.Count);
+
             for (int i = 0; i < stations.Count; i++)
             {
                 float rowTop = area.Y + (i * rowHeight);
@@ -1293,8 +1300,19 @@ namespace GymClock
                 Color nameInk = current ? Ink : InkSoft;
                 Color detailInk = current ? InkSoft : InkFaint;
 
-                float nameSize = Math.Min(clientHeight * 0.03f, rowHeight * 0.30f);
-                float detailSize = Math.Min(clientHeight * 0.021f, rowHeight * 0.20f);
+                bool hasWork = !string.IsNullOrEmpty(st.WorkInstruction);
+                bool hasRest = !string.IsNullOrEmpty(st.RestInstruction);
+
+                // One detail line normally, unless there is room to spare (few
+                // enough stations that each row is tall) and both notes are set,
+                // in which case they get a line each rather than being crammed together.
+                bool twoDetailLines = hasWork && hasRest && stations.Count <= 4;
+
+                float nameFraction = twoDetailLines ? 0.34f : 0.40f;
+                float detailFraction = twoDetailLines ? 0.24f : 0.34f;
+
+                float nameSize = Math.Min(clientHeight * 0.03f * density, rowHeight * nameFraction * 0.85f);
+                float detailSize = Math.Min(clientHeight * 0.021f * density, rowHeight * detailFraction * 0.75f);
 
                 // A per-station accent colour, drawn as a small swatch rather than
                 // tinting the text itself, so it stays legible over any background.
@@ -1303,8 +1321,8 @@ namespace GymClock
                     Color swatch = TimerSettings.ParseColour(st.Colour, Color.Transparent);
                     if (swatch.A > 0)
                     {
-                        float swatchSize = Math.Min(pad * 0.8f, rowHeight * 0.22f);
-                        float swatchY = rowTop + (rowHeight * 0.05f) + ((rowHeight * 0.36f - swatchSize) / 2f);
+                        float swatchSize = Math.Min(pad * 0.8f, rowHeight * nameFraction * 0.65f);
+                        float swatchY = rowTop + (rowHeight * 0.05f) + ((rowHeight * nameFraction - swatchSize) / 2f);
                         using (SolidBrush swatchBrush = new SolidBrush(swatch))
                         {
                             g.FillEllipse(swatchBrush, area.X + (pad * 0.15f), swatchY, swatchSize, swatchSize);
@@ -1313,25 +1331,37 @@ namespace GymClock
                 }
 
                 RectangleF nameRect = new RectangleF(area.X + pad, rowTop + (rowHeight * 0.05f),
-                    area.Width - (pad * 1.6f), rowHeight * 0.36f);
+                    area.Width - (pad * 1.6f), rowHeight * nameFraction);
                 DrawTableCell(g, (i + 1) + ". " + st.Name, nameSize, FontStyle.Bold, nameInk, nameRect);
 
-                float detailTop = rowTop + (rowHeight * 0.42f);
-                float detailHeight = rowHeight * 0.27f;
+                float detailTop = rowTop + (rowHeight * (0.05f + nameFraction + 0.03f));
 
-                if (!string.IsNullOrEmpty(st.WorkInstruction))
+                if (twoDetailLines)
                 {
-                    RectangleF workRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), detailHeight);
+                    RectangleF workRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), rowHeight * detailFraction);
                     DrawTableCell(g, _settings.WorkLabel.ToUpperInvariant() + ": " + st.WorkInstruction,
                         detailSize, FontStyle.Regular, detailInk, workRect);
-                    detailTop += detailHeight;
-                }
+                    detailTop += rowHeight * detailFraction;
 
-                if (!string.IsNullOrEmpty(st.RestInstruction))
-                {
-                    RectangleF restRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), detailHeight);
+                    RectangleF restRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), rowHeight * detailFraction);
                     DrawTableCell(g, _settings.RestLabel.ToUpperInvariant() + ": " + st.RestInstruction,
                         detailSize, FontStyle.Regular, detailInk, restRect);
+                }
+                else if (hasWork || hasRest)
+                {
+                    // Both notes on one line when space is tight, so a station with
+                    // both still shows both rather than one silently winning.
+                    string combined = hasWork
+                        ? _settings.WorkLabel.ToUpperInvariant() + ": " + st.WorkInstruction
+                        : string.Empty;
+                    if (hasRest)
+                    {
+                        combined += (combined.Length > 0 ? "   " : string.Empty)
+                            + _settings.RestLabel.ToUpperInvariant() + ": " + st.RestInstruction;
+                    }
+
+                    RectangleF detailRect = new RectangleF(area.X + pad, detailTop, area.Width - (pad * 1.6f), rowHeight * detailFraction);
+                    DrawTableCell(g, combined, detailSize, FontStyle.Regular, detailInk, detailRect);
                 }
             }
         }

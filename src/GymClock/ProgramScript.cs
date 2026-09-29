@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -14,6 +15,9 @@ namespace GymClock
     ///     END BETWEEN
     ///
     ///     STATION "Battle Ropes"
+    ///     COLOUR #B23A78
+    ///     WORKNOTE "Fast reps, both arms"
+    ///     RESTNOTE "Shake it out"
     ///     REPEAT 3
     ///         WORK 50
     ///         RECOVERY 10
@@ -45,6 +49,11 @@ namespace GymClock
 
             StationDef currentStation = null;
             RepeatGroup currentGroup = null;   // single level only
+
+            // LINK refers to another station by name, which may not have been
+            // added yet (or may be reordered later) - resolved by name once every
+            // STATION line has been seen, rather than tracked by index as we go.
+            Dictionary<StationDef, string> pendingLinks = new Dictionary<StationDef, string>();
 
             // An explicit MODE line always wins over the implicit "seeing a
             // STATION line means Sequential" default below, regardless of which
@@ -96,6 +105,35 @@ namespace GymClock
                         if (currentStation != null)
                         {
                             currentStation.ShowInPanel = !string.Equals(rest.Trim(), "HIDE", StringComparison.OrdinalIgnoreCase);
+                        }
+                        break;
+                    }
+
+                    case "COLOUR":
+                    case "COLOR":
+                    {
+                        if (currentStation != null) currentStation.Colour = rest.Trim();
+                        break;
+                    }
+
+                    case "WORKNOTE":
+                    {
+                        if (currentStation != null) currentStation.WorkInstruction = ExtractQuoted(rest);
+                        break;
+                    }
+
+                    case "RESTNOTE":
+                    {
+                        if (currentStation != null) currentStation.RestInstruction = ExtractQuoted(rest);
+                        break;
+                    }
+
+                    case "LINK":
+                    {
+                        if (currentStation != null)
+                        {
+                            currentStation.Source = TimingSource.Linked;
+                            pendingLinks[currentStation] = ExtractQuoted(rest);
                         }
                         break;
                     }
@@ -168,6 +206,17 @@ namespace GymClock
                 }
             }
 
+            if (pendingLinks.Count > 0)
+            {
+                foreach (KeyValuePair<StationDef, string> link in pendingLinks)
+                {
+                    int index = program.Stations.FindIndex(s =>
+                        string.Equals(s.Name, link.Value, StringComparison.OrdinalIgnoreCase));
+                    link.Key.LinkedStationIndex = index;
+                    if (index < 0) link.Key.Source = TimingSource.ProgramDefault;
+                }
+            }
+
             return program;
         }
 
@@ -215,7 +264,7 @@ namespace GymClock
                 {
                     StationDef station = program.Stations[i];
                     sb.Append("STATION \"").Append(station.Name.Replace("\"", "'")).Append('"').Append('\n');
-                    if (!station.ShowInPanel) sb.Append("    PANEL HIDE").Append('\n');
+                    AppendStationMeta(sb, program, station, "    ");
                     AppendTimeline(sb, program.TimelineForStation(i), "    ");
                     sb.Append("END STATION").Append('\n');
                     sb.Append('\n');
@@ -235,14 +284,36 @@ namespace GymClock
                     foreach (StationDef station in program.Stations)
                     {
                         sb.Append("STATION \"").Append(station.Name.Replace("\"", "'")).Append('"').Append('\n');
-                        if (!station.ShowInPanel) sb.Append("    PANEL HIDE").Append('\n');
+                        AppendStationMeta(sb, program, station, "    ");
                         sb.Append("END STATION").Append('\n');
                         sb.Append('\n');
                     }
                 }
             }
 
-            return sb.ToString();
+            // Built up with plain '\n' throughout for simplicity; normalised to
+            // Environment.NewLine here so a plain multiline TextBox (which needs
+            // \r\n to break lines at all) actually displays this indented rather
+            // than as one long run-on line.
+            return sb.ToString().Replace("\n", Environment.NewLine);
+        }
+
+        /// <summary>Writes a station's non-timeline metadata: panel visibility, accent colour, per-phase notes, and a timing link.</summary>
+        private static void AppendStationMeta(StringBuilder sb, WorkoutProgram program, StationDef station, string indent)
+        {
+            if (!station.ShowInPanel) sb.Append(indent).Append("PANEL HIDE").Append('\n');
+            if (!string.IsNullOrEmpty(station.Colour)) sb.Append(indent).Append("COLOUR ").Append(station.Colour).Append('\n');
+            if (!string.IsNullOrEmpty(station.WorkInstruction))
+                sb.Append(indent).Append("WORKNOTE \"").Append(station.WorkInstruction.Replace("\"", "'")).Append('"').Append('\n');
+            if (!string.IsNullOrEmpty(station.RestInstruction))
+                sb.Append(indent).Append("RESTNOTE \"").Append(station.RestInstruction.Replace("\"", "'")).Append('"').Append('\n');
+
+            if (station.Source == TimingSource.Linked && station.LinkedStationIndex >= 0
+                && station.LinkedStationIndex < program.Stations.Count)
+            {
+                string linkedName = program.Stations[station.LinkedStationIndex].Name;
+                sb.Append(indent).Append("LINK \"").Append((linkedName ?? string.Empty).Replace("\"", "'")).Append('"').Append('\n');
+            }
         }
 
         private static void AppendTimeline(StringBuilder sb, Timeline timeline, string indent)
