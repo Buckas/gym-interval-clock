@@ -44,3 +44,6 @@ licences/
 
 # Scratch settings folder used while testing file I/O locally
 .fake
+
+# Built release artifact zips - attach to GitHub Releases, don't commit
+GymClock-*.zip
