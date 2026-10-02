@@ -18,6 +18,8 @@ namespace GymClock
 
             if (!PassesLicenceCheck()) return;
 
+            ProgramLibrary.EnsureInstalled();
+
             Application.Run(new MainForm());
         }
 

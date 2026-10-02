@@ -678,21 +678,6 @@ namespace GymClock
             Invalidate();
         }
 
-        private void ApplyPreset(Preset preset)
-        {
-            // A preset key is the quick way back to a simple session, so it switches
-            // off any built program rather than leaving one silently in force - but
-            // doesn't erase it, so it's still there if you switch back to it later.
-            _settings.Plan = string.Empty;
-            _settings.UseBuiltProgram = false;
-            _settings.WorkSeconds = preset.Work;
-            _settings.RestSeconds = preset.Rest;
-            if (preset.Rounds > 0) _settings.Rounds = preset.Rounds;
-            _settings.Save();
-            ApplySettingsLive();
-            ShowHint(4);
-        }
-
         /// <summary>
         /// Jumps straight to the given station (0-based), for a teacher correcting
         /// a mistake or starting mid-way through a class already spread across the
@@ -738,7 +723,8 @@ namespace GymClock
                 return;
             }
 
-            if (_program.Mode != ExecutionMode.Sequential || stationIndex >= _program.Stations.Count)
+            if ((_program.Mode != ExecutionMode.Sequential && _program.Mode != ExecutionMode.Circuit)
+                || stationIndex >= _program.Stations.Count)
             {
                 ShowHint(4);
                 return;
@@ -817,14 +803,13 @@ namespace GymClock
         {
             base.OnKeyDown(e);
 
-            int presetIndex = -1;
-            if (e.KeyCode >= Keys.D1 && e.KeyCode <= Keys.D9) presetIndex = e.KeyCode - Keys.D1;
-            else if (e.KeyCode >= Keys.NumPad1 && e.KeyCode <= Keys.NumPad9) presetIndex = e.KeyCode - Keys.NumPad1;
+            int stationIndex = -1;
+            if (e.KeyCode >= Keys.D1 && e.KeyCode <= Keys.D9) stationIndex = e.KeyCode - Keys.D1;
+            else if (e.KeyCode >= Keys.NumPad1 && e.KeyCode <= Keys.NumPad9) stationIndex = e.KeyCode - Keys.NumPad1;
 
-            if (presetIndex >= 0)
+            if (stationIndex >= 0)
             {
-                if (e.Control) JumpToStation(presetIndex);
-                else if (presetIndex < _settings.Presets.Count) ApplyPreset(_settings.Presets[presetIndex]);
+                JumpToStation(stationIndex);
                 e.Handled = true;
                 return;
             }
@@ -957,24 +942,33 @@ namespace GymClock
             }
 
             // ---- configuration summary + session elapsed, top left of the pane
+            // Box height is taller than the font's pixel size so descenders
+            // (g, p, y, etc.) have room - a box exactly matching the pixel
+            // size clips them, as text like "Rotating Group Circuit" showed.
             DrawText(g, ConfigSummaryText(), _labelFamily, h * 0.045f, FontStyle.Bold, InkSoft,
-                new RectangleF(paneLeft + margin, margin, paneWidth * 0.5f, h * 0.05f),
+                new RectangleF(paneLeft + margin, margin, paneWidth * 0.5f, h * 0.065f),
                 StringAlignment.Near, StringAlignment.Near);
 
             DrawText(g, SessionElapsedText(), _labelFamily, h * 0.035f, FontStyle.Regular, InkFaint,
-                new RectangleF(paneLeft + margin, margin + (h * 0.052f), paneWidth * 0.5f, h * 0.045f),
+                new RectangleF(paneLeft + margin, margin + (h * 0.062f), paneWidth * 0.5f, h * 0.045f),
                 StringAlignment.Near, StringAlignment.Near);
 
-            // ---- licence status, deliberately unobtrusive but always present
+            // ---- licence status, deliberately unobtrusive but always present.
+            // Skipped when fully licensed since the bottom-left "Licensed to"
+            // line below already says the same thing - only warnings (trial
+            // ending, grace period, etc.) need to show up here as well.
             LicenceStatus licence = Licensing.Current;
-            Color licenceInk = licence.State == LicenceState.TrialEnding
-                ? Color.FromArgb(230, 255, 235, 140)
-                : Color.FromArgb(115, 255, 255, 255);
+            if (licence.State != LicenceState.Licensed)
+            {
+                Color licenceInk = licence.State == LicenceState.TrialEnding
+                    ? Color.FromArgb(230, 255, 235, 140)
+                    : Color.FromArgb(115, 255, 255, 255);
 
-            DrawText(g, Licensing.ShortDescription(licence), _labelFamily, h * 0.030f, FontStyle.Regular,
-                licenceInk,
-                new RectangleF(paneLeft + margin, margin + (h * 0.095f), paneWidth * 0.5f, h * 0.040f),
-                StringAlignment.Near, StringAlignment.Near);
+                DrawText(g, Licensing.ShortDescription(licence), _labelFamily, h * 0.030f, FontStyle.Regular,
+                    licenceInk,
+                    new RectangleF(paneLeft + margin, margin + (h * 0.095f), paneWidth * 0.5f, h * 0.040f),
+                    StringAlignment.Near, StringAlignment.Near);
+            }
 
             if (IsParallelActive)
             {
@@ -1268,13 +1262,6 @@ namespace GymClock
             float rowHeight = area.Height / stations.Count;
             float pad = Math.Max(6f, area.Width * 0.06f);
 
-            // Font-size caps are expressed against clientHeight so a handful of
-            // stations still look substantial, but that same fixed cap would
-            // badly overflow a short row once several more stations are packed
-            // in - so it's scaled down as the list grows, always leaving each
-            // row's actual height (via rowHeight * factor below) as the final say.
-            float density = Math.Min(1f, 3f / stations.Count);
-
             for (int i = 0; i < stations.Count; i++)
             {
                 float rowTop = area.Y + (i * rowHeight);
@@ -1297,8 +1284,39 @@ namespace GymClock
                 }
 
                 StationDef st = stations[i];
-                Color nameInk = current ? Ink : InkSoft;
-                Color detailInk = current ? InkSoft : InkFaint;
+
+                // A per-station accent colour fills the whole row rather than a
+                // small swatch, so the station is unmistakable at a glance; the
+                // text ink then flips to black or white, whichever reads better
+                // against that particular colour, rather than always assuming
+                // a dark background.
+                Color rowFill = Color.Transparent;
+                bool hasCustomColour = !string.IsNullOrEmpty(st.Colour);
+                if (hasCustomColour)
+                {
+                    rowFill = TimerSettings.ParseColour(st.Colour, Color.Transparent);
+                }
+
+                Color nameInk, detailInk;
+                if (hasCustomColour && rowFill.A > 0)
+                {
+                    using (SolidBrush rowBrush = new SolidBrush(Color.FromArgb(current ? 235 : 205, rowFill)))
+                    {
+                        g.FillRectangle(rowBrush, area.X + (pad * 0.15f), rowTop + (rowHeight * 0.05f),
+                            area.Width - (pad * 0.3f), rowHeight * 0.90f);
+                    }
+
+                    Color readableInk = ReadableInkFor(rowFill);
+                    nameInk = readableInk;
+                    detailInk = current
+                        ? Blend(readableInk, readableInk == Color.Black ? Color.White : Color.Black, 0.18)
+                        : Blend(readableInk, readableInk == Color.Black ? Color.White : Color.Black, 0.32);
+                }
+                else
+                {
+                    nameInk = current ? Ink : InkSoft;
+                    detailInk = current ? InkSoft : InkFaint;
+                }
 
                 bool hasWork = !string.IsNullOrEmpty(st.WorkInstruction);
                 bool hasRest = !string.IsNullOrEmpty(st.RestInstruction);
@@ -1307,34 +1325,26 @@ namespace GymClock
                 // enough stations that each row is tall) and both notes are set,
                 // in which case they get a line each rather than being crammed together.
                 bool twoDetailLines = hasWork && hasRest && stations.Count <= 4;
+                bool hasDetail = hasWork || hasRest;
 
-                float nameFraction = twoDetailLines ? 0.34f : 0.40f;
-                float detailFraction = twoDetailLines ? 0.24f : 0.34f;
+                // Fractions of the row's height given to the name and to the
+                // detail line(s) - sized so the two (or three) pieces of text
+                // between them fill the row edge-to-edge instead of leaving a
+                // dead band underneath, however many stations are on screen.
+                float nameFraction = hasDetail ? (twoDetailLines ? 0.36f : 0.42f) : 0.70f;
+                float detailFraction = twoDetailLines ? 0.27f : 0.46f;
 
-                float nameSize = Math.Min(clientHeight * 0.03f * density, rowHeight * nameFraction * 0.85f);
-                float detailSize = Math.Min(clientHeight * 0.021f * density, rowHeight * detailFraction * 0.75f);
-
-                // A per-station accent colour, drawn as a small swatch rather than
-                // tinting the text itself, so it stays legible over any background.
-                if (!string.IsNullOrEmpty(st.Colour))
-                {
-                    Color swatch = TimerSettings.ParseColour(st.Colour, Color.Transparent);
-                    if (swatch.A > 0)
-                    {
-                        float swatchSize = Math.Min(pad * 0.8f, rowHeight * nameFraction * 0.65f);
-                        float swatchY = rowTop + (rowHeight * 0.05f) + ((rowHeight * nameFraction - swatchSize) / 2f);
-                        using (SolidBrush swatchBrush = new SolidBrush(swatch))
-                        {
-                            g.FillEllipse(swatchBrush, area.X + (pad * 0.15f), swatchY, swatchSize, swatchSize);
-                        }
-                    }
-                }
+                // Sized from the row itself (which already accounts for the
+                // station count) rather than a separate density fudge factor,
+                // so text always grows to fill the space actually available to it.
+                float nameSize = Math.Min(clientHeight * 0.05f, rowHeight * nameFraction * 0.80f);
+                float detailSize = Math.Min(clientHeight * 0.036f, rowHeight * detailFraction * 0.78f);
 
                 RectangleF nameRect = new RectangleF(area.X + pad, rowTop + (rowHeight * 0.05f),
                     area.Width - (pad * 1.6f), rowHeight * nameFraction);
                 DrawTableCell(g, (i + 1) + ". " + st.Name, nameSize, FontStyle.Bold, nameInk, nameRect);
 
-                float detailTop = rowTop + (rowHeight * (0.05f + nameFraction + 0.03f));
+                float detailTop = rowTop + (rowHeight * (0.05f + nameFraction));
 
                 if (twoDetailLines)
                 {
@@ -1347,7 +1357,7 @@ namespace GymClock
                     DrawTableCell(g, _settings.RestLabel.ToUpperInvariant() + ": " + st.RestInstruction,
                         detailSize, FontStyle.Regular, detailInk, restRect);
                 }
-                else if (hasWork || hasRest)
+                else if (hasDetail)
                 {
                     // Both notes on one line when space is tight, so a station with
                     // both still shows both rather than one silently winning.
@@ -1366,7 +1376,14 @@ namespace GymClock
             }
         }
 
-        /// <summary>Left-aligned, wraps within its box and trims with an ellipsis rather than overflowing.</summary>
+        /// <summary>
+        /// Left-aligned, wraps within its box. Rather than trusting the caller's
+        /// requested size outright (a heuristic based on the row's height, which
+        /// has no idea how long the actual text is), this measures the text and
+        /// shrinks the font until it actually fits the box - so a long note never
+        /// overflows/overlaps its neighbours, and a short one still gets to use
+        /// the full size offered.
+        /// </summary>
         private void DrawTableCell(Graphics g, string text, float pixelSize, FontStyle style, Color colour, RectangleF bounds)
         {
             if (string.IsNullOrEmpty(text) || bounds.Width < 4 || bounds.Height < 4) return;
@@ -1378,11 +1395,53 @@ namespace GymClock
                 format.Trimming = StringTrimming.EllipsisCharacter;
                 format.FormatFlags = StringFormatFlags.LineLimit;
 
+                Font font = FitFont(g, text, _labelFamily, style, pixelSize, bounds, format);
+
                 using (SolidBrush brush = new SolidBrush(colour))
                 {
-                    g.DrawString(text, GetFont(_labelFamily, pixelSize, style), brush, bounds, format);
+                    g.DrawString(text, font, brush, bounds, format);
                 }
             }
+        }
+
+        /// <summary>
+        /// Finds the largest font size, no bigger than <paramref name="maxPixelSize"/>,
+        /// whose wrapped text still fits within <paramref name="bounds"/> - a small
+        /// binary search over GetFont/MeasureString rather than a fixed guess, so
+        /// text of any length ends up as large as it can be without overflowing.
+        /// </summary>
+        private Font FitFont(Graphics g, string text, string family, FontStyle style, float maxPixelSize, RectangleF bounds, StringFormat format)
+        {
+            const float minPixelSize = 7f;
+            float lo = minPixelSize;
+            float hi = Math.Max(minPixelSize, maxPixelSize);
+            Font best = GetFont(family, hi, style);
+
+            if (Fits(g, text, best, bounds, format)) return best;
+
+            // Binary search for the largest size that fits, to within half a pixel.
+            while (hi - lo > 0.5f)
+            {
+                float mid = (lo + hi) / 2f;
+                Font candidate = GetFont(family, mid, style);
+                if (Fits(g, text, candidate, bounds, format))
+                {
+                    lo = mid;
+                    best = candidate;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+
+            return best;
+        }
+
+        private static bool Fits(Graphics g, string text, Font font, RectangleF bounds, StringFormat format)
+        {
+            SizeF measured = g.MeasureString(text, font, new SizeF(bounds.Width, float.MaxValue), format);
+            return measured.Height <= bounds.Height + 0.5f;
         }
 
         private Color BackgroundColour()
@@ -1431,6 +1490,13 @@ namespace GymClock
                 text = _program.Name + "   -   Parallel (" + count + (count == 1 ? " station" : " stations") + ")";
             }
             else if (_program.Mode == ExecutionMode.Sequential && _program.Stations.Count > 0)
+            {
+                int stationIndex = ActiveStationIndexForDisplay();
+                text = stationIndex >= 0
+                    ? string.Format(CultureInfo.InvariantCulture, "STATION {0} OF {1}", stationIndex + 1, _program.Stations.Count)
+                    : _program.Name;
+            }
+            else if (_program.Mode == ExecutionMode.Circuit && _program.Stations.Count > 0)
             {
                 int stationIndex = ActiveStationIndexForDisplay();
                 text = stationIndex >= 0
@@ -1494,16 +1560,17 @@ namespace GymClock
         }
 
         /// <summary>
-        /// The station to treat as active for a real Sequential-mode program:
-        /// the current block's own station, or - while playing a between-station
-        /// block with none - whichever station comes up next, so the display
-        /// always points at where the class is headed. Always -1 for Shared
-        /// mode (including the legacy synthesis path, which uses
-        /// LegacyCurrentStation instead).
+        /// The station to treat as active for a real Sequential-mode program, or
+        /// the station whose turn it currently is in Circuit mode: the current
+        /// block's own station, or - while playing a between-station block with
+        /// none - whichever station comes up next, so the display always points
+        /// at where the class is headed. Always -1 for Shared mode (including
+        /// the legacy synthesis path, which uses LegacyCurrentStation instead).
         /// </summary>
         private int ActiveStationIndexForDisplay()
         {
-            if (_program.Mode != ExecutionMode.Sequential || _program.Stations.Count == 0) return -1;
+            if ((_program.Mode != ExecutionMode.Sequential && _program.Mode != ExecutionMode.Circuit)
+                || _program.Stations.Count == 0) return -1;
             if (_phase == Phase.Prep) return 0;
             if (_phase != Phase.Active) return -1;
 
@@ -1528,6 +1595,11 @@ namespace GymClock
         {
             if (!_settings.ShowStationNameAsDescription || current == null || current.Block.Type != BlockType.Work) return false;
             if (UsingLegacyStationRotation) return LegacyCurrentStation() != null;
+            // Circuit mode has every station running at once with a different
+            // group on each, so there is no single station exercise that
+            // applies to the whole class - only Sequential has one true
+            // "current" station worth naming here.
+            if (_program.Mode != ExecutionMode.Sequential) return false;
             return ActiveStation() != null;
         }
 
@@ -1736,18 +1808,9 @@ namespace GymClock
                 sb.Append("←/→ back/skip  -  ");
             }
 
-            if (_settings.Presets.Count > 0)
-            {
-                for (int i = 0; i < _settings.Presets.Count && i < 9; i++)
-                {
-                    sb.Append(i + 1).Append("=").Append(_settings.Presets[i].Label).Append("  ");
-                }
-                sb.Append("-  ");
-            }
-
             if (_program.Mode != ExecutionMode.Parallel && _program.Stations.Count > 0)
             {
-                sb.Append("CTRL+1-9 jump to station  -  ");
+                sb.Append("1-9 jump to station  -  ");
             }
 
             sb.Append("M mute  -  F11 full screen  -  F6 next display  -  F3 licence  -  Q quit");
@@ -1889,6 +1952,17 @@ namespace GymClock
                 (int)(from.R + ((to.R - from.R) * amount)),
                 (int)(from.G + ((to.G - from.G) * amount)),
                 (int)(from.B + ((to.B - from.B) * amount)));
+        }
+
+        /// <summary>
+        /// Picks black or white text - whichever gives better contrast against a
+        /// given background colour - using the standard relative-luminance
+        /// formula rather than a fixed assumption that station colours are dark.
+        /// </summary>
+        private static Color ReadableInkFor(Color background)
+        {
+            double luminance = ((0.299 * background.R) + (0.587 * background.G) + (0.114 * background.B)) / 255.0;
+            return luminance > 0.55 ? Color.Black : Color.White;
         }
     }
 }

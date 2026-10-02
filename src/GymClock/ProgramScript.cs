@@ -149,6 +149,7 @@ namespace GymClock
                             case "SHARED": program.Mode = ExecutionMode.Shared; modeExplicit = true; break;
                             case "SEQUENTIAL": program.Mode = ExecutionMode.Sequential; modeExplicit = true; break;
                             case "PARALLEL": program.Mode = ExecutionMode.Parallel; modeExplicit = true; break;
+                            case "CIRCUIT": program.Mode = ExecutionMode.Circuit; modeExplicit = true; break;
                         }
                         break;
                     }
@@ -231,11 +232,15 @@ namespace GymClock
             // Only Sequential/Parallel with at least one station actually have a
             // per-station timeline to write out; Parallel with none falls back to
             // the plain shared-timeline form below, same as Sequential always did.
+            // Circuit mode never has per-station timelines - every station plays
+            // the identical shared timeline in turn - so it is written the same
+            // way as Shared-with-stations below.
             bool perStationTimelines = (program.Mode == ExecutionMode.Sequential || program.Mode == ExecutionMode.Parallel)
                 && program.Stations.Count > 0;
 
             if (program.Mode == ExecutionMode.Sequential) sb.Append("MODE SEQUENTIAL").Append('\n');
             else if (program.Mode == ExecutionMode.Parallel) sb.Append("MODE PARALLEL").Append('\n');
+            else if (program.Mode == ExecutionMode.Circuit) sb.Append("MODE CIRCUIT").Append('\n');
             else if (program.Stations.Count > 0)
             {
                 // Shared timing normally stays implicit/undecorated, but a STATION
@@ -274,10 +279,22 @@ namespace GymClock
             {
                 AppendTimeline(sb, program.SharedTimeline, string.Empty);
 
+                // Circuit mode's shared "move to next station" timing is written
+                // as its own BETWEEN block, same as Sequential, so it is only
+                // ever played between stations rather than folded into the
+                // per-station reps.
+                if (program.Mode == ExecutionMode.Circuit && !program.BetweenStationsTimeline.IsEmpty)
+                {
+                    sb.Append('\n');
+                    sb.Append("BETWEEN").Append('\n');
+                    AppendTimeline(sb, program.BetweenStationsTimeline, "    ");
+                    sb.Append("END BETWEEN").Append('\n');
+                }
+
                 // An informational station list - e.g. a rotating circuit where
                 // several groups are on different stations at once, all following
                 // this same shared timeline. No timeline of its own to write per
-                // station here, since Shared mode only ever has the one above.
+                // station here, since Shared/Circuit mode only ever has the one above.
                 if (program.Stations.Count > 0)
                 {
                     sb.Append('\n');

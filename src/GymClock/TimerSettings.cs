@@ -418,10 +418,18 @@ namespace GymClock
         public static TimerSettings Load()
         {
             TimerSettings s = new TimerSettings();
+            string legacyProgramScript = null;
+            bool useBuiltProgramSeen = false;
             try
             {
                 string path = FilePath;
-                if (!File.Exists(path)) return s;
+                if (!File.Exists(path))
+                {
+                    ProgramLibrary.EnsureInstalled();
+                    s.ProgramScript = ProgramLibrary.LoadCurrentProgramScript();
+                    s.UseBuiltProgram = !string.IsNullOrEmpty(s.ProgramScript);
+                    return s;
+                }
 
                 bool presetsSeen = false;
                 foreach (string raw in File.ReadAllLines(path))
@@ -481,8 +489,8 @@ namespace GymClock
                         case "instructioncolor": s.InstructionColour = value; break;
                         case "customcolour":
                         case "customcolor": s.CustomColour = value; break;
-                        case "program": s.ProgramScript = value.Replace("\\n", "\n"); break;
-                        case "usebuiltprogram": s.UseBuiltProgram = ReadBool(value, s.UseBuiltProgram); break;
+                        case "program": legacyProgramScript = value.Replace("\\n", "\n"); break;
+                        case "usebuiltprogram": s.UseBuiltProgram = ReadBool(value, s.UseBuiltProgram); useBuiltProgramSeen = true; break;
                         case "presets":
                             List<Preset> parsed = new List<Preset>();
                             foreach (string item in SplitList(value))
@@ -496,11 +504,31 @@ namespace GymClock
                 }
 
                 if (!presetsSeen && s.Presets.Count == 0) s.Presets.Add(new Preset(45, 15, 10));
+
+                ProgramLibrary.EnsureInstalled();
+                string currentProgram = ProgramLibrary.LoadCurrentProgramScript();
+                if (string.IsNullOrEmpty(currentProgram) && !string.IsNullOrEmpty(legacyProgramScript))
+                {
+                    // One-time migration: an older settings.txt still has its program
+                    // embedded - move it into the appdata file so it isn't lost.
+                    ProgramLibrary.SaveCurrentProgramScript(legacyProgramScript);
+                    currentProgram = legacyProgramScript;
+                }
+                s.ProgramScript = currentProgram;
+
+                // A settings.txt written before usebuiltprogram existed (or before
+                // the appdata migration) has no explicit opinion - if there is now a
+                // real program available, run it instead of silently falling back
+                // to the generic synthesised session.
+                if (!useBuiltProgramSeen && !string.IsNullOrEmpty(currentProgram)) s.UseBuiltProgram = true;
             }
             catch
             {
                 // A corrupt or unreadable file should never stop the clock from running.
                 s = new TimerSettings();
+                ProgramLibrary.EnsureInstalled();
+                s.ProgramScript = ProgramLibrary.LoadCurrentProgramScript();
+                s.UseBuiltProgram = !string.IsNullOrEmpty(s.ProgramScript);
             }
             return s;
         }
@@ -575,10 +603,11 @@ namespace GymClock
                 sb.AppendLine("instructioncolour=" + InstructionColour);
                 sb.AppendLine("customcolour=" + CustomColour);
                 sb.AppendLine();
-                sb.AppendLine("# The current program, written with the script grammar (see the Program");
-                sb.AppendLine("# Builder's Script tab). Blank means no program has been built yet, so the");
-                sb.AppendLine("# clock runs the plain work/rest/rounds settings above instead.");
-                sb.AppendLine("program=" + ProgramScript.Replace("\n", "\\n"));
+                sb.AppendLine("# The current program now lives in its own file, editable in the Program");
+                sb.AppendLine("# Builder or with Notepad:");
+                sb.AppendLine("#   " + ProgramLibrary.CurrentProgramFilePath);
+
+                ProgramLibrary.SaveCurrentProgramScript(ProgramScript);
                 sb.AppendLine("# Which of the above is actually running - a built program, or the simple");
                 sb.AppendLine("# work/rest/rounds/plan fields. Keeping both around means switching never loses either.");
                 sb.AppendLine("usebuiltprogram=" + (UseBuiltProgram ? "true" : "false"));

@@ -50,6 +50,7 @@ namespace GymClock
         private RadioButton _modeShared;
         private RadioButton _modeSequential;
         private RadioButton _modeParallel;
+        private RadioButton _modeCircuit;
         private Label _modeDesc;
         private Button _quickWizardButton;
         private Button _importButton;
@@ -144,6 +145,7 @@ namespace GymClock
             _modeShared = new RadioButton();
             _modeSequential = new RadioButton();
             _modeParallel = new RadioButton();
+            _modeCircuit = new RadioButton();
             _modeDesc = new Label();
             _quickWizardButton = new Button();
             _importButton = new Button();
@@ -444,8 +446,8 @@ namespace GymClock
             // _modeShared
             //
             _modeShared.Location = new Point(300, 20);
-            _modeShared.Size = new Size(180, 24);
-            _modeShared.Text = "Shared Timing";
+            _modeShared.Size = new Size(230, 24);
+            _modeShared.Text = "Shared Timing (fixed stations)";
             //
             // _modeSequential
             //
@@ -459,6 +461,12 @@ namespace GymClock
             _modeParallel.Size = new Size(220, 24);
             _modeParallel.Text = "Parallel Independent";
             //
+            // _modeCircuit
+            //
+            _modeCircuit.Location = new Point(300, 92);
+            _modeCircuit.Size = new Size(230, 24);
+            _modeCircuit.Text = "Shared Circuit (groups rotate)";
+            //
             // _modeDesc
             //
             _modeDesc.Font = new Font("Segoe UI", 8.5F);
@@ -469,21 +477,21 @@ namespace GymClock
             //
             // _quickWizardButton
             //
-            _quickWizardButton.Location = new Point(0, 100);
+            _quickWizardButton.Location = new Point(0, 128);
             _quickWizardButton.Size = new Size(160, 32);
             _quickWizardButton.Text = "✨ Quick Start Wizard...";
             _quickWizardButton.Click += QuickWizard_Click;
             //
             // _importButton
             //
-            _importButton.Location = new Point(166, 100);
+            _importButton.Location = new Point(166, 128);
             _importButton.Size = new Size(100, 32);
             _importButton.Text = "Import...";
             _importButton.Click += ImportProgram_Click;
             //
             // _exportButton
             //
-            _exportButton.Location = new Point(272, 100);
+            _exportButton.Location = new Point(272, 128);
             _exportButton.Size = new Size(100, 32);
             _exportButton.Text = "Export...";
             _exportButton.Click += ExportProgram_Click;
@@ -492,69 +500,69 @@ namespace GymClock
             //
             _instructions.Font = new Font("Segoe UI", 8.5F, FontStyle.Italic);
             _instructions.ForeColor = Color.DimGray;
-            _instructions.Location = new Point(0, 140);
+            _instructions.Location = new Point(0, 168);
             _instructions.Size = new Size(990, 32);
             _instructions.Text = "1. Pick a station (or the Shared Timeline) on the left.   2. Add blocks in the middle.   3. Edit details on the right.   4. The script below always matches - edit either one.";
             //
             // _outlineLabel
             //
             _outlineLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            _outlineLabel.Location = new Point(0, 178);
+            _outlineLabel.Location = new Point(0, 206);
             _outlineLabel.Size = new Size(260, 20);
             _outlineLabel.Text = "Program Outline";
             //
             // _outline
             //
-            _outline.Location = new Point(0, 200);
+            _outline.Location = new Point(0, 228);
             _outline.Size = new Size(300, 220);
             _outline.HideSelection = false;
             _outline.AfterSelect += Outline_AfterSelect;
             //
             // _addStationButton
             //
-            _addStationButton.Location = new Point(0, 426);
+            _addStationButton.Location = new Point(0, 454);
             _addStationButton.Size = new Size(84, 30);
             _addStationButton.Text = "+Station";
             _addStationButton.Click += AddStation_Click;
             //
             // _addBetweenRestButton
             //
-            _addBetweenRestButton.Location = new Point(88, 426);
+            _addBetweenRestButton.Location = new Point(88, 454);
             _addBetweenRestButton.Size = new Size(84, 30);
             _addBetweenRestButton.Text = "+Rest";
             _addBetweenRestButton.Click += AddBetweenRest_Click;
             //
             // _addBetweenMoveButton
             //
-            _addBetweenMoveButton.Location = new Point(176, 426);
+            _addBetweenMoveButton.Location = new Point(176, 454);
             _addBetweenMoveButton.Size = new Size(84, 30);
             _addBetweenMoveButton.Text = "+Move";
             _addBetweenMoveButton.Click += AddBetweenMove_Click;
             //
             // _duplicateStationButton
             //
-            _duplicateStationButton.Location = new Point(0, 460);
+            _duplicateStationButton.Location = new Point(0, 488);
             _duplicateStationButton.Size = new Size(84, 30);
             _duplicateStationButton.Text = "Duplicate";
             _duplicateStationButton.Click += DuplicateStation_Click;
             //
             // _deleteStationButton
             //
-            _deleteStationButton.Location = new Point(88, 460);
+            _deleteStationButton.Location = new Point(88, 488);
             _deleteStationButton.Size = new Size(84, 30);
             _deleteStationButton.Text = "Delete";
             _deleteStationButton.Click += DeleteStation_Click;
             //
             // _moveStationUpButton
             //
-            _moveStationUpButton.Location = new Point(176, 460);
+            _moveStationUpButton.Location = new Point(176, 488);
             _moveStationUpButton.Size = new Size(40, 30);
             _moveStationUpButton.Text = "Up";
             _moveStationUpButton.Click += MoveStationUp_Click;
             //
             // _moveStationDownButton
             //
-            _moveStationDownButton.Location = new Point(220, 460);
+            _moveStationDownButton.Location = new Point(220, 488);
             _moveStationDownButton.Size = new Size(40, 30);
             _moveStationDownButton.Text = "Dn";
             _moveStationDownButton.Click += MoveStationDown_Click;
@@ -562,13 +570,13 @@ namespace GymClock
             // _timelineLabel
             //
             _timelineLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            _timelineLabel.Location = new Point(316, 178);
+            _timelineLabel.Location = new Point(316, 206);
             _timelineLabel.Size = new Size(300, 20);
             _timelineLabel.Text = "Selected Timeline";
             //
             // _timelineList
             //
-            _timelineList.Location = new Point(316, 200);
+            _timelineList.Location = new Point(316, 228);
             _timelineList.Size = new Size(300, 220);
             _timelineList.IntegralHeight = false;
             _timelineList.SelectedIndexChanged += TimelineList_SelectedIndexChanged;
@@ -576,70 +584,70 @@ namespace GymClock
             //
             // _addWorkButton
             //
-            _addWorkButton.Location = new Point(316, 426);
+            _addWorkButton.Location = new Point(316, 454);
             _addWorkButton.Size = new Size(70, 30);
             _addWorkButton.Text = "+Work";
             _addWorkButton.Click += AddWork_Click;
             //
             // _addRecoveryButton
             //
-            _addRecoveryButton.Location = new Point(390, 426);
+            _addRecoveryButton.Location = new Point(390, 454);
             _addRecoveryButton.Size = new Size(70, 30);
             _addRecoveryButton.Text = "+Recov";
             _addRecoveryButton.Click += AddRecovery_Click;
             //
             // _addRestButton
             //
-            _addRestButton.Location = new Point(464, 426);
+            _addRestButton.Location = new Point(464, 454);
             _addRestButton.Size = new Size(70, 30);
             _addRestButton.Text = "+Rest";
             _addRestButton.Click += AddRest_Click;
             //
             // _addMoveButton
             //
-            _addMoveButton.Location = new Point(538, 426);
+            _addMoveButton.Location = new Point(538, 454);
             _addMoveButton.Size = new Size(78, 30);
             _addMoveButton.Text = "+Move";
             _addMoveButton.Click += AddMove_Click;
             //
             // _addRepeatGroupButton
             //
-            _addRepeatGroupButton.Location = new Point(316, 460);
+            _addRepeatGroupButton.Location = new Point(316, 488);
             _addRepeatGroupButton.Size = new Size(110, 30);
             _addRepeatGroupButton.Text = "+Repeat Group";
             _addRepeatGroupButton.Click += AddRepeatGroup_Click;
             //
             // _addPatternButton
             //
-            _addPatternButton.Location = new Point(430, 460);
+            _addPatternButton.Location = new Point(430, 488);
             _addPatternButton.Size = new Size(90, 30);
             _addPatternButton.Text = "+Pattern...";
             _addPatternButton.Click += AddPattern_Click;
             //
             // _duplicateBlockButton
             //
-            _duplicateBlockButton.Location = new Point(316, 494);
+            _duplicateBlockButton.Location = new Point(316, 522);
             _duplicateBlockButton.Size = new Size(84, 30);
             _duplicateBlockButton.Text = "Duplicate";
             _duplicateBlockButton.Click += DuplicateBlock_Click;
             //
             // _deleteBlockButton
             //
-            _deleteBlockButton.Location = new Point(404, 494);
+            _deleteBlockButton.Location = new Point(404, 522);
             _deleteBlockButton.Size = new Size(84, 30);
             _deleteBlockButton.Text = "Delete";
             _deleteBlockButton.Click += DeleteBlock_Click;
             //
             // _moveBlockUpButton
             //
-            _moveBlockUpButton.Location = new Point(492, 494);
+            _moveBlockUpButton.Location = new Point(492, 522);
             _moveBlockUpButton.Size = new Size(56, 30);
             _moveBlockUpButton.Text = "Up";
             _moveBlockUpButton.Click += MoveBlockUp_Click;
             //
             // _moveBlockDownButton
             //
-            _moveBlockDownButton.Location = new Point(552, 494);
+            _moveBlockDownButton.Location = new Point(552, 522);
             _moveBlockDownButton.Size = new Size(64, 30);
             _moveBlockDownButton.Text = "Down";
             _moveBlockDownButton.Click += MoveBlockDown_Click;
@@ -647,13 +655,13 @@ namespace GymClock
             // _propertiesLabel
             //
             _propertiesLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            _propertiesLabel.Location = new Point(632, 178);
+            _propertiesLabel.Location = new Point(632, 206);
             _propertiesLabel.Size = new Size(300, 20);
             _propertiesLabel.Text = "Properties";
             //
             // _properties
             //
-            _properties.Location = new Point(632, 200);
+            _properties.Location = new Point(632, 228);
             _properties.Size = new Size(300, 324);
             _properties.ToolbarVisible = false;
             _properties.PropertyValueChanged += Properties_PropertyValueChanged;
@@ -661,13 +669,13 @@ namespace GymClock
             // _scriptLabel
             //
             _scriptLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-            _scriptLabel.Location = new Point(0, 534);
+            _scriptLabel.Location = new Point(0, 562);
             _scriptLabel.Size = new Size(400, 20);
             _scriptLabel.Text = "Script  (always in sync with the panes above)";
             //
             // _script
             //
-            _script.Location = new Point(0, 556);
+            _script.Location = new Point(0, 584);
             _script.Size = new Size(932, 130);
             _script.Multiline = true;
             _script.ScrollBars = ScrollBars.Vertical;
@@ -679,13 +687,14 @@ namespace GymClock
             // _builtPanel
             //
             _builtPanel.Location = new Point(12, 70);
-            _builtPanel.Size = new Size(990, 700);
+            _builtPanel.Size = new Size(990, 728);
             _builtPanel.Controls.Add(_nameCaption);
             _builtPanel.Controls.Add(_programName);
             _builtPanel.Controls.Add(_modeCaption);
             _builtPanel.Controls.Add(_modeShared);
             _builtPanel.Controls.Add(_modeSequential);
             _builtPanel.Controls.Add(_modeParallel);
+            _builtPanel.Controls.Add(_modeCircuit);
             _builtPanel.Controls.Add(_modeDesc);
             _builtPanel.Controls.Add(_quickWizardButton);
             _builtPanel.Controls.Add(_importButton);
@@ -723,7 +732,7 @@ namespace GymClock
             //
             _pathLabel.Font = new Font("Segoe UI", 8F);
             _pathLabel.ForeColor = Color.DimGray;
-            _pathLabel.Location = new Point(16, 782);
+            _pathLabel.Location = new Point(16, 810);
             _pathLabel.Size = new Size(650, 40);
             _pathLabel.Text = "";
             //
@@ -731,14 +740,14 @@ namespace GymClock
             //
             _saveStatusLabel.Font = new Font("Segoe UI", 8F, FontStyle.Italic);
             _saveStatusLabel.ForeColor = Color.FromArgb(15, 138, 70);
-            _saveStatusLabel.Location = new Point(16, 822);
+            _saveStatusLabel.Location = new Point(16, 850);
             _saveStatusLabel.Size = new Size(650, 22);
             _saveStatusLabel.Text = "";
             //
             // _saveButton
             //
             _saveButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            _saveButton.Location = new Point(720, 812);
+            _saveButton.Location = new Point(720, 840);
             _saveButton.Size = new Size(90, 38);
             _saveButton.Text = "Save";
             _saveButton.Click += Save_Click;
@@ -746,7 +755,7 @@ namespace GymClock
             // _okButton
             //
             _okButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            _okButton.Location = new Point(816, 812);
+            _okButton.Location = new Point(816, 840);
             _okButton.Size = new Size(90, 38);
             _okButton.Text = "OK";
             _okButton.Click += Ok_Click;
@@ -755,7 +764,7 @@ namespace GymClock
             //
             _cancelButton.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             _cancelButton.DialogResult = DialogResult.Cancel;
-            _cancelButton.Location = new Point(912, 812);
+            _cancelButton.Location = new Point(912, 840);
             _cancelButton.Size = new Size(90, 38);
             _cancelButton.Text = "Cancel";
             //
@@ -765,7 +774,7 @@ namespace GymClock
             CancelButton = _cancelButton;
             AutoScaleMode = AutoScaleMode.None;
             AutoScroll = true;
-            ClientSize = new Size(1014, 870);
+            ClientSize = new Size(1014, 898);
             MinimumSize = new Size(700, 500);
             Controls.Add(_sourceLabel);
             Controls.Add(_sourceSimple);

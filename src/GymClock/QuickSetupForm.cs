@@ -65,6 +65,7 @@ namespace GymClock
             _sharedMode.CheckedChanged += modeChanged;
             _sequentialMode.CheckedChanged += modeChanged;
             _parallelMode.CheckedChanged += modeChanged;
+            _circuitMode.CheckedChanged += modeChanged;
 
             UpdateFieldVisibility();
             UpdateModeDescription();
@@ -91,6 +92,14 @@ namespace GymClock
                     "Stations run one after another - only one is active at a time, each with its own pattern.\n"
                     + "Example: the group finishes all of Squats, moves to the Bike, then the Rower - "
                     + "one station's whole pattern before moving to the next.";
+            }
+            else if (_circuitMode.Checked)
+            {
+                _modeDescription.Text =
+                    "A different group works at EVERY station at once, all on the exact same countdown - "
+                    + "then everybody moves to the next station together.\n"
+                    + "Example: 8 groups, one per station, all do 45s work / 15s rest together, then "
+                    + "everyone rotates clockwise to the next station and repeats.";
             }
             else
             {
@@ -175,7 +184,9 @@ namespace GymClock
             get
             {
                 if (_parallelMode.Checked) return ExecutionMode.Parallel;
-                return _sequentialMode.Checked ? ExecutionMode.Sequential : ExecutionMode.Shared;
+                if (_sequentialMode.Checked) return ExecutionMode.Sequential;
+                if (_circuitMode.Checked) return ExecutionMode.Circuit;
+                return ExecutionMode.Shared;
             }
         }
 
@@ -199,6 +210,7 @@ namespace GymClock
             {
                 case ExecutionMode.Sequential: mode = "Sequential Stations"; break;
                 case ExecutionMode.Parallel: mode = "Parallel Independent Stations"; break;
+                case ExecutionMode.Circuit: mode = "Shared Circuit (groups rotate)"; break;
                 default: mode = "Shared Timing"; break;
             }
 

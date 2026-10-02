@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing.Design;
 using System.Globalization;
 using System.Text;
 
@@ -43,6 +45,7 @@ namespace GymClock
         public string Announcement { get; set; } = string.Empty;
 
         /// <summary>Overrides the default colour for this block's type. "#RRGGBB" or a .NET colour name.</summary>
+        [Editor(typeof(ColourUITypeEditor), typeof(UITypeEditor))]
         public string Colour { get; set; } = string.Empty;
 
         /// <summary>Overrides the default sound cue for this block's type. Blank = the type's usual cue.</summary>
@@ -328,6 +331,8 @@ namespace GymClock
     public class StationDef
     {
         public string Name { get; set; } = string.Empty;
+
+        [Editor(typeof(ColourUITypeEditor), typeof(UITypeEditor))]
         public string Colour { get; set; } = string.Empty;
         public string WorkInstruction { get; set; } = string.Empty;
         public string RestInstruction { get; set; } = string.Empty;
@@ -362,7 +367,17 @@ namespace GymClock
         Sequential,
 
         /// <summary>Every station runs its own pattern simultaneously and independently - see ParallelClock.</summary>
-        Parallel
+        Parallel,
+
+        /// <summary>
+        /// One shared timing set (e.g. 4x WORK 45/REST 15) is used identically by every
+        /// station at once - a different group works at each station in unison - and
+        /// when it finishes, everybody moves on to the next station together. The
+        /// on-screen station list is purely informational (no highlighting, since
+        /// every station is active at the same time), while the header counts
+        /// "STATION x OF y" as the whole class advances.
+        /// </summary>
+        Circuit
     }
 
     /// <summary>Where a station is right now, located by elapsed time rather than by a stepped index - see ParallelClock.</summary>
@@ -541,6 +556,23 @@ namespace GymClock
                 for (int i = 0; i < Stations.Count; i++)
                 {
                     foreach (ResolvedBlock rb in TimelineForStation(i).Resolve()) sequence.Add(RuntimeBlock.From(rb, i));
+
+                    if (i < Stations.Count - 1)
+                    {
+                        foreach (ResolvedBlock rb in BetweenStationsTimeline.Resolve()) sequence.Add(RuntimeBlock.From(rb, -1));
+                    }
+                }
+            }
+            else if (Mode == ExecutionMode.Circuit && Stations.Count > 0)
+            {
+                // The exact same shared timing (reps, work/rest) plays once per
+                // station in turn, each pass tagged with that station's index so
+                // the header can count "station x of y" - then the shared MOVE
+                // between every pair of stations, same as Sequential's between
+                // block, so the whole class advances together.
+                for (int i = 0; i < Stations.Count; i++)
+                {
+                    foreach (ResolvedBlock rb in SharedTimeline.Resolve()) sequence.Add(RuntimeBlock.From(rb, i));
 
                     if (i < Stations.Count - 1)
                     {

@@ -106,10 +106,12 @@ namespace GymClock
             _modeShared.Checked = _program.Mode == ExecutionMode.Shared;
             _modeSequential.Checked = _program.Mode == ExecutionMode.Sequential;
             _modeParallel.Checked = _program.Mode == ExecutionMode.Parallel;
+            _modeCircuit.Checked = _program.Mode == ExecutionMode.Circuit;
             EventHandler modeChanged = ModeRadio_CheckedChanged;
             _modeShared.CheckedChanged += modeChanged;
             _modeSequential.CheckedChanged += modeChanged;
             _modeParallel.CheckedChanged += modeChanged;
+            _modeCircuit.CheckedChanged += modeChanged;
             UpdateModeDescription();
 
             RefreshOutline();
@@ -219,6 +221,7 @@ namespace GymClock
         {
             _program.Mode = _modeSequential.Checked ? ExecutionMode.Sequential
                 : _modeParallel.Checked ? ExecutionMode.Parallel
+                : _modeCircuit.Checked ? ExecutionMode.Circuit
                 : ExecutionMode.Shared;
             UpdateModeDescription();
             RefreshOutline();
@@ -236,6 +239,13 @@ namespace GymClock
             {
                 _modeDesc.Text = "Stations run one after another - only one is active at a time, each with "
                     + "its own pattern. The panel highlights whichever station is currently active.";
+            }
+            else if (_modeCircuit.Checked)
+            {
+                _modeDesc.Text = "A different group is at every station at once, all doing the exact SAME "
+                    + "reps/work/rest - set once under Shared Timing - then everybody moves on to the "
+                    + "next station together. The panel lists every station with no highlighting, and "
+                    + "the header counts STATION x OF y as the class rotates through.";
             }
             else
             {
@@ -266,8 +276,10 @@ namespace GymClock
         {
             using (SaveFileDialog dialog = new SaveFileDialog())
             {
+                ProgramLibrary.EnsureInstalled();
                 dialog.Filter = "Program file (*.program.txt)|*.program.txt|Text files (*.txt)|*.txt|All files (*.*)|*.*";
                 dialog.FileName = SafeFileName(_program.Name) + ".program.txt";
+                dialog.InitialDirectory = ProgramLibrary.RootFolder;
                 dialog.Title = "Export program";
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
@@ -288,7 +300,9 @@ namespace GymClock
         {
             using (OpenFileDialog dialog = new OpenFileDialog())
             {
+                ProgramLibrary.EnsureInstalled();
                 dialog.Filter = "Program file (*.program.txt;*.txt)|*.program.txt;*.txt|All files (*.*)|*.*";
+                dialog.InitialDirectory = ProgramLibrary.RootFolder;
                 dialog.Title = "Import program";
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
@@ -336,6 +350,7 @@ namespace GymClock
             _modeShared.Checked = _program.Mode == ExecutionMode.Shared;
             _modeSequential.Checked = _program.Mode == ExecutionMode.Sequential;
             _modeParallel.Checked = _program.Mode == ExecutionMode.Parallel;
+            _modeCircuit.Checked = _program.Mode == ExecutionMode.Circuit;
             UpdateModeDescription();
 
             RefreshOutline();
@@ -355,7 +370,32 @@ namespace GymClock
 
             if (_program.Mode == ExecutionMode.Shared)
             {
+                // Shared timing still allows named/coloured stations - e.g. a
+                // rotating circuit where every group follows the exact same
+                // countdown but is shown under its own station name - so the
+                // station list stays editable here too, with the shared
+                // countdown itself as an extra node.
                 root.Nodes.Add(new TreeNode("Shared Timeline") { Tag = "SHARED" });
+
+                for (int i = 0; i < _program.Stations.Count; i++)
+                {
+                    root.Nodes.Add(new TreeNode((i + 1) + ". " + _program.Stations[i].Name) { Tag = i });
+                }
+            }
+            else if (_program.Mode == ExecutionMode.Circuit)
+            {
+                // Every station plays the exact same reps - so timing is edited
+                // once here, not per station - then everybody moves on together
+                // via the shared Move Between Stations node. Station nodes
+                // themselves only expose identity (name/colour/notes), never a
+                // timeline of their own (see CurrentTimeline()).
+                root.Nodes.Add(new TreeNode("Shared Timing (reps)") { Tag = "SHARED" });
+                root.Nodes.Add(new TreeNode("Move Between Stations") { Tag = "BETWEEN" });
+
+                for (int i = 0; i < _program.Stations.Count; i++)
+                {
+                    root.Nodes.Add(new TreeNode((i + 1) + ". " + _program.Stations[i].Name) { Tag = i });
+                }
             }
             else
             {
@@ -421,7 +461,12 @@ namespace GymClock
         private Timeline CurrentTimeline()
         {
             object tag = _outline.SelectedNode != null ? _outline.SelectedNode.Tag : null;
-            if (tag is int) return _program.Stations[(int)tag].CustomTimeline;
+
+            // In Circuit mode every station plays the identical shared timing,
+            // so a station node has no timeline of its own to edit - all timing
+            // edits must go through the "Shared Timing (reps)" / "Move Between
+            // Stations" nodes instead.
+            if (tag is int) return _program.Mode == ExecutionMode.Circuit ? null : _program.Stations[(int)tag].CustomTimeline;
             if ("SHARED".Equals(tag)) return _program.SharedTimeline;
             if ("BETWEEN".Equals(tag)) return _program.BetweenStationsTimeline;
             return null;
@@ -440,7 +485,8 @@ namespace GymClock
 
         private void AddStation_Click(object sender, EventArgs e)
         {
-            if (_program.Mode != ExecutionMode.Sequential && _program.Mode != ExecutionMode.Parallel)
+            if (_program.Mode != ExecutionMode.Sequential && _program.Mode != ExecutionMode.Parallel
+                && _program.Mode != ExecutionMode.Shared && _program.Mode != ExecutionMode.Circuit)
             {
                 if (MessageBox.Show(this,
                     "Adding a station switches this program to Sequential Stations mode. Continue?",
@@ -450,7 +496,11 @@ namespace GymClock
             }
 
             StationDef station = new StationDef { Name = "Station " + (_program.Stations.Count + 1), Source = TimingSource.Custom };
-            station.CustomTimeline.Add(new Block(BlockType.Work, 30));
+
+            // Circuit-mode stations never use their own timeline - every station
+            // plays the identical shared timing - so there is nothing to seed here.
+            if (_program.Mode != ExecutionMode.Circuit) station.CustomTimeline.Add(new Block(BlockType.Work, 30));
+
             _program.Stations.Add(station);
 
             RefreshOutline();
@@ -754,7 +804,7 @@ namespace GymClock
 
         private void RefreshButtonsEnabled()
         {
-            bool sequential = _program.Mode == ExecutionMode.Sequential;
+            bool sequential = _program.Mode == ExecutionMode.Sequential || _program.Mode == ExecutionMode.Circuit;
             _addBetweenRestButton.Enabled = sequential;
             _addBetweenMoveButton.Enabled = sequential;
 
@@ -792,6 +842,7 @@ namespace GymClock
                 _modeShared.Checked = _program.Mode == ExecutionMode.Shared;
                 _modeSequential.Checked = _program.Mode == ExecutionMode.Sequential;
                 _modeParallel.Checked = _program.Mode == ExecutionMode.Parallel;
+                _modeCircuit.Checked = _program.Mode == ExecutionMode.Circuit;
                 UpdateModeDescription();
                 RefreshOutline();
             }
@@ -881,7 +932,8 @@ namespace GymClock
         {
             ApplyControlsTo(Result);
             Result.Save();
-            _saveStatusLabel.Text = "Saved to " + TimerSettings.FilePath;
+            ProgramLibrary.SaveCurrentProgramScript(Result.ProgramScript);
+            _saveStatusLabel.Text = "Program saved to " + ProgramLibrary.CurrentProgramFilePath;
         }
 
         private void Ok_Click(object sender, EventArgs e)

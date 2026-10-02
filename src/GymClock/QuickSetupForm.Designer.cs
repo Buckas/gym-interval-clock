@@ -15,6 +15,7 @@ namespace GymClock
         private RadioButton _sharedMode;
         private RadioButton _sequentialMode;
         private RadioButton _parallelMode;
+        private RadioButton _circuitMode;
         private Label _modeDescription;
 
         private Label _patternLabel;
@@ -60,6 +61,7 @@ namespace GymClock
             _sharedMode = new RadioButton();
             _sequentialMode = new RadioButton();
             _parallelMode = new RadioButton();
+            _circuitMode = new RadioButton();
             _modeDescription = new Label();
 
             _patternLabel = new Label();
@@ -135,6 +137,12 @@ namespace GymClock
             _parallelMode.Size = new Size(420, 26);
             _parallelMode.Text = "Parallel Independent Stations";
             //
+            // _circuitMode
+            //
+            _circuitMode.Location = new Point(16, 162);
+            _circuitMode.Size = new Size(420, 26);
+            _circuitMode.Text = "Shared Circuit (groups rotate)";
+            //
             // _modeDescription
             //
             // Updated live by UpdateModeDescription() to explain, in plain
@@ -142,7 +150,7 @@ namespace GymClock
             // the three one-word names alone weren't enough to tell them apart.
             _modeDescription.BackColor = Color.FromArgb(240, 240, 245);
             _modeDescription.Font = new Font("Segoe UI", 9F);
-            _modeDescription.Location = new Point(16, 166);
+            _modeDescription.Location = new Point(16, 192);
             _modeDescription.Size = new Size(568, 62);
             _modeDescription.Padding = new Padding(8, 6, 8, 6);
             _modeDescription.Text = "";
@@ -150,26 +158,26 @@ namespace GymClock
             // _patternLabel
             //
             _patternLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _patternLabel.Location = new Point(16, 240);
+            _patternLabel.Location = new Point(16, 266);
             _patternLabel.Size = new Size(200, 24);
             _patternLabel.Text = "Pattern";
             //
             // _pattern
             //
             _pattern.DropDownStyle = ComboBoxStyle.DropDownList;
-            _pattern.Location = new Point(16, 266);
+            _pattern.Location = new Point(16, 292);
             _pattern.Size = new Size(260, 36);
             //
             // _workLabel
             //
-            _workLabel.Location = new Point(16, 314);
+            _workLabel.Location = new Point(16, 340);
             _workLabel.Size = new Size(140, 30);
             _workLabel.Text = "Work seconds";
             _workLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _work
             //
-            _work.Location = new Point(160, 310);
+            _work.Location = new Point(160, 336);
             _work.Size = new Size(80, 34);
             _work.Minimum = 1;
             _work.Maximum = 3600;
@@ -177,20 +185,20 @@ namespace GymClock
             //
             // _workUnit
             //
-            _workUnit.Location = new Point(246, 314);
+            _workUnit.Location = new Point(246, 340);
             _workUnit.Size = new Size(40, 30);
             _workUnit.Text = "sec";
             //
             // _recoveryLabel
             //
-            _recoveryLabel.Location = new Point(16, 352);
+            _recoveryLabel.Location = new Point(16, 378);
             _recoveryLabel.Size = new Size(140, 30);
             _recoveryLabel.Text = "Recovery seconds";
             _recoveryLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _recovery
             //
-            _recovery.Location = new Point(160, 348);
+            _recovery.Location = new Point(160, 374);
             _recovery.Size = new Size(80, 34);
             _recovery.Minimum = 0;
             _recovery.Maximum = 3600;
@@ -198,20 +206,20 @@ namespace GymClock
             //
             // _recoveryUnit
             //
-            _recoveryUnit.Location = new Point(246, 352);
+            _recoveryUnit.Location = new Point(246, 378);
             _recoveryUnit.Size = new Size(40, 30);
             _recoveryUnit.Text = "sec";
             //
             // _roundsLabel
             //
-            _roundsLabel.Location = new Point(16, 390);
+            _roundsLabel.Location = new Point(16, 416);
             _roundsLabel.Size = new Size(140, 30);
             _roundsLabel.Text = "Rounds";
             _roundsLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _rounds
             //
-            _rounds.Location = new Point(160, 386);
+            _rounds.Location = new Point(160, 412);
             _rounds.Size = new Size(80, 34);
             _rounds.Minimum = 1;
             _rounds.Maximum = 999;
@@ -219,14 +227,14 @@ namespace GymClock
             //
             // _stepLabel
             //
-            _stepLabel.Location = new Point(300, 314);
+            _stepLabel.Location = new Point(300, 340);
             _stepLabel.Size = new Size(140, 30);
             _stepLabel.Text = "Step seconds";
             _stepLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _step
             //
-            _step.Location = new Point(440, 310);
+            _step.Location = new Point(440, 336);
             _step.Size = new Size(80, 34);
             _step.Minimum = 1;
             _step.Maximum = 300;
@@ -234,20 +242,20 @@ namespace GymClock
             //
             // _stepUnit
             //
-            _stepUnit.Location = new Point(526, 314);
+            _stepUnit.Location = new Point(526, 340);
             _stepUnit.Size = new Size(40, 30);
             _stepUnit.Text = "sec";
             //
             // _minutesLabel
             //
-            _minutesLabel.Location = new Point(300, 352);
+            _minutesLabel.Location = new Point(300, 404);
             _minutesLabel.Size = new Size(140, 30);
             _minutesLabel.Text = "Total minutes";
             _minutesLabel.TextAlign = ContentAlignment.MiddleLeft;
             //
             // _minutes
             //
-            _minutes.Location = new Point(440, 348);
+            _minutes.Location = new Point(440, 400);
             _minutes.Size = new Size(80, 34);
             _minutes.Minimum = 1;
             _minutes.Maximum = 180;
@@ -255,27 +263,27 @@ namespace GymClock
             //
             // _minutesUnit
             //
-            _minutesUnit.Location = new Point(526, 352);
+            _minutesUnit.Location = new Point(526, 404);
             _minutesUnit.Size = new Size(40, 30);
             _minutesUnit.Text = "min";
             //
             // _previewLabel
             //
             _previewLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-            _previewLabel.Location = new Point(16, 436);
+            _previewLabel.Location = new Point(16, 462);
             _previewLabel.Size = new Size(200, 24);
             _previewLabel.Text = "Preview";
             //
             // _preview
             //
             _preview.ForeColor = Color.DimGray;
-            _preview.Location = new Point(16, 462);
+            _preview.Location = new Point(16, 488);
             _preview.Size = new Size(568, 70);
             _preview.Text = "";
             //
             // _createButton
             //
-            _createButton.Location = new Point(414, 544);
+            _createButton.Location = new Point(414, 570);
             _createButton.Size = new Size(170, 38);
             _createButton.Text = "Create Program";
             _createButton.Click += CreateProgram_Click;
@@ -283,7 +291,7 @@ namespace GymClock
             // _cancelButton
             //
             _cancelButton.DialogResult = DialogResult.Cancel;
-            _cancelButton.Location = new Point(16, 544);
+            _cancelButton.Location = new Point(16, 570);
             _cancelButton.Size = new Size(90, 38);
             _cancelButton.Text = "Cancel";
             //
@@ -292,13 +300,14 @@ namespace GymClock
             AcceptButton = _createButton;
             CancelButton = _cancelButton;
             AutoScaleMode = AutoScaleMode.None;
-            ClientSize = new Size(600, 598);
+            ClientSize = new Size(600, 624);
             Controls.Add(_nameLabel);
             Controls.Add(_name);
             Controls.Add(_modeLabel);
             Controls.Add(_sharedMode);
             Controls.Add(_sequentialMode);
             Controls.Add(_parallelMode);
+            Controls.Add(_circuitMode);
             Controls.Add(_modeDescription);
             Controls.Add(_patternLabel);
             Controls.Add(_pattern);

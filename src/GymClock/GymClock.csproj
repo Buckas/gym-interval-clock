@@ -16,7 +16,7 @@
     <Product>Gym Interval Clock</Product>
     <AssemblyTitle>Gym Interval Clock</AssemblyTitle>
     <Description>Full-screen interval training clock for projecting onto a gym wall.</Description>
-    <Version>1.0.0</Version>
+    <Version>2.0.0</Version>
     <Copyright>Copyright (c) 2026 Chris Bucknell and James Vella. All rights reserved.</Copyright>
     <Authors>Chris Bucknell; James Vella</Authors>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
