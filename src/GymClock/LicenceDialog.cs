@@ -33,7 +33,7 @@ namespace GymClock
             _status = status;
             _blocking = blocking;
 
-            _title.Text = Licensing.ProductName + "  " + Application.ProductVersion;
+            _title.Text = Licensing.ProductName + "  v" + ShortProductVersion();
             _copyrightLabel.Text = Licensing.Copyright;
             _machineBox.Text = Licensing.MachineId();
             _siteLink.Text = OnlineServices.BaseUrl;
@@ -52,9 +52,21 @@ namespace GymClock
             UpdateStatusText();
         }
 
-        private void UpdateStatusText()
+        /// <summary>
+        /// Application.ProductVersion includes the SourceRevisionId (a full git
+        /// commit hash) appended after a '+', e.g. "2.0.0+abcdef1234...". That's
+        /// too wide for the title label and not meaningful to a user, so only
+        /// the plain "major.minor.patch" part is shown here.
+        /// </summary>
+        private static string ShortProductVersion()
         {
-            string text;
+            string version = Application.ProductVersion ?? string.Empty;
+            int plus = version.IndexOf('+');
+            return plus >= 0 ? version.Substring(0, plus) : version;
+        }
+
+        private void UpdateStatusText()
+        {            string text;
 
             switch (_status.State)
             {

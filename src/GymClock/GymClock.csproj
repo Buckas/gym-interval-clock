@@ -10,6 +10,10 @@
     <AssemblyName>GymClock</AssemblyName>
     <ApplicationIcon>GymClock.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Without this, the SDK appends the git commit hash to Version as
+         "+<hash>", which shows up wherever Application.ProductVersion is
+         displayed (e.g. the About dialog title) unless explicitly stripped. -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <PropertyGroup>
