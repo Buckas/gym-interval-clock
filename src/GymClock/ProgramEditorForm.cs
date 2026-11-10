@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using GymClock.AI;
 
 namespace GymClock
 {
@@ -41,6 +46,7 @@ namespace GymClock
         private RepeatGroup _groupContext;      // non-null while drilled into a repeat group's own blocks
         private object _lastOutlineTag;
         private readonly Timer _scriptSyncTimer = new Timer { Interval = 600 };
+        private string _undoAiPreviousScript;
 
         /// <summary>
         /// Design-time constructor. The designer needs a parameterless one, and it must
@@ -206,6 +212,111 @@ namespace GymClock
                     UpdatePlanPreview();   // prep seconds feeds the preview's total duration
                 }
             }
+        }
+
+        private async void AiAssistant_Click(object sender, EventArgs e)
+        {
+            string baselineScript = ProgramScriptFormat.ToScript(_program);
+            string baselineHash = ComputeScriptHash(baselineScript);
+
+            AiAssistantOptions options = new AiAssistantOptions();
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+
+            await using (FoundryLocalProgramService aiService = new FoundryLocalProgramService(options))
+            {
+                AiProgramGenerationCoordinator coordinator =
+                    new AiProgramGenerationCoordinator(aiService, validator, options);
+
+                using (ProgramAssistantForm dialog = new ProgramAssistantForm(
+                    coordinator,
+                    validator,
+                    options,
+                    aiService,
+                    baselineScript))
+                {
+                    if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                    string proposedScript = dialog.AppliedScript;
+                    if (string.IsNullOrWhiteSpace(proposedScript)) return;
+
+                    ProgramValidationResult validation = validator.Validate(proposedScript);
+                    if (!validation.IsValid)
+                    {
+                        MessageBox.Show(this,
+                            "The proposal is not valid and cannot be applied.",
+                            "AI Assistant",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    string currentScript = ProgramScriptFormat.ToScript(_program);
+                    string currentHash = ComputeScriptHash(currentScript);
+                    if (!string.Equals(currentHash, baselineHash, StringComparison.Ordinal))
+                    {
+                        DialogResult staleResult = MessageBox.Show(this,
+                            "The program in the editor changed while the AI Assistant was open."
+                            + Environment.NewLine + Environment.NewLine
+                            + "Yes = Replace Anyway"
+                            + Environment.NewLine
+                            + "No = Regenerate Against Latest Program"
+                            + Environment.NewLine
+                            + "Cancel = Cancel",
+                            "AI Assistant",
+                            MessageBoxButtons.YesNoCancel,
+                            MessageBoxIcon.Warning,
+                            MessageBoxDefaultButton.Button3);
+
+                        if (staleResult == DialogResult.Cancel) return;
+
+                        if (staleResult == DialogResult.No)
+                        {
+                            using (ProgramAssistantForm regenerate = new ProgramAssistantForm(
+                                coordinator,
+                                validator,
+                                options,
+                                aiService,
+                                currentScript))
+                            {
+                                if (regenerate.ShowDialog(this) != DialogResult.OK) return;
+                                proposedScript = regenerate.AppliedScript;
+                                if (string.IsNullOrWhiteSpace(proposedScript)) return;
+
+                                validation = validator.Validate(proposedScript);
+                                if (!validation.IsValid)
+                                {
+                                    MessageBox.Show(this,
+                                        "The regenerated proposal is not valid and cannot be applied.",
+                                        "AI Assistant",
+                                        MessageBoxButtons.OK,
+                                        MessageBoxIcon.Warning);
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    _undoAiPreviousScript = ProgramScriptFormat.ToScript(_program);
+
+                    WorkoutProgram parsed = ProgramScriptFormat.Parse(proposedScript);
+                    ApplyProgram(parsed);
+                    _sourceBuilt.Checked = true;
+                    _undoAiButton.Enabled = true;
+                    _saveStatusLabel.Text = "AI proposal applied to editor. Save to keep it.";
+                }
+            }
+        }
+
+        private void UndoAiChange_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_undoAiPreviousScript)) return;
+
+            WorkoutProgram parsed = ProgramScriptFormat.Parse(_undoAiPreviousScript);
+            ApplyProgram(parsed);
+            _sourceBuilt.Checked = true;
+            _saveStatusLabel.Text = "AI change undone.";
+            _undoAiPreviousScript = null;
+            _undoAiButton.Enabled = false;
         }
 
         // ============================================================ built program header
@@ -992,5 +1103,16 @@ namespace GymClock
                 Close();
             }
         }
+
+        private static string ComputeScriptHash(string script)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(script ?? string.Empty);
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(bytes);
+                return Convert.ToBase64String(hash);
+            }
+        }
+
     }
 }

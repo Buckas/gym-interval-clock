@@ -240,7 +240,7 @@ namespace GymClock
             Name = "LicenceDialog";
             ShowInTaskbar = false;
             StartPosition = FormStartPosition.CenterParent;
-            Text = "About Gym Interval Clock";
+            Text = "About Gym Interval Clock Version 3.0";
             TopMost = true;
             ResumeLayout(false);
             PerformLayout();

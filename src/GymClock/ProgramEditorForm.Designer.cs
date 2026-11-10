@@ -53,6 +53,8 @@ namespace GymClock
         private RadioButton _modeCircuit;
         private Label _modeDesc;
         private Button _quickWizardButton;
+        private Button _aiAssistantButton;
+        private Button _undoAiButton;
         private Button _importButton;
         private Button _exportButton;
         private Label _instructions;
@@ -148,6 +150,8 @@ namespace GymClock
             _modeCircuit = new RadioButton();
             _modeDesc = new Label();
             _quickWizardButton = new Button();
+            _aiAssistantButton = new Button();
+            _undoAiButton = new Button();
             _importButton = new Button();
             _exportButton = new Button();
             _instructions = new Label();
@@ -482,16 +486,31 @@ namespace GymClock
             _quickWizardButton.Text = "✨ Quick Start Wizard...";
             _quickWizardButton.Click += QuickWizard_Click;
             //
+            // _aiAssistantButton
+            //
+            _aiAssistantButton.Location = new Point(166, 128);
+            _aiAssistantButton.Size = new Size(112, 32);
+            _aiAssistantButton.Text = "AI Assistant...";
+            _aiAssistantButton.Click += AiAssistant_Click;
+            //
+            // _undoAiButton
+            //
+            _undoAiButton.Enabled = false;
+            _undoAiButton.Location = new Point(282, 128);
+            _undoAiButton.Size = new Size(120, 32);
+            _undoAiButton.Text = "Undo AI Change";
+            _undoAiButton.Click += UndoAiChange_Click;
+            //
             // _importButton
             //
-            _importButton.Location = new Point(166, 128);
+            _importButton.Location = new Point(408, 128);
             _importButton.Size = new Size(100, 32);
             _importButton.Text = "Import...";
             _importButton.Click += ImportProgram_Click;
             //
             // _exportButton
             //
-            _exportButton.Location = new Point(272, 128);
+            _exportButton.Location = new Point(514, 128);
             _exportButton.Size = new Size(100, 32);
             _exportButton.Text = "Export...";
             _exportButton.Click += ExportProgram_Click;
@@ -697,6 +716,8 @@ namespace GymClock
             _builtPanel.Controls.Add(_modeCircuit);
             _builtPanel.Controls.Add(_modeDesc);
             _builtPanel.Controls.Add(_quickWizardButton);
+            _builtPanel.Controls.Add(_aiAssistantButton);
+            _builtPanel.Controls.Add(_undoAiButton);
             _builtPanel.Controls.Add(_importButton);
             _builtPanel.Controls.Add(_exportButton);
             _builtPanel.Controls.Add(_instructions);
