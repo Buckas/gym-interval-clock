@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -217,7 +215,7 @@ namespace GymClock
         private async void AiAssistant_Click(object sender, EventArgs e)
         {
             string baselineScript = ProgramScriptFormat.ToScript(_program);
-            string baselineHash = ComputeScriptHash(baselineScript);
+            string baselineHash = ScriptHashGuard.ComputeHash(baselineScript);
 
             AiAssistantOptions options = new AiAssistantOptions();
             ProgramProposalValidator validator = new ProgramProposalValidator();
@@ -251,7 +249,7 @@ namespace GymClock
                     }
 
                     string currentScript = ProgramScriptFormat.ToScript(_program);
-                    string currentHash = ComputeScriptHash(currentScript);
+                    string currentHash = ScriptHashGuard.ComputeHash(currentScript);
                     if (!string.Equals(currentHash, baselineHash, StringComparison.Ordinal))
                     {
                         DialogResult staleResult = MessageBox.Show(this,
@@ -1101,16 +1099,6 @@ namespace GymClock
             {
                 DialogResult = DialogResult.Cancel;
                 Close();
-            }
-        }
-
-        private static string ComputeScriptHash(string script)
-        {
-            byte[] bytes = Encoding.UTF8.GetBytes(script ?? string.Empty);
-            using (SHA256 sha = SHA256.Create())
-            {
-                byte[] hash = sha.ComputeHash(bytes);
-                return Convert.ToBase64String(hash);
             }
         }
 

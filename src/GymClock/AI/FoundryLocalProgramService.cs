@@ -83,7 +83,7 @@ namespace GymClock.AI
                 _manager.DiscoverEps();
                 await _manager.DownloadAndRegisterEpsAsync(cancellationToken).ConfigureAwait(false);
 
-                _catalog = await _manager.GetCatalogAsync(CatalogType.Local, cancellationToken).ConfigureAwait(false);
+                _catalog = await _manager.GetCatalogAsync(cancellationToken).ConfigureAwait(false);
 
                 _model = await _catalog.GetModelVariantAsync(_options.LocalModelAlias, cancellationToken).ConfigureAwait(false);
                 if (_model == null)
@@ -128,7 +128,7 @@ namespace GymClock.AI
                 LocalAiSetupStatus failed = UpdateStatus(
                     LocalAiSetupStage.Failed,
                     "Local AI could not be started.",
-                    ex.Message,
+                    ex.ToString(),
                     null,
                     onProgress);
                 throw new LocalAiSetupException(failed.Message, ex);

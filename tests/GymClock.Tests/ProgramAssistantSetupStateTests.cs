@@ -42,6 +42,22 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public void Failed_State_IncludesDevDetails_WhenDeveloperDiagnosticsEnabled()
+        {
+            LocalAiSetupStatus status = new LocalAiSetupStatus
+            {
+                Stage = LocalAiSetupStage.Failed,
+                Message = "Local AI could not be started.",
+                Details = "Invalid model alias."
+            };
+
+            LocalAiSetupUiState ui = LocalAiSetupUiStateEvaluator.Evaluate(status, isBusy: false, developerDiagnostics: true);
+
+            Assert.Contains("Dev details:", ui.SetupMessage);
+            Assert.Contains("Invalid model alias.", ui.SetupMessage);
+        }
+
+        [Fact]
         public void Ready_State_DisablesSetupAndRetry()
         {
             LocalAiSetupStatus status = new LocalAiSetupStatus

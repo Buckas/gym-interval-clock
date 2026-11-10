@@ -272,7 +272,7 @@ namespace GymClock
                 {
                     Stage = LocalAiSetupStage.Failed,
                     Message = "Local AI could not be started.",
-                    Details = ex.InnerException == null ? ex.Message : ex.InnerException.Message
+                    Details = ex.InnerException == null ? ex.ToString() : ex.InnerException.ToString()
                 });
             }
             catch (Exception ex)
@@ -281,7 +281,7 @@ namespace GymClock
                 {
                     Stage = LocalAiSetupStage.Failed,
                     Message = "Local AI could not be started.",
-                    Details = ex.Message
+                    Details = ex.ToString()
                 });
             }
             finally
@@ -300,7 +300,7 @@ namespace GymClock
 
             _lastSetupDetails = s.Details ?? string.Empty;
 
-            LocalAiSetupUiState uiState = LocalAiSetupUiStateEvaluator.Evaluate(s, _isBusy);
+            LocalAiSetupUiState uiState = LocalAiSetupUiStateEvaluator.Evaluate(s, _isBusy, _options.DeveloperDiagnostics);
             _localAiReady = uiState.LocalAiReady;
 
             lblLocalAiStatus.Text = uiState.StatusLine;

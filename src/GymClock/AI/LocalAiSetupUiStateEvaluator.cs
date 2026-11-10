@@ -15,7 +15,7 @@ namespace GymClock.AI
 
     public static class LocalAiSetupUiStateEvaluator
     {
-        public static LocalAiSetupUiState Evaluate(LocalAiSetupStatus status, bool isBusy)
+        public static LocalAiSetupUiState Evaluate(LocalAiSetupStatus status, bool isBusy, bool developerDiagnostics = false)
         {
             LocalAiSetupStatus s = status ?? new LocalAiSetupStatus
             {
@@ -44,6 +44,14 @@ namespace GymClock.AI
 
             if (s.IsFailure)
             {
+                string setupMessage = "Local AI could not be started." + Environment.NewLine
+                    + "No cloud or paid AI request has been made.";
+
+                if (developerDiagnostics && !string.IsNullOrWhiteSpace(s.Details))
+                {
+                    setupMessage += Environment.NewLine + Environment.NewLine + "Dev details:" + Environment.NewLine + s.Details;
+                }
+
                 return new LocalAiSetupUiState
                 {
                     LocalAiReady = false,
@@ -51,8 +59,7 @@ namespace GymClock.AI
                     EnableRetry = !isBusy,
                     EnableDetails = !isBusy,
                     StatusLine = "Local AI status: " + message,
-                    SetupMessage = "Local AI could not be started." + Environment.NewLine
-                        + "No cloud or paid AI request has been made."
+                    SetupMessage = setupMessage
                 };
             }
 
