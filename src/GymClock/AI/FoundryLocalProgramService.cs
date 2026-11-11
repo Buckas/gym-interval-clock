@@ -19,6 +19,7 @@ namespace GymClock.AI
         private IModel _model;
         private OpenAIChatClient _chatClient;
         private bool _disposed;
+        private bool _createdManager;
         private LocalAiSetupStatus _lastSetupStatus = new LocalAiSetupStatus
         {
             Stage = LocalAiSetupStage.NotStarted,
@@ -76,7 +77,17 @@ namespace GymClock.AI
 
                 UpdateStatus(LocalAiSetupStage.CheckingCompatibility, "Checking local AI compatibility...", null, null, onProgress);
 
-                await FoundryLocalManager.CreateAsync(null, NullLogger.Instance, cancellationToken).ConfigureAwait(false);
+                Configuration configuration = new Configuration
+                {
+                    AppName = "GymClock"
+                };
+
+                if (!FoundryLocalManager.IsInitialized)
+                {
+                    await FoundryLocalManager.CreateAsync(configuration, NullLogger.Instance, cancellationToken).ConfigureAwait(false);
+                    _createdManager = true;
+                }
+
                 _manager = FoundryLocalManager.Instance;
 
                 UpdateStatus(LocalAiSetupStage.DownloadingComponents, "Downloading local AI components...", null, null, onProgress);
@@ -85,37 +96,74 @@ namespace GymClock.AI
 
                 _catalog = await _manager.GetCatalogAsync(cancellationToken).ConfigureAwait(false);
 
-                _model = await _catalog.GetModelVariantAsync(_options.LocalModelAlias, cancellationToken).ConfigureAwait(false);
-                if (_model == null)
+                IModel preferredModel = await _catalog.GetModelAsync(_options.LocalModelAlias, cancellationToken).ConfigureAwait(false);
+                if (preferredModel == null)
                 {
-                    _model = await _catalog.GetModelAsync(_options.LocalModelAlias, cancellationToken).ConfigureAwait(false);
+                    preferredModel = await _catalog.GetModelVariantAsync(_options.LocalModelAlias, cancellationToken).ConfigureAwait(false);
                 }
 
-                if (_model == null)
+                List<IModel> candidates = new List<IModel>();
+                if (preferredModel != null)
                 {
-                    IEnumerable<IModel> models = await _catalog.ListModelsAsync(cancellationToken).ConfigureAwait(false);
-                    _model = models.FirstOrDefault();
+                    candidates.Add(preferredModel);
                 }
 
-                if (_model == null)
+                IEnumerable<IModel> models = await _catalog.ListModelsAsync(cancellationToken).ConfigureAwait(false);
+                foreach (IModel model in models)
+                {
+                    if (!candidates.Contains(model))
+                    {
+                        candidates.Add(model);
+                    }
+                }
+
+                if (candidates.Count == 0)
                 {
                     throw new InvalidOperationException("No compatible local models were found in the Foundry catalog.");
                 }
 
-                UpdateStatus(LocalAiSetupStage.DownloadingModel, "Downloading local model...", null, null, onProgress);
-                await _model.DownloadAsync(progress =>
+                Exception lastLoadError = null;
+                foreach (IModel candidate in candidates)
                 {
-                    UpdateStatus(
-                        LocalAiSetupStage.DownloadingModel,
-                        "Downloading local model...",
-                        null,
-                        progress,
-                        onProgress);
-                }, cancellationToken).ConfigureAwait(false);
+                    try
+                    {
+                        UpdateStatus(LocalAiSetupStage.DownloadingModel, "Downloading local model...", null, null, onProgress);
+                        await candidate.DownloadAsync(progress =>
+                        {
+                            UpdateStatus(
+                                LocalAiSetupStage.DownloadingModel,
+                                "Downloading local model...",
+                                null,
+                                progress,
+                                onProgress);
+                        }, cancellationToken).ConfigureAwait(false);
 
-                UpdateStatus(LocalAiSetupStage.LoadingModel, "Loading local model...", null, null, onProgress);
-                await _model.LoadAsync(cancellationToken).ConfigureAwait(false);
-                _chatClient = await _model.GetChatClientAsync(cancellationToken).ConfigureAwait(false);
+                        UpdateStatus(LocalAiSetupStage.LoadingModel, "Loading local model...", null, null, onProgress);
+                        await candidate.LoadAsync(cancellationToken).ConfigureAwait(false);
+
+                        _chatClient = await candidate.GetChatClientAsync(cancellationToken).ConfigureAwait(false);
+                        _model = candidate;
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        lastLoadError = ex;
+                        try
+                        {
+                            await candidate.UnloadAsync(CancellationToken.None).ConfigureAwait(false);
+                        }
+                        catch
+                        {
+                        }
+                    }
+                }
+
+                if (_chatClient == null)
+                {
+                    throw new InvalidOperationException(
+                        "No compatible local model could be loaded on this device. Update graphics/NPU drivers or try a different local model alias.",
+                        lastLoadError);
+                }
 
                 return UpdateStatus(LocalAiSetupStage.Ready, "Local AI ready - FREE / ON DEVICE", null, 100, onProgress);
             }
@@ -177,7 +225,7 @@ namespace GymClock.AI
             {
                 _initLock.Dispose();
 
-                if (_manager != null && FoundryLocalManager.IsInitialized)
+                if (_createdManager && _manager != null && FoundryLocalManager.IsInitialized)
                 {
                     try { _manager.Shutdown(); } catch { }
                 }

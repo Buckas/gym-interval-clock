@@ -6,6 +6,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Globalization;
 using System.Windows.Forms;
+using GymClock.AI;
 
 namespace GymClock
 {
@@ -136,6 +137,7 @@ namespace GymClock
             base.OnShown(e);
             SetFullScreen(true);
             _ticker.Start();
+            _ = AiAssistantRuntime.StartWarmupIfNeeded();
             StartBackgroundChecks(false);
             OfferRenewalIfDue();
         }

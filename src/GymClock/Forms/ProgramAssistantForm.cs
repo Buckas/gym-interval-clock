@@ -47,6 +47,7 @@ namespace GymClock
 
         private string _lastSetupDetails = string.Empty;
         private bool _localAiReady;
+        private bool _autoSetupStarted;
 
         public string AppliedScript { get; private set; }
 
@@ -66,6 +67,7 @@ namespace GymClock
             InitializeUi();
             ResetConversationUi();
             SetBusy(false);
+            Shown += ProgramAssistantForm_Shown;
 
             if (_setupService != null)
             {
@@ -290,8 +292,36 @@ namespace GymClock
             }
         }
 
+        private async void ProgramAssistantForm_Shown(object sender, EventArgs e)
+        {
+            if (_autoSetupStarted || _isClosing) return;
+            _autoSetupStarted = true;
+
+            if (_setupService == null || _localAiReady) return;
+
+            await SetupLocalAiAsync();
+        }
+
         private void ApplySetupStatus(LocalAiSetupStatus status)
         {
+            if (_isClosing || IsDisposed) return;
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action<LocalAiSetupStatus>(ApplySetupStatus), status);
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+                catch (InvalidOperationException)
+                {
+                }
+
+                return;
+            }
+
             LocalAiSetupStatus s = status ?? new LocalAiSetupStatus
             {
                 Stage = LocalAiSetupStage.NotStarted,
@@ -302,12 +332,18 @@ namespace GymClock
 
             LocalAiSetupUiState uiState = LocalAiSetupUiStateEvaluator.Evaluate(s, _isBusy, _options.DeveloperDiagnostics);
             _localAiReady = uiState.LocalAiReady;
+            bool showManualSetupActions = s.IsFailure;
 
             lblLocalAiStatus.Text = uiState.StatusLine;
             lblSetup.Text = uiState.SetupMessage;
-            btnSetup.Enabled = uiState.EnableSetup;
-            btnRetry.Enabled = uiState.EnableRetry;
-            btnDetails.Enabled = uiState.EnableDetails;
+
+            btnSetup.Visible = showManualSetupActions;
+            btnRetry.Visible = showManualSetupActions;
+            btnDetails.Visible = showManualSetupActions;
+
+            btnSetup.Enabled = showManualSetupActions && uiState.EnableSetup;
+            btnRetry.Enabled = showManualSetupActions && uiState.EnableRetry;
+            btnDetails.Enabled = showManualSetupActions && uiState.EnableDetails;
             btnSend.Enabled = !_isBusy && _localAiReady;
         }
 
@@ -530,7 +566,6 @@ namespace GymClock
         private void SetBusy(bool busy)
         {
             _isBusy = busy;
-            btnSend.Enabled = !busy && _localAiReady;
             btnCancel.Enabled = busy;
             btnApply.Enabled = !busy && _session.CanApply;
             btnNewConversation.Enabled = !busy;
@@ -538,13 +573,18 @@ namespace GymClock
             cboSuggestedPrompt.Enabled = !busy;
             txtRequest.Enabled = !busy;
             rtbProposedScript.ReadOnly = busy;
-            btnSetup.Enabled = !busy && !_localAiReady;
-            btnRetry.Enabled = !busy && !_localAiReady;
-            btnDetails.Enabled = !busy;
 
-            lblLocalAiStatus.Text = busy
-                ? "Local AI status: generating... FREE / ON DEVICE"
-                : "Local AI status: ready - FREE / ON DEVICE";
+            LocalAiSetupStatus status = _setupService?.LastSetupStatus;
+            if (status == null)
+            {
+                status = new LocalAiSetupStatus
+                {
+                    Stage = _localAiReady ? LocalAiSetupStage.Ready : LocalAiSetupStage.NotStarted,
+                    Message = _localAiReady ? "Local AI ready - FREE / ON DEVICE" : "Local AI not set up"
+                };
+            }
+
+            ApplySetupStatus(status);
         }
 
         private void ProgramAssistantForm_FormClosing(object sender, FormClosingEventArgs e)

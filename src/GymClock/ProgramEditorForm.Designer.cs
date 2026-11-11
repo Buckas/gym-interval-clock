@@ -55,6 +55,7 @@ namespace GymClock
         private Button _quickWizardButton;
         private Button _aiAssistantButton;
         private Button _undoAiButton;
+        private Label _aiWarmupStatusLabel;
         private Button _importButton;
         private Button _exportButton;
         private Label _instructions;
@@ -152,6 +153,7 @@ namespace GymClock
             _quickWizardButton = new Button();
             _aiAssistantButton = new Button();
             _undoAiButton = new Button();
+            _aiWarmupStatusLabel = new Label();
             _importButton = new Button();
             _exportButton = new Button();
             _instructions = new Label();
@@ -501,6 +503,15 @@ namespace GymClock
             _undoAiButton.Text = "Undo AI Change";
             _undoAiButton.Click += UndoAiChange_Click;
             //
+            // _aiWarmupStatusLabel
+            //
+            _aiWarmupStatusLabel.Font = new Font("Segoe UI", 8.5F);
+            _aiWarmupStatusLabel.ForeColor = Color.DimGray;
+            _aiWarmupStatusLabel.Location = new Point(620, 134);
+            _aiWarmupStatusLabel.Size = new Size(360, 22);
+            _aiWarmupStatusLabel.Text = "AI status: warming up...";
+            _aiWarmupStatusLabel.TextAlign = ContentAlignment.MiddleRight;
+            //
             // _importButton
             //
             _importButton.Location = new Point(408, 128);
@@ -718,6 +729,7 @@ namespace GymClock
             _builtPanel.Controls.Add(_quickWizardButton);
             _builtPanel.Controls.Add(_aiAssistantButton);
             _builtPanel.Controls.Add(_undoAiButton);
+            _builtPanel.Controls.Add(_aiWarmupStatusLabel);
             _builtPanel.Controls.Add(_importButton);
             _builtPanel.Controls.Add(_exportButton);
             _builtPanel.Controls.Add(_instructions);
