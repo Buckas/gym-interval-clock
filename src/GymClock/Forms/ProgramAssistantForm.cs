@@ -29,6 +29,7 @@ namespace GymClock
         private readonly Button btnSend = new Button();
         private readonly Button btnCancel = new Button();
         private readonly Button btnNewConversation = new Button();
+        private readonly Button btnLoadCurrentProgram = new Button();
         private readonly ComboBox cboSuggestedPrompt = new ComboBox();
         private readonly RichTextBox rtbProposedScript = new RichTextBox();
         private readonly Label lblLocalAiStatus = new Label();
@@ -140,7 +141,7 @@ namespace GymClock
             prgSetup.Visible = false;
 
             lblSetupProgress.AutoSize = true;
-            lblSetupProgress.Location = new Point(10, 90);
+            lblSetupProgress.Location = new Point(10, 74);
             lblSetupProgress.ForeColor = Color.DimGray;
             lblSetupProgress.Text = string.Empty;
             lblSetupProgress.Visible = false;
@@ -192,6 +193,11 @@ namespace GymClock
             btnNewConversation.Location = new Point(289, 596);
             btnNewConversation.Size = new Size(150, 36);
             btnNewConversation.Click += (s, e) => NewConversation();
+
+            btnLoadCurrentProgram.Text = "Load Current Program";
+            btnLoadCurrentProgram.Location = new Point(445, 596);
+            btnLoadCurrentProgram.Size = new Size(150, 36);
+            btnLoadCurrentProgram.Click += (s, e) => LoadCurrentProgramIntoAssistant();
 
             Label lblProposal = new Label { Text = "Proposed Script", AutoSize = true, Location = new Point(560, 176) };
             rtbProposedScript.Location = new Point(560, 200);
@@ -249,6 +255,7 @@ namespace GymClock
             Controls.Add(btnSend);
             Controls.Add(btnCancel);
             Controls.Add(btnNewConversation);
+            Controls.Add(btnLoadCurrentProgram);
             Controls.Add(lblProposal);
             Controls.Add(rtbProposedScript);
             Controls.Add(lblValidationStatus);
@@ -411,7 +418,7 @@ namespace GymClock
             else if (setupInProgress)
             {
                 lblSetup.Text = uiState.SetupMessage + Environment.NewLine
-                    + "You can type your request now. Generate will enable automatically when Local AI is ready.";
+                    + "You can type now. Generate enables automatically once Local AI is ready.";
                 Cursor = Cursors.AppStarting;
             }
             else
@@ -487,7 +494,7 @@ namespace GymClock
             if (!_localAiReady)
             {
                 MessageBox.Show(this,
-                    "Local AI is not ready yet. Click 'Set Up Local AI' first.",
+                    "Local AI is not ready yet. Wait for setup to complete, or use Retry if setup failed.",
                     Text,
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
@@ -512,7 +519,7 @@ namespace GymClock
             {
                 AiProgramProposal proposal = await _coordinator.GenerateAsync(
                     request,
-                    _baselineScript,
+                    GetContextScriptForGeneration(),
                     _conversation,
                     linked.Token).ConfigureAwait(true);
 
@@ -639,6 +646,28 @@ namespace GymClock
             ResetConversationUi();
         }
 
+        private void LoadCurrentProgramIntoAssistant()
+        {
+            SetProposalText(_baselineScript);
+            ProgramValidationResult validation = _validator.Validate(_baselineScript);
+            _session.SetValidationResult(validation);
+            RenderValidation(validation.Issues, validation.ParsedProgram,
+                validation.IsValid ? ProposalValidationState.Valid : ProposalValidationState.Invalid);
+            AppendConversation("Assistant", "Loaded current program into the draft editor.");
+        }
+
+        private string GetContextScriptForGeneration()
+        {
+            string draft = rtbProposedScript.Text ?? string.Empty;
+            ProgramValidationResult draftValidation = _validator.Validate(draft);
+            if (draftValidation.IsValid)
+            {
+                return draftValidation.Script;
+            }
+
+            return _baselineScript;
+        }
+
         private void ResetConversationUi()
         {
             rtbConversation.Clear();
@@ -739,6 +768,7 @@ namespace GymClock
             btnCancel.Enabled = busy;
             btnApply.Enabled = !busy && _session.CanApply;
             btnNewConversation.Enabled = !busy;
+            btnLoadCurrentProgram.Enabled = !busy;
             btnValidate.Enabled = !busy;
             cboSuggestedPrompt.Enabled = !busy;
             txtRequest.Enabled = !busy;
