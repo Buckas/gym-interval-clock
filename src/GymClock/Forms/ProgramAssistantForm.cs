@@ -41,6 +41,7 @@ namespace GymClock
         private readonly Label lblPrivacy = new Label();
         private readonly Panel pnlSetup = new Panel();
         private readonly Label lblSetup = new Label();
+        private readonly ProgressBar prgSetup = new ProgressBar();
         private readonly Button btnSetup = new Button();
         private readonly Button btnRetry = new Button();
         private readonly Button btnDetails = new Button();
@@ -48,6 +49,8 @@ namespace GymClock
         private string _lastSetupDetails = string.Empty;
         private bool _localAiReady;
         private bool _autoSetupStarted;
+        private bool _isGenerating;
+        private List<ProgramValidationIssue> _currentIssues = new List<ProgramValidationIssue>();
 
         public string AppliedScript { get; private set; }
 
@@ -103,11 +106,11 @@ namespace GymClock
             lblLocalAiStatus.Location = new Point(12, 10);
 
             pnlSetup.Location = new Point(12, 62);
-            pnlSetup.Size = new Size(1078, 106);
+            pnlSetup.Size = new Size(1078, 110);
             pnlSetup.BorderStyle = BorderStyle.FixedSingle;
 
             lblSetup.Location = new Point(10, 10);
-            lblSetup.Size = new Size(1048, 52);
+            lblSetup.Size = new Size(1048, 44);
             lblSetup.Text = "Local AI runs on this computer and has no per-request API charge."
                 + Environment.NewLine
                 + "An internet connection may be required for the initial runtime/model download."
@@ -115,21 +118,27 @@ namespace GymClock
                 + "No cloud AI service will be used by Gym Interval Clock Version 3.0.";
 
             btnSetup.Text = "Set Up Local AI";
-            btnSetup.Location = new Point(10, 66);
+            btnSetup.Location = new Point(10, 58);
             btnSetup.Size = new Size(132, 30);
             btnSetup.Click += async (s, e) => await SetupLocalAiAsync();
 
             btnRetry.Text = "Retry";
-            btnRetry.Location = new Point(148, 66);
+            btnRetry.Location = new Point(148, 58);
             btnRetry.Size = new Size(90, 30);
             btnRetry.Click += async (s, e) => await SetupLocalAiAsync();
 
             btnDetails.Text = "View Details";
-            btnDetails.Location = new Point(244, 66);
+            btnDetails.Location = new Point(244, 58);
             btnDetails.Size = new Size(112, 30);
             btnDetails.Click += (s, e) => ShowSetupDetails();
 
+            prgSetup.Location = new Point(10, 90);
+            prgSetup.Size = new Size(1048, 12);
+            prgSetup.Style = ProgressBarStyle.Marquee;
+            prgSetup.Visible = false;
+
             pnlSetup.Controls.Add(lblSetup);
+            pnlSetup.Controls.Add(prgSetup);
             pnlSetup.Controls.Add(btnSetup);
             pnlSetup.Controls.Add(btnRetry);
             pnlSetup.Controls.Add(btnDetails);
@@ -209,6 +218,7 @@ namespace GymClock
             Label lblIssues = new Label { Text = "Validation Issues", AutoSize = true, Location = new Point(12, 638) };
             lstIssues.Location = new Point(12, 662);
             lstIssues.Size = new Size(1078, 56);
+            lstIssues.SelectedIndexChanged += Issues_SelectedIndexChanged;
 
             Controls.Add(lblLocalAiStatus);
             Controls.Add(lblPrivacy);
@@ -345,6 +355,46 @@ namespace GymClock
             btnRetry.Enabled = showManualSetupActions && uiState.EnableRetry;
             btnDetails.Enabled = showManualSetupActions && uiState.EnableDetails;
             btnSend.Enabled = !_isBusy && _localAiReady;
+
+            bool setupInProgress = !_localAiReady && !s.IsFailure
+                && (s.Stage == LocalAiSetupStage.CheckingCompatibility
+                    || s.Stage == LocalAiSetupStage.DownloadingComponents
+                    || s.Stage == LocalAiSetupStage.DownloadingModel
+                    || s.Stage == LocalAiSetupStage.LoadingModel);
+
+            prgSetup.Visible = setupInProgress;
+            if (setupInProgress && s.ProgressPercent.HasValue)
+            {
+                prgSetup.Style = ProgressBarStyle.Continuous;
+                int value = (int)Math.Max(0, Math.Min(100, s.ProgressPercent.Value));
+                prgSetup.Value = value;
+            }
+            else if (setupInProgress)
+            {
+                prgSetup.Style = ProgressBarStyle.Marquee;
+            }
+
+            if (_isGenerating)
+            {
+                prgSetup.Visible = true;
+                prgSetup.Style = ProgressBarStyle.Marquee;
+                lblLocalAiStatus.Text = "Local AI status: generating program draft...";
+                lblSetup.Text = "Generating a proposal. This can take a little while on first use."
+                    + Environment.NewLine
+                    + "You can press Cancel to stop and keep your current script unchanged.";
+                Cursor = Cursors.AppStarting;
+            }
+            else if (setupInProgress)
+            {
+                lblSetup.Text = uiState.SetupMessage + Environment.NewLine
+                    + "You can type your request now. Generate will enable automatically when Local AI is ready.";
+                Cursor = Cursors.AppStarting;
+            }
+            else
+            {
+                lblSetup.Text = uiState.SetupMessage;
+                Cursor = Cursors.Default;
+            }
         }
 
         private void ShowSetupDetails()
@@ -353,7 +403,56 @@ namespace GymClock
                 ? "No additional details are available."
                 : _lastSetupDetails;
 
-            MessageBox.Show(this, text, "Local AI Details", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            using (Form details = new Form())
+            {
+                details.Text = "Local AI Details";
+                details.StartPosition = FormStartPosition.CenterParent;
+                details.Size = new Size(980, 620);
+                details.MinimumSize = new Size(760, 460);
+                details.Font = Font;
+
+                TextBox txt = new TextBox
+                {
+                    Multiline = true,
+                    ReadOnly = true,
+                    ScrollBars = ScrollBars.Both,
+                    WordWrap = false,
+                    Dock = DockStyle.Fill,
+                    Font = new Font("Consolas", 10F),
+                    Text = text
+                };
+
+                Panel bottom = new Panel
+                {
+                    Dock = DockStyle.Bottom,
+                    Height = 48
+                };
+
+                Button btnCopy = new Button
+                {
+                    Text = "Copy",
+                    Size = new Size(90, 30),
+                    Location = new Point(10, 9)
+                };
+                btnCopy.Click += (s, e) => Clipboard.SetText(txt.Text ?? string.Empty);
+
+                Button btnClose = new Button
+                {
+                    Text = "Close",
+                    Size = new Size(90, 30),
+                    Anchor = AnchorStyles.Top | AnchorStyles.Right
+                };
+                btnClose.Location = new Point(bottom.Width - 100, 9);
+                bottom.Resize += (s, e) => btnClose.Location = new Point(bottom.Width - 100, 9);
+                btnClose.Click += (s, e) => details.Close();
+
+                bottom.Controls.Add(btnCopy);
+                bottom.Controls.Add(btnClose);
+                details.Controls.Add(txt);
+                details.Controls.Add(bottom);
+
+                details.ShowDialog(this);
+            }
         }
 
         private async Task GenerateAsync()
@@ -376,6 +475,7 @@ namespace GymClock
                 return;
             }
 
+            _isGenerating = true;
             SetBusy(true);
             _requestCts?.Dispose();
             _requestCts = new CancellationTokenSource();
@@ -389,6 +489,15 @@ namespace GymClock
                     _baselineScript,
                     _conversation,
                     linked.Token).ConfigureAwait(true);
+
+                if (!proposal.IsValid)
+                {
+                    AiProgramProposal repaired = await TryAutoRepairAsync(proposal.Script, linked.Token).ConfigureAwait(true);
+                    if (repaired != null)
+                    {
+                        proposal = repaired;
+                    }
+                }
 
                 if (_isClosing || IsDisposed) return;
 
@@ -419,8 +528,37 @@ namespace GymClock
             {
                 linked.Dispose();
                 timeoutCts.Dispose();
+                _isGenerating = false;
                 SetBusy(false);
             }
+        }
+
+        private async Task<AiProgramProposal> TryAutoRepairAsync(string invalidScript, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(invalidScript)) return null;
+
+            try
+            {
+                AiProgramProposal repaired = await _coordinator.GenerateAsync(
+                    "Fix all validation errors in the current draft. Keep the same workout intent and mode. Return only corrected script.",
+                    invalidScript,
+                    _conversation,
+                    cancellationToken).ConfigureAwait(true);
+
+                if (repaired.IsValid)
+                {
+                    AppendConversation("Assistant", "Auto-repaired validation issues.");
+                    return repaired;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch
+            {
+            }
+
+            return null;
         }
 
         private void ValidateCurrentProposal()
@@ -453,7 +591,10 @@ namespace GymClock
             if (_updatingProposalText) return;
 
             _session.SetProposalTextEditedByUser(rtbProposedScript.Text);
-            RenderValidation(Array.Empty<ProgramValidationIssue>(), null, ProposalValidationState.NotValidated);
+            ProgramValidationResult validation = _validator.Validate(rtbProposedScript.Text);
+            _session.SetValidationResult(validation);
+            RenderValidation(validation.Issues, validation.ParsedProgram,
+                validation.IsValid ? ProposalValidationState.Valid : ProposalValidationState.Invalid);
         }
 
         private void SuggestedPrompt_SelectedIndexChanged(object sender, EventArgs e)
@@ -504,6 +645,8 @@ namespace GymClock
                 string linePrefix = issue.LineNumber.HasValue ? "Line " + issue.LineNumber.Value + ": " : string.Empty;
                 lstIssues.Items.Add(issue.Severity + " - " + linePrefix + issue.Message);
             }
+
+            _currentIssues = (issues ?? Array.Empty<ProgramValidationIssue>()).ToList();
 
             switch (state)
             {
@@ -566,6 +709,7 @@ namespace GymClock
         private void SetBusy(bool busy)
         {
             _isBusy = busy;
+            btnSend.Text = busy && _isGenerating ? "Generating..." : "Generate / Revise";
             btnCancel.Enabled = busy;
             btnApply.Enabled = !busy && _session.CanApply;
             btnNewConversation.Enabled = !busy;
@@ -585,6 +729,27 @@ namespace GymClock
             }
 
             ApplySetupStatus(status);
+        }
+
+        private void Issues_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            int index = lstIssues.SelectedIndex;
+            if (index < 0 || index >= _currentIssues.Count) return;
+
+            ProgramValidationIssue issue = _currentIssues[index];
+            if (!issue.LineNumber.HasValue || issue.LineNumber.Value <= 0) return;
+
+            int line = issue.LineNumber.Value - 1;
+            if (line < 0 || line >= rtbProposedScript.Lines.Length) return;
+
+            int start = rtbProposedScript.GetFirstCharIndexFromLine(line);
+            if (start < 0) return;
+
+            string lineText = rtbProposedScript.Lines[line] ?? string.Empty;
+            rtbProposedScript.Focus();
+            rtbProposedScript.SelectionStart = start;
+            rtbProposedScript.SelectionLength = Math.Max(1, lineText.Length);
+            rtbProposedScript.ScrollToCaret();
         }
 
         private void ProgramAssistantForm_FormClosing(object sender, FormClosingEventArgs e)

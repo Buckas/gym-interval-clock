@@ -154,7 +154,10 @@ namespace GymClock.AI
                 "Do not use Markdown fences. " +
                 "Do not add prose before or after the script. " +
                 "Never invent unsupported commands. " +
-                "Every block must be correctly closed according to the application's grammar.";
+                "Every block must be correctly closed according to the application's grammar. " +
+                "When using STATION blocks, each station must include at least one timed block (WORK/REST/RECOVERY/MOVE) before END STATION. " +
+                "Do not emit empty STATION or BETWEEN sections. " +
+                "Ensure every STATION and BETWEEN has a matching END STATION or END BETWEEN.";
         }
 
         private static AiProgramProposal ToProposal(string userRequest, ProgramValidationResult validation)
