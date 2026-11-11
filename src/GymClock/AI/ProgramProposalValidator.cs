@@ -24,6 +24,8 @@ namespace GymClock.AI
             bool inStation = false;
             bool inBetween = false;
             bool inRepeat = false;
+            int currentStationTimedCommands = 0;
+            int currentStationStartLine = 0;
 
             bool hasTimedCommand = false;
             int stationCount = 0;
@@ -61,6 +63,10 @@ namespace GymClock.AI
                     {
                         hasTimedCommand = true;
                         totalTimedSeconds += seconds;
+                        if (inStation)
+                        {
+                            currentStationTimedCommands++;
+                        }
                     }
 
                     continue;
@@ -138,6 +144,8 @@ namespace GymClock.AI
                         }
 
                         inStation = true;
+                        currentStationTimedCommands = 0;
+                        currentStationStartLine = lineNo;
                         break;
                     }
 
@@ -194,7 +202,17 @@ namespace GymClock.AI
                                     lineNo,
                                     "END STATION has no matching STATION."));
                             }
+                            else if ((mode == ExecutionMode.Sequential || mode == ExecutionMode.Parallel)
+                                     && currentStationTimedCommands <= 0)
+                            {
+                                issues.Add(new ProgramValidationIssue(
+                                    ValidationSeverity.Error,
+                                    currentStationStartLine,
+                                    "STATION must contain at least one timed block (WORK/REST/RECOVERY/MOVE) before END STATION."));
+                            }
                             inStation = false;
+                            currentStationTimedCommands = 0;
+                            currentStationStartLine = 0;
                             break;
                         }
 

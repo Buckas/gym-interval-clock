@@ -555,15 +555,14 @@ namespace GymClock
         }
 
         /// <summary>
-        /// The single combined window for general settings and building a
-        /// program. "B" jumps straight into its Quick Start Wizard for the
-        /// fastest path to a basic program; "S" just opens it at rest.
+        /// The single combined window for general settings and program editing.
+        /// "B" jumps straight into the AI Assistant; "S" opens the editor at rest.
         /// </summary>
         private void ShowProgramEditor(bool launchWizard)
         {
             using (ProgramEditorForm dialog = new ProgramEditorForm(_settings))
             {
-                if (launchWizard) dialog.Shown += delegate { dialog.LaunchQuickWizard(); };
+                if (launchWizard) dialog.Shown += delegate { dialog.LaunchAiAssistant(); };
 
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
@@ -1799,7 +1798,7 @@ namespace GymClock
         private string HintText()
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("SPACE start/pause  -  R reset  -  B build a program  -  S settings  -  ");
+            sb.Append("SPACE start/pause  -  R reset  -  B open AI assistant  -  S settings  -  ");
 
             if (_program.Mode == ExecutionMode.Parallel)
             {

@@ -429,10 +429,10 @@ namespace GymClock
             }
         }
 
-        /// <summary>Lets MainForm's "B" shortcut jump straight to the wizard once this window is up, rather than duplicating its logic.</summary>
-        public void LaunchQuickWizard()
+        /// <summary>Lets MainForm's shortcut jump straight into the AI assistant once this window is up.</summary>
+        public void LaunchAiAssistant()
         {
-            QuickWizard_Click(this, EventArgs.Empty);
+            AiAssistant_Click(this, EventArgs.Empty);
         }
 
         private void QuickWizard_Click(object sender, EventArgs e)

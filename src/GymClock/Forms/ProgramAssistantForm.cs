@@ -42,6 +42,7 @@ namespace GymClock
         private readonly Panel pnlSetup = new Panel();
         private readonly Label lblSetup = new Label();
         private readonly ProgressBar prgSetup = new ProgressBar();
+        private readonly Label lblSetupProgress = new Label();
         private readonly Button btnSetup = new Button();
         private readonly Button btnRetry = new Button();
         private readonly Button btnDetails = new Button();
@@ -135,10 +136,18 @@ namespace GymClock
             prgSetup.Location = new Point(10, 90);
             prgSetup.Size = new Size(1048, 12);
             prgSetup.Style = ProgressBarStyle.Marquee;
+            prgSetup.MarqueeAnimationSpeed = 25;
             prgSetup.Visible = false;
+
+            lblSetupProgress.AutoSize = true;
+            lblSetupProgress.Location = new Point(10, 90);
+            lblSetupProgress.ForeColor = Color.DimGray;
+            lblSetupProgress.Text = string.Empty;
+            lblSetupProgress.Visible = false;
 
             pnlSetup.Controls.Add(lblSetup);
             pnlSetup.Controls.Add(prgSetup);
+            pnlSetup.Controls.Add(lblSetupProgress);
             pnlSetup.Controls.Add(btnSetup);
             pnlSetup.Controls.Add(btnRetry);
             pnlSetup.Controls.Add(btnDetails);
@@ -198,6 +207,15 @@ namespace GymClock
             btnValidate.Size = new Size(95, 36);
             btnValidate.Click += (s, e) => ValidateCurrentProposal();
 
+            Label lblValidationHelp = new Label
+            {
+                Text = "Validation runs automatically. Use Validate only after manual script edits.",
+                AutoSize = false,
+                ForeColor = Color.DimGray,
+                Location = new Point(560, 620),
+                Size = new Size(530, 20)
+            };
+
             btnApply.Text = "Apply to Editor";
             btnApply.Location = new Point(661, 584);
             btnApply.Size = new Size(140, 36);
@@ -212,12 +230,12 @@ namespace GymClock
             };
 
             lblProgramSummary.Text = "Summary: -";
-            lblProgramSummary.Location = new Point(560, 626);
-            lblProgramSummary.Size = new Size(530, 60);
+            lblProgramSummary.Location = new Point(560, 644);
+            lblProgramSummary.Size = new Size(530, 24);
 
-            Label lblIssues = new Label { Text = "Validation Issues", AutoSize = true, Location = new Point(12, 638) };
-            lstIssues.Location = new Point(12, 662);
-            lstIssues.Size = new Size(1078, 56);
+            Label lblIssues = new Label { Text = "Validation Issues", AutoSize = true, Location = new Point(12, 646) };
+            lstIssues.Location = new Point(12, 668);
+            lstIssues.Size = new Size(1078, 50);
             lstIssues.SelectedIndexChanged += Issues_SelectedIndexChanged;
 
             Controls.Add(lblLocalAiStatus);
@@ -234,6 +252,7 @@ namespace GymClock
             Controls.Add(lblProposal);
             Controls.Add(rtbProposedScript);
             Controls.Add(lblValidationStatus);
+            Controls.Add(lblValidationHelp);
             Controls.Add(btnValidate);
             Controls.Add(btnApply);
             Controls.Add(btnCopyScript);
@@ -363,21 +382,26 @@ namespace GymClock
                     || s.Stage == LocalAiSetupStage.LoadingModel);
 
             prgSetup.Visible = setupInProgress;
+            lblSetupProgress.Visible = setupInProgress;
             if (setupInProgress && s.ProgressPercent.HasValue)
             {
                 prgSetup.Style = ProgressBarStyle.Continuous;
                 int value = (int)Math.Max(0, Math.Min(100, s.ProgressPercent.Value));
                 prgSetup.Value = value;
+                lblSetupProgress.Text = "Progress: " + value + "%";
             }
             else if (setupInProgress)
             {
                 prgSetup.Style = ProgressBarStyle.Marquee;
+                lblSetupProgress.Text = "Progress: working...";
             }
 
             if (_isGenerating)
             {
                 prgSetup.Visible = true;
+                lblSetupProgress.Visible = true;
                 prgSetup.Style = ProgressBarStyle.Marquee;
+                lblSetupProgress.Text = "Progress: generating...";
                 lblLocalAiStatus.Text = "Local AI status: generating program draft...";
                 lblSetup.Text = "Generating a proposal. This can take a little while on first use."
                     + Environment.NewLine
@@ -393,6 +417,8 @@ namespace GymClock
             else
             {
                 lblSetup.Text = uiState.SetupMessage;
+                lblSetupProgress.Text = string.Empty;
+                lblSetupProgress.Visible = false;
                 Cursor = Cursors.Default;
             }
         }

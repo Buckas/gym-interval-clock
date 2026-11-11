@@ -155,7 +155,8 @@ namespace GymClock.AI
                 "Do not add prose before or after the script. " +
                 "Never invent unsupported commands. " +
                 "Every block must be correctly closed according to the application's grammar. " +
-                "When using STATION blocks, each station must include at least one timed block (WORK/REST/RECOVERY/MOVE) before END STATION. " +
+                "In MODE SEQUENTIAL and MODE PARALLEL, each STATION must include at least one timed block (WORK/REST/RECOVERY/MOVE) before END STATION. " +
+                "In MODE SHARED and MODE CIRCUIT, timed content may be defined in shared/repeat sections while stations can carry labels/colour/instructions. " +
                 "Do not emit empty STATION or BETWEEN sections. " +
                 "Ensure every STATION and BETWEEN has a matching END STATION or END BETWEEN.";
         }
