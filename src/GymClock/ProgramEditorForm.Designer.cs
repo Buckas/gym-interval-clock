@@ -52,7 +52,6 @@ namespace GymClock
         private RadioButton _modeParallel;
         private RadioButton _modeCircuit;
         private Label _modeDesc;
-        private Button _quickWizardButton;
         private Button _aiAssistantButton;
         private Button _undoAiButton;
         private Label _aiWarmupStatusLabel;
@@ -150,7 +149,6 @@ namespace GymClock
             _modeParallel = new RadioButton();
             _modeCircuit = new RadioButton();
             _modeDesc = new Label();
-            _quickWizardButton = new Button();
             _aiAssistantButton = new Button();
             _undoAiButton = new Button();
             _aiWarmupStatusLabel = new Label();
@@ -481,24 +479,17 @@ namespace GymClock
             _modeDesc.Size = new Size(450, 96);
             _modeDesc.Text = "";
             //
-            // _quickWizardButton
-            //
-            _quickWizardButton.Location = new Point(0, 128);
-            _quickWizardButton.Size = new Size(160, 32);
-            _quickWizardButton.Text = "✨ Quick Start Wizard...";
-            _quickWizardButton.Click += QuickWizard_Click;
-            //
             // _aiAssistantButton
             //
-            _aiAssistantButton.Location = new Point(166, 128);
-            _aiAssistantButton.Size = new Size(112, 32);
-            _aiAssistantButton.Text = "AI Assistant...";
+            _aiAssistantButton.Location = new Point(0, 128);
+            _aiAssistantButton.Size = new Size(160, 32);
+            _aiAssistantButton.Text = "✨ AI Assistant...";
             _aiAssistantButton.Click += AiAssistant_Click;
             //
             // _undoAiButton
             //
             _undoAiButton.Enabled = false;
-            _undoAiButton.Location = new Point(282, 128);
+            _undoAiButton.Location = new Point(166, 128);
             _undoAiButton.Size = new Size(120, 32);
             _undoAiButton.Text = "Undo AI Change";
             _undoAiButton.Click += UndoAiChange_Click;
@@ -514,14 +505,14 @@ namespace GymClock
             //
             // _importButton
             //
-            _importButton.Location = new Point(408, 128);
+            _importButton.Location = new Point(292, 128);
             _importButton.Size = new Size(100, 32);
             _importButton.Text = "Import...";
             _importButton.Click += ImportProgram_Click;
             //
             // _exportButton
             //
-            _exportButton.Location = new Point(514, 128);
+            _exportButton.Location = new Point(398, 128);
             _exportButton.Size = new Size(100, 32);
             _exportButton.Text = "Export...";
             _exportButton.Click += ExportProgram_Click;
@@ -726,7 +717,6 @@ namespace GymClock
             _builtPanel.Controls.Add(_modeParallel);
             _builtPanel.Controls.Add(_modeCircuit);
             _builtPanel.Controls.Add(_modeDesc);
-            _builtPanel.Controls.Add(_quickWizardButton);
             _builtPanel.Controls.Add(_aiAssistantButton);
             _builtPanel.Controls.Add(_undoAiButton);
             _builtPanel.Controls.Add(_aiWarmupStatusLabel);

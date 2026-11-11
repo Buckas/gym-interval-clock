@@ -832,7 +832,7 @@ namespace GymClock
                     ShowProgramEditor(false);
                     break;
 
-                case Keys.B:
+                case Keys.A:
                     ShowProgramEditor(true);
                     break;
 
@@ -1798,7 +1798,7 @@ namespace GymClock
         private string HintText()
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("SPACE start/pause  -  R reset  -  B open AI assistant  -  S settings  -  ");
+            sb.Append("SPACE start/pause  -  R reset  -  A open AI assistant  -  S settings  -  ");
 
             if (_program.Mode == ExecutionMode.Parallel)
             {
