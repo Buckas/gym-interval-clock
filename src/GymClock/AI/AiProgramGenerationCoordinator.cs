@@ -1213,8 +1213,7 @@ namespace GymClock.AI
             List<string> unknown = FindUnknownQuotedNames(question, baseline);
             string prefix = unknown.Count == 0
                 ? string.Empty
-                : "Note: \"" + unknown[0] + "\" isn't a station in this program (stations: "
-                  + string.Join(", ", baseline.Stations.Select(s => s.Name)) + ")." + Environment.NewLine;
+                : "Note: \"" + unknown[0] + "\" isn't a station in this program." + Environment.NewLine + Environment.NewLine;
 
             string system =
                 "You are a helpful coaching assistant inside a gym interval timer app. "
@@ -1242,9 +1241,65 @@ namespace GymClock.AI
                 answer = answer.Substring(0, 800).TrimEnd() + "...";
             }
 
-            string message = prefix + answer + Environment.NewLine + "(Your program has not been changed.)";
+            string message = prefix + FormatForChat(answer)
+                + Environment.NewLine + Environment.NewLine + "(Your program has not been changed.)";
             state.AddAssistant(answer);
             return UnchangedProposal(question, baselineResult, message);
+        }
+
+        // Sentence boundary: ". " followed by a capital/number/quote, but not after "e.g." / "i.e." etc.
+        private static readonly Regex SentenceBreak = new Regex(
+            @"(?<!\b(?:e\.g|i\.e|etc|vs|approx|Dr|Mr|Mrs|Ms))(?<=[.!?])\s+(?=[""'(]?[A-Z0-9])",
+            RegexOptions.Compiled);
+
+        // "This workout includes A, B, C, and D." -> lead-in + list items.
+        private static readonly Regex InlineList = new Regex(
+            @"^(?<lead>.*?\b(?:includes?|including|are|has|have|such as|like|:))\s+(?<items>[^,]+(?:,\s*[^,]+){2,}?)(?<end>[.!?]?)$",
+            RegexOptions.Compiled);
+
+        /// <summary>
+        /// Lays out a plain-text AI answer for the chat box: one sentence per line, and
+        /// sentences that list four or more short items become bullet points.
+        /// Text that already has its own line breaks is left as written.
+        /// </summary>
+        public static string FormatForChat(string text)
+        {
+            string value = (text ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Trim();
+            if (value.Length == 0) return value;
+
+            if (value.Contains('\n'))
+            {
+                // Already structured by the model; just tidy markdown bullets and blank lines.
+                IEnumerable<string> lines = value.Split('\n')
+                    .Select(l => Regex.Replace(l.TrimEnd(), @"^\s*[-*]\s+", "• ").Replace("**", string.Empty));
+                return Regex.Replace(string.Join(Environment.NewLine, lines), @"(\r?\n){3,}", Environment.NewLine + Environment.NewLine);
+            }
+
+            value = Regex.Replace(value, @"\s+", " ").Replace("**", string.Empty);
+            List<string> output = new List<string>();
+            foreach (string sentence in SentenceBreak.Split(value).Select(s => s.Trim()).Where(s => s.Length > 0))
+            {
+                output.AddRange(ExpandInlineList(sentence));
+            }
+
+            return string.Join(Environment.NewLine, output);
+        }
+
+        private static IEnumerable<string> ExpandInlineList(string sentence)
+        {
+            Match m = InlineList.Match(sentence);
+            if (!m.Success) return new[] { sentence };
+
+            List<string> items = Regex.Split(m.Groups["items"].Value, @",\s*(?:and\s+|or\s+)?|\s+and\s+")
+                .Select(i => i.Trim().TrimEnd('.', '!', '?', ';').Trim())
+                .Where(i => i.Length > 0)
+                .ToList();
+
+            bool shortItems = items.All(i => i.Split(' ').Length <= 4);
+            if (items.Count < 4 || !shortItems) return new[] { sentence };
+
+            string lead = m.Groups["lead"].Value.Trim().TrimEnd(':') + ":";
+            return new[] { lead }.Concat(items.Select(i => "  • " + i));
         }
 
         private static List<string> FindUnknownQuotedNames(string request, WorkoutProgram baseline)

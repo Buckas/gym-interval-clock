@@ -1124,6 +1124,35 @@ namespace GymClock.Tests
             Assert.Equal(expected, AiProgramGenerationCoordinator.IsQuestion(request));
         }
 
+        [Fact]
+        public void FormatForChat_SplitsSentences_AndBulletsLists()
+        {
+            string raw = "I do not have a station called \"Box Jumps\" in your current program. This workout includes Shuttle Runs, "
+                + "Bodyweight Squats, Skipping, Step-Ups, Mountain Climbers, Skater Bounds, Burpees, and High Knees. "
+                + "Each work period is 40 seconds long. You can estimate about 6 to 8 reps for the exercises that require explosive movement.";
+
+            string formatted = AiProgramGenerationCoordinator.FormatForChat(raw);
+            string[] lines = formatted.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+
+            Assert.Equal("I do not have a station called \"Box Jumps\" in your current program.", lines[0]);
+            Assert.Equal("This workout includes:", lines[1]);
+            Assert.Equal("  \u2022 Shuttle Runs", lines[2]);
+            Assert.Equal("  \u2022 High Knees", lines[9]);
+            Assert.Equal("Each work period is 40 seconds long.", lines[10]);
+            Assert.StartsWith("You can estimate about 6 to 8 reps", lines[11]);
+            Assert.Equal(12, lines.Length);
+        }
+
+        [Fact]
+        public void FormatForChat_KeepsAbbreviationsAndShortLists()
+        {
+            string formatted = AiProgramGenerationCoordinator.FormatForChat(
+                "Use a box, e.g. a sturdy bench. It works legs, glutes and core.");
+            string[] lines = formatted.Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+
+            Assert.Equal(new[] { "Use a box, e.g. a sturdy bench.", "It works legs, glutes and core." }, lines);
+        }
+
         private static string ValidSharedScript()
         {
             return "PROGRAM \"Shared\"\nMODE SHARED\nREPEAT 4\n    WORK 30\n    REST 15\nEND\n\nSTATION \"A\"\nCOLOUR #E53935\nWORKNOTE \"Push pace\"\nEND STATION";

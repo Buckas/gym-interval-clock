@@ -952,8 +952,29 @@ namespace GymClock
         private void AppendConversation(string role, string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
-            if (rtbConversation.TextLength > 0) rtbConversation.AppendText(Environment.NewLine + Environment.NewLine);
-            rtbConversation.AppendText(role + ": " + text.Trim());
+
+            // Speaker name in bold on its own line, message indented underneath,
+            // and a blank line between messages so the conversation is easy to scan.
+            if (rtbConversation.TextLength > 0) rtbConversation.AppendText("\n\n");
+
+            rtbConversation.SelectionStart = rtbConversation.TextLength;
+            rtbConversation.SelectionLength = 0;
+            rtbConversation.SelectionIndent = 0;
+            rtbConversation.SelectionFont = new Font(rtbConversation.Font, FontStyle.Bold);
+            rtbConversation.SelectionColor = string.Equals(role, "User", StringComparison.OrdinalIgnoreCase)
+                ? Color.SteelBlue
+                : Color.SeaGreen;
+            rtbConversation.AppendText((string.Equals(role, "User", StringComparison.OrdinalIgnoreCase) ? "You" : role) + "\n");
+
+            string body = text.Trim().Replace("\r\n", "\n").Replace('\r', '\n');
+            rtbConversation.SelectionStart = rtbConversation.TextLength;
+            rtbConversation.SelectionLength = 0;
+            rtbConversation.SelectionFont = rtbConversation.Font;
+            rtbConversation.SelectionColor = rtbConversation.ForeColor;
+            rtbConversation.SelectionIndent = 12;
+            rtbConversation.AppendText(body);
+            rtbConversation.SelectionIndent = 0;
+
             rtbConversation.SelectionStart = rtbConversation.TextLength;
             rtbConversation.SelectionLength = 0;
             rtbConversation.ScrollToCaret();
