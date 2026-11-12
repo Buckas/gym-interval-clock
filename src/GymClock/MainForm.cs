@@ -86,6 +86,7 @@ namespace GymClock
             _settings = TimerSettings.Load();
 
             Text = "Gym Interval Clock Version 3.0";
+            Icon = AppIconProvider.GetIcon();
             BackColor = Color.Black;
             ClientSize = new Size(1280, 720);
             MinimumSize = new Size(520, 340);

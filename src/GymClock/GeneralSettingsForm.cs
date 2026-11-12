@@ -35,6 +35,7 @@ namespace GymClock
         public GeneralSettingsForm(TimerSettings current)
         {
             InitializeComponent();
+            Icon = AppIconProvider.GetIcon();
 
             _pathLabel.Text = "Settings file (editable in Notepad):" + Environment.NewLine + TimerSettings.FilePath;
 

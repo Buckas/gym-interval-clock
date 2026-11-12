@@ -10,6 +10,8 @@ namespace GymClock.AI
         public required string Script { get; init; }
         public WorkoutProgram ParsedProgram { get; init; }
         public IReadOnlyList<ProgramValidationIssue> Issues { get; init; } = Array.Empty<ProgramValidationIssue>();
+        public bool RequiresClarification { get; init; }
+        public string AssistantMessage { get; init; } = string.Empty;
 
         public bool IsValid
         {

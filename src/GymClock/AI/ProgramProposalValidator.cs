@@ -8,7 +8,7 @@ namespace GymClock.AI
 {
     public sealed class ProgramProposalValidator
     {
-        private static readonly Regex DurationToken = new Regex(@"^(\d+)(m|s)?$", RegexOptions.IgnoreCase);
+        private static readonly Regex DurationToken = new Regex(@"^(\d+)(m|s|min|mins|minute|minutes|sec|secs|second|seconds)?$", RegexOptions.IgnoreCase);
 
         public ProgramValidationResult Validate(string script)
         {
@@ -449,8 +449,14 @@ namespace GymClock.AI
                 int n;
                 if (!int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out n)) return 0;
                 string u = m.Groups[2].Value.ToLowerInvariant();
-                if (u == "m") seconds += n * 60;
-                else seconds += n;
+                if (u == "m" || u == "min" || u == "mins" || u == "minute" || u == "minutes")
+                {
+                    seconds += n * 60;
+                }
+                else
+                {
+                    seconds += n;
+                }
             }
 
             return seconds;

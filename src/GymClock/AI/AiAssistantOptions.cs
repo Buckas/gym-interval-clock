@@ -8,6 +8,7 @@ namespace GymClock.AI
         public int MaximumConversationMessages { get; init; } = 8;
         public TimeSpan GenerationTimeout { get; init; } = TimeSpan.FromMinutes(2);
         public int MaximumAutomaticRepairAttempts { get; init; } = 1;
+        public int MaximumGenerationAttempts { get; init; } = 1;
         public bool DeveloperDiagnostics { get; init; } = IsDeveloperDiagnosticsEnabled();
 
         private static bool IsDeveloperDiagnosticsEnabled()

@@ -24,7 +24,9 @@ namespace GymClock.Tests
                 new ConversationState(),
                 CancellationToken.None);
 
-            Assert.True(proposal.IsValid);
+            Assert.True(
+                proposal.IsValid,
+                proposal.Script + " || " + string.Join(" | ", proposal.Issues.Select(i => i.Message)));
             Assert.Single(fake.Calls);
         }
 
@@ -46,7 +48,7 @@ namespace GymClock.Tests
                 new ConversationState(),
                 CancellationToken.None);
 
-            Assert.True(proposal.IsValid);
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
             Assert.Equal(2, fake.Calls.Count);
 
             // Checkpoint 8: exactly one repair attempt means exactly two total calls.
@@ -137,8 +139,331 @@ namespace GymClock.Tests
                 new ConversationState(),
                 CancellationToken.None);
 
-            Assert.True(proposal.IsValid);
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
             Assert.DoesNotContain("```", proposal.Script);
+        }
+
+        [Fact]
+        public async Task AmbiguousPyramidPrompt_ReturnsClarificationQuestion_WithoutCallingAi()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a pyramid program with cardio and resistance for 30 minutes.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Contains("Reply with a number", proposal.AssistantMessage);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task AmbiguousPyramidPrompt_WithBaselineScript_StillRequestsClarification()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a pyramid program with cardio and resistance for 30 minutes.",
+                ValidSharedScript(),
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task AmbiguousIntervalPrompt_ReturnsClarificationQuestion_WithoutCallingAi()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a 30-minute interval workout with cardio and strength blocks.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task GenericProgramPrompt_WithoutStructure_ReturnsClarificationQuestion()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Build a 30-minute cardio and resistance program for my class.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task CircuitPrompt_WithStationHint_DoesNotClarify()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidEightStationCircuitScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a circuit with 8 stations and 4 rounds.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.False(proposal.RequiresClarification);
+            Assert.True(proposal.IsValid);
+            Assert.Equal(1, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task RequestedStationCountMismatch_TriggersRepairAttempt()
+        {
+            string wrongStationCount =
+                "PROGRAM \"Wrong Count\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 10\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - Jumping Jacks\"\nEND STATION\n"
+                + "STATION \"Resistance - Squats\"\nEND STATION\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            string correctedStationCount =
+                wrongStationCount + "\n\nSTATION \"Cardio - Mountain Climbers\"\nEND STATION\n"
+                + "STATION \"Resistance - Lunges\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { wrongStationCount, correctedStationCount });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED class with 6 stations and cardio plus resistance exercises.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(2, fake.CallCount);
+            Assert.Equal(6, proposal.ParsedProgram.Stations.Count);
+        }
+
+        [Fact]
+        public async Task PyramidRequirement_MissingDistinctWorkDurations_TriggersRepairAttempt()
+        {
+            string notPyramid =
+                "PROGRAM \"Flat\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 12\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - Jumping Jacks\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            string pyramid =
+                "PROGRAM \"Pyramid\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 1\n"
+                + "    WORK 30\n"
+                + "    REST 15\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "    WORK 60\n"
+                + "    REST 15\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "    WORK 30\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Squats\"\nEND STATION\n"
+                + "STATION \"Cardio - Jump Rope\"\nEND STATION\n"
+                + "STATION \"Resistance - Lunges\"\nEND STATION\n"
+                + "STATION \"Cardio - Mountain Climbers\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION\n"
+                + "STATION \"Cardio - Burpees\"\nEND STATION\n"
+                + "STATION \"Resistance - Plank Holds\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { notPyramid, pyramid });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED cardio and resistance pyramid program.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(2, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task CircuitStrictPyramid_MalformedAiOutput_FallsBackToValidTemplate()
+        {
+            string malformed =
+                "PROGRAM \"30 Minute Pyramid Workout\"\n"
+                + "MODE CIRCUIT\n"
+                + "REPEAT 5\n"
+                + "STATION\n"
+                + "STATION \"Cardio: Jumping Jacks\"\n"
+                + "WORK 60\n"
+                + "END STATION\n"
+                + "STATION\n"
+                + "STATION \"Resistance: Pushups\"\n"
+                + "END STATION\n"
+                + "STATION\n"
+                + "STATION \"Cardio: High Knees\"\n"
+                + "END STATION\n"
+                + "END";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { malformed });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions
+            {
+                MaximumAutomaticRepairAttempts = 0,
+                MaximumGenerationAttempts = 1
+            };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "i want a pyramid program with a combination of cardio and resistance training. we have 30 minutes to complete this.\n"
+                + "Use MODE CIRCUIT.\n"
+                + "Use 6 stations and 5 rounds.\n"
+                + "Keep total duration very close to the requested time.\n"
+                + "Include explicit cardio and resistance exercises in station names and/or notes.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.Contains("MODE CIRCUIT", proposal.Script, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(6, proposal.ParsedProgram.Stations.Count);
+
+            int durationSeconds = proposal.ParsedProgram.BuildRuntimeSequence().Sum(x => Math.Max(0, x.Block.Seconds));
+            Assert.InRange(durationSeconds, 25 * 60, 35 * 60);
+
+            string[] stationNames = proposal.ParsedProgram.Stations.Select(s => s.Name ?? string.Empty).ToArray();
+            Assert.Contains(stationNames, n => n.IndexOf("Cardio", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.Contains(stationNames, n => n.IndexOf("Resistance", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        [Fact]
+        public async Task CommonMalformedScriptLines_AreNormalized_BeforeValidation()
+        {
+            string malformed =
+                "PROGRAM 30 Minute Cardio & Resistance Pyramid\n"
+                + "MODE SHARED\n\n"
+                + "WORK 60\n"
+                + "REST 30\n\n"
+                + "STATION Jumping Jacks\n"
+                + "COLOUR\n"
+                + "END STATION\n\n"
+                + "STATION Push Ups\n"
+                + "END STATION\n\n"
+                + "STATION \"Mountain Climbers\n"
+                + "END STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { malformed });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a shared cardio and resistance class.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.DoesNotContain("\nCOLOUR\n", proposal.Script, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("STATION \"Jumping Jacks\"", proposal.Script);
+            Assert.Contains("STATION \"Mountain Climbers\"", proposal.Script);
+        }
+
+        [Fact]
+        public async Task RequestedDurationMismatch_TriggersRepairAttempt()
+        {
+            string tooShort =
+                "PROGRAM \"Short\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 1\n"
+                + "    WORK 30\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - Jumping Jacks\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            string thirtyMinutes =
+                "PROGRAM \"30 Minute Mix\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 24\n"
+                + "    WORK 45\n"
+                + "    REST 30\n"
+                + "END\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Squats\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { tooShort, thirtyMinutes });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED 30 minute cardio and resistance program.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(2, fake.CallCount);
+            Assert.Contains("REPEAT 24", proposal.Script);
+        }
+
+        [Fact]
+        public async Task DurationWithinFiveMinutes_DoesNotForceRepair()
+        {
+            string twentySixMinutes =
+                "PROGRAM \"26 Minute Mix\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 13\n"
+                + "    WORK 60\n"
+                + "    REST 60\n"
+                + "END\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { twentySixMinutes, ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED 30 minute cardio and resistance program.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(1, fake.CallCount);
         }
 
         [Fact]

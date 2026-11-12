@@ -43,6 +43,7 @@ namespace GymClock
         public QuickSetupForm(TimerSettings settings)
         {
             InitializeComponent();
+            Icon = AppIconProvider.GetIcon();
 
             foreach (KeyValuePair<PatternType, string> entry in Patterns) _pattern.Items.Add(entry.Value);
             _pattern.SelectedIndex = 0;

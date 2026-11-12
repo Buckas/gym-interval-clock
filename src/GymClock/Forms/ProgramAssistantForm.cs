@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -11,6 +12,15 @@ namespace GymClock
 {
     public sealed class ProgramAssistantForm : Form
     {
+        private enum ClarificationStage
+        {
+            None,
+            AwaitMode,
+            AwaitStructure,
+            AwaitDurationTolerance,
+            AwaitConfirmation
+        }
+
         private readonly AiProgramGenerationCoordinator _coordinator;
         private readonly ProgramProposalValidator _validator;
         private readonly AiAssistantOptions _options;
@@ -23,6 +33,7 @@ namespace GymClock
         private bool _isBusy;
         private bool _updatingProposalText;
         private bool _isClosing;
+        private bool _isHighlightingIssueLines;
 
         private readonly RichTextBox rtbConversation = new RichTextBox();
         private readonly TextBox txtRequest = new TextBox();
@@ -34,6 +45,7 @@ namespace GymClock
         private readonly RichTextBox rtbProposedScript = new RichTextBox();
         private readonly Label lblLocalAiStatus = new Label();
         private readonly Label lblValidationStatus = new Label();
+        private readonly Label lblConversationMore = new Label();
         private readonly ListBox lstIssues = new ListBox();
         private readonly Label lblProgramSummary = new Label();
         private readonly Button btnValidate = new Button();
@@ -52,7 +64,18 @@ namespace GymClock
         private bool _localAiReady;
         private bool _autoSetupStarted;
         private bool _isGenerating;
+        private bool _awaitingModeClarification;
+        private ClarificationStage _clarificationStage;
+        private string _pendingClarificationRequest = string.Empty;
+        private string _pendingClarificationMode = string.Empty;
+        private string _pendingStructureInstruction = string.Empty;
+        private string _pendingStructureSummary = string.Empty;
+        private string _pendingDurationInstruction = string.Empty;
+        private string _pendingDurationSummary = string.Empty;
         private List<ProgramValidationIssue> _currentIssues = new List<ProgramValidationIssue>();
+        private readonly List<int> _highlightedIssueLines = new List<int>();
+
+        private const int EmGetFirstVisibleLine = 0x00CE;
 
         public string AppliedScript { get; private set; }
 
@@ -93,12 +116,32 @@ namespace GymClock
             }
         }
 
+        private static string NormalizeCommonAiAliases(string script)
+        {
+            string text = script ?? string.Empty;
+            string[] lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i];
+                string trimmed = line.TrimStart();
+                if (trimmed.StartsWith("LABEL ", StringComparison.OrdinalIgnoreCase))
+                {
+                    int indentLength = line.Length - trimmed.Length;
+                    string indent = indentLength > 0 ? line.Substring(0, indentLength) : string.Empty;
+                    lines[i] = indent + "WORKNOTE " + trimmed.Substring(6).TrimStart();
+                }
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
         private void InitializeUi()
         {
             Text = "Program Assistant (Local AI)";
+            Icon = AppIconProvider.GetIcon();
             StartPosition = FormStartPosition.CenterParent;
-            Size = new Size(1120, 760);
-            MinimumSize = new Size(980, 680);
+            Size = new Size(1120, 860);
+            MinimumSize = new Size(980, 780);
             Font = new Font("Segoe UI", 10F);
             ShowInTaskbar = false;
             TopMost = true;
@@ -108,11 +151,11 @@ namespace GymClock
             lblLocalAiStatus.Location = new Point(12, 10);
 
             pnlSetup.Location = new Point(12, 62);
-            pnlSetup.Size = new Size(1078, 110);
+            pnlSetup.Size = new Size(1078, 144);
             pnlSetup.BorderStyle = BorderStyle.FixedSingle;
 
             lblSetup.Location = new Point(10, 10);
-            lblSetup.Size = new Size(1048, 44);
+            lblSetup.Size = new Size(1048, 74);
             lblSetup.Text = "Local AI runs on this computer and has no per-request API charge."
                 + Environment.NewLine
                 + "An internet connection may be required for the initial runtime/model download."
@@ -120,28 +163,28 @@ namespace GymClock
                 + "No cloud AI service will be used by Gym Interval Clock Version 3.0.";
 
             btnSetup.Text = "Set Up Local AI";
-            btnSetup.Location = new Point(10, 58);
+            btnSetup.Location = new Point(10, 82);
             btnSetup.Size = new Size(132, 30);
             btnSetup.Click += async (s, e) => await SetupLocalAiAsync();
 
             btnRetry.Text = "Retry";
-            btnRetry.Location = new Point(148, 58);
+            btnRetry.Location = new Point(148, 82);
             btnRetry.Size = new Size(90, 30);
             btnRetry.Click += async (s, e) => await SetupLocalAiAsync();
 
             btnDetails.Text = "View Details";
-            btnDetails.Location = new Point(244, 58);
+            btnDetails.Location = new Point(244, 82);
             btnDetails.Size = new Size(112, 30);
             btnDetails.Click += (s, e) => ShowSetupDetails();
 
-            prgSetup.Location = new Point(10, 90);
+            prgSetup.Location = new Point(10, 126);
             prgSetup.Size = new Size(1048, 12);
             prgSetup.Style = ProgressBarStyle.Marquee;
             prgSetup.MarqueeAnimationSpeed = 25;
             prgSetup.Visible = false;
 
             lblSetupProgress.AutoSize = true;
-            lblSetupProgress.Location = new Point(10, 74);
+            lblSetupProgress.Location = new Point(10, 102);
             lblSetupProgress.ForeColor = Color.DimGray;
             lblSetupProgress.Text = string.Empty;
             lblSetupProgress.Visible = false;
@@ -158,58 +201,72 @@ namespace GymClock
             lblPrivacy.ForeColor = Color.DarkGoldenrod;
             lblPrivacy.Location = new Point(12, 34);
 
-            Label lblConversation = new Label { Text = "Conversation", AutoSize = true, Location = new Point(12, 176) };
-            rtbConversation.Location = new Point(12, 200);
+            Label lblConversation = new Label { Text = "Conversation", AutoSize = true, Location = new Point(12, 208) };
+            rtbConversation.Location = new Point(12, 232);
             rtbConversation.Size = new Size(530, 210);
             rtbConversation.ReadOnly = true;
+            rtbConversation.ScrollBars = RichTextBoxScrollBars.Vertical;
+            rtbConversation.VScroll += (s, e) => UpdateConversationOverflowIndicator();
+            rtbConversation.Resize += (s, e) => UpdateConversationOverflowIndicator();
+            rtbConversation.MouseWheel += (s, e) => UpdateConversationOverflowIndicator();
 
-            Label lblRequest = new Label { Text = "Request", AutoSize = true, Location = new Point(12, 418) };
-            txtRequest.Location = new Point(12, 442);
+            lblConversationMore.AutoSize = true;
+            lblConversationMore.ForeColor = Color.DimGray;
+            lblConversationMore.BackColor = Color.WhiteSmoke;
+            lblConversationMore.Text = "▼ More below";
+            lblConversationMore.Location = new Point(200, 236);
+            lblConversationMore.Visible = false;
+
+            Label lblRequest = new Label { Text = "Request", AutoSize = true, Location = new Point(12, 450) };
+            txtRequest.Location = new Point(12, 474);
             txtRequest.Multiline = true;
             txtRequest.Size = new Size(530, 110);
 
-            cboSuggestedPrompt.Location = new Point(12, 560);
+            cboSuggestedPrompt.Location = new Point(12, 592);
             cboSuggestedPrompt.Size = new Size(530, 28);
             cboSuggestedPrompt.DropDownStyle = ComboBoxStyle.DropDownList;
             cboSuggestedPrompt.Items.AddRange(new object[]
             {
-                "Create a 6-station shared timing class with 40s work and 20s rest for 12 rounds.",
-                "Create an 8-station rotating circuit with 45s work, 15s rest, and 20s move time.",
-                "Revise this program to reduce total duration to around 30 minutes without changing mode."
+                "Create a MODE SHARED whole-group HIIT with 40s work / 20s rest for 12 rounds.",
+                "Create a MODE SEQUENTIAL station circuit with 6 stations and BETWEEN MOVE 20s.",
+                "Create a MODE PARALLEL program with mixed station durations (sprint + endurance lanes).",
+                "Create a MODE CIRCUIT rotating group class with shared REPEAT timing and BETWEEN transitions.",
+                "Revise the current program to reduce total duration to about 30 minutes without changing mode.",
+                "Keep this mode and station list, but increase beginner-friendliness with easier timings and coaching notes."
             });
             cboSuggestedPrompt.SelectedIndexChanged += SuggestedPrompt_SelectedIndexChanged;
 
-            btnSend.Text = "Generate / Revise";
-            btnSend.Location = new Point(12, 596);
-            btnSend.Size = new Size(165, 36);
+            btnSend.Text = "✨ Generate / Revise";
+            btnSend.Location = new Point(12, 628);
+            btnSend.Size = new Size(210, 42);
             btnSend.Click += async (s, e) => await GenerateAsync();
 
             btnCancel.Text = "Cancel";
-            btnCancel.Location = new Point(183, 596);
-            btnCancel.Size = new Size(100, 36);
+            btnCancel.Location = new Point(228, 628);
+            btnCancel.Size = new Size(88, 42);
             btnCancel.Click += (s, e) => _requestCts?.Cancel();
 
-            btnNewConversation.Text = "New Conversation";
-            btnNewConversation.Location = new Point(289, 596);
-            btnNewConversation.Size = new Size(150, 36);
+            btnNewConversation.Text = "New Chat";
+            btnNewConversation.Location = new Point(322, 628);
+            btnNewConversation.Size = new Size(100, 42);
             btnNewConversation.Click += (s, e) => NewConversation();
 
-            btnLoadCurrentProgram.Text = "Load Current Program";
-            btnLoadCurrentProgram.Location = new Point(445, 596);
-            btnLoadCurrentProgram.Size = new Size(150, 36);
+            btnLoadCurrentProgram.Text = "Load Program";
+            btnLoadCurrentProgram.Location = new Point(428, 628);
+            btnLoadCurrentProgram.Size = new Size(114, 42);
             btnLoadCurrentProgram.Click += (s, e) => LoadCurrentProgramIntoAssistant();
 
-            Label lblProposal = new Label { Text = "Proposed Script", AutoSize = true, Location = new Point(560, 176) };
-            rtbProposedScript.Location = new Point(560, 200);
+            Label lblProposal = new Label { Text = "Proposed Script", AutoSize = true, Location = new Point(560, 208) };
+            rtbProposedScript.Location = new Point(560, 232);
             rtbProposedScript.Size = new Size(530, 350);
             rtbProposedScript.TextChanged += ProposedScript_TextChanged;
 
             lblValidationStatus.Text = "Validation: Not validated";
             lblValidationStatus.AutoSize = true;
-            lblValidationStatus.Location = new Point(560, 558);
+            lblValidationStatus.Location = new Point(560, 590);
 
             btnValidate.Text = "Validate";
-            btnValidate.Location = new Point(560, 584);
+            btnValidate.Location = new Point(560, 624);
             btnValidate.Size = new Size(95, 36);
             btnValidate.Click += (s, e) => ValidateCurrentProposal();
 
@@ -218,36 +275,37 @@ namespace GymClock
                 Text = "Validation runs automatically. Use Validate only after manual script edits.",
                 AutoSize = false,
                 ForeColor = Color.DimGray,
-                Location = new Point(560, 620),
-                Size = new Size(530, 20)
+                Location = new Point(560, 666),
+                Size = new Size(530, 34)
             };
 
             btnApply.Text = "Apply to Editor";
-            btnApply.Location = new Point(661, 584);
-            btnApply.Size = new Size(140, 36);
+            btnApply.Location = new Point(661, 624);
+            btnApply.Size = new Size(170, 36);
             btnApply.Click += (s, e) => ApplyToEditor();
 
             btnCopyScript.Text = "Copy Script";
-            btnCopyScript.Location = new Point(807, 584);
-            btnCopyScript.Size = new Size(110, 36);
+            btnCopyScript.Location = new Point(837, 624);
+            btnCopyScript.Size = new Size(120, 36);
             btnCopyScript.Click += (s, e) =>
             {
                 if (!string.IsNullOrWhiteSpace(rtbProposedScript.Text)) Clipboard.SetText(rtbProposedScript.Text);
             };
 
             lblProgramSummary.Text = "Summary: -";
-            lblProgramSummary.Location = new Point(560, 644);
+            lblProgramSummary.Location = new Point(560, 708);
             lblProgramSummary.Size = new Size(530, 24);
 
-            Label lblIssues = new Label { Text = "Validation Issues", AutoSize = true, Location = new Point(12, 646) };
-            lstIssues.Location = new Point(12, 668);
-            lstIssues.Size = new Size(1078, 50);
+            Label lblIssues = new Label { Text = "Validation Issues", AutoSize = true, Location = new Point(12, 728) };
+            lstIssues.Location = new Point(12, 750);
+            lstIssues.Size = new Size(1078, 56);
             lstIssues.SelectedIndexChanged += Issues_SelectedIndexChanged;
 
             Controls.Add(lblLocalAiStatus);
             Controls.Add(lblPrivacy);
             Controls.Add(pnlSetup);
             Controls.Add(lblConversation);
+            Controls.Add(lblConversationMore);
             Controls.Add(rtbConversation);
             Controls.Add(lblRequest);
             Controls.Add(txtRequest);
@@ -501,12 +559,32 @@ namespace GymClock
                 return;
             }
 
-            string request = txtRequest.Text.Trim();
-            if (request.Length == 0)
+            string userInput = txtRequest.Text.Trim();
+            if (userInput.Length == 0)
             {
                 MessageBox.Show(this, "Enter a request first.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
+
+            txtRequest.Clear();
+
+            if (TryHandleClarificationInput(userInput, out string clarifiedRequest, out string assistantReply, out bool shouldGenerate))
+            {
+                AppendConversation("User", userInput);
+                if (!string.IsNullOrWhiteSpace(assistantReply))
+                {
+                    AppendConversation("Assistant", assistantReply);
+                }
+
+                if (!shouldGenerate)
+                {
+                    return;
+                }
+
+                userInput = clarifiedRequest;
+            }
+
+            string request = userInput;
 
             _isGenerating = true;
             SetBusy(true);
@@ -523,6 +601,31 @@ namespace GymClock
                     _conversation,
                     linked.Token).ConfigureAwait(true);
 
+                AppendConversation("User", userInput);
+
+                if (proposal.RequiresClarification)
+                {
+                    _awaitingModeClarification = true;
+                    _clarificationStage = ClarificationStage.AwaitMode;
+                    _pendingClarificationRequest = userInput;
+                    _pendingClarificationMode = string.Empty;
+                    _pendingStructureInstruction = string.Empty;
+                    _pendingStructureSummary = string.Empty;
+                    _pendingDurationInstruction = string.Empty;
+                    _pendingDurationSummary = string.Empty;
+                    AppendConversation("Assistant", BuildModeQuestion(proposal.AssistantMessage));
+                    return;
+                }
+
+                _awaitingModeClarification = false;
+                _clarificationStage = ClarificationStage.None;
+                _pendingClarificationRequest = string.Empty;
+                _pendingClarificationMode = string.Empty;
+                _pendingStructureInstruction = string.Empty;
+                _pendingStructureSummary = string.Empty;
+                _pendingDurationInstruction = string.Empty;
+                _pendingDurationSummary = string.Empty;
+
                 if (!proposal.IsValid)
                 {
                     AiProgramProposal repaired = await TryAutoRepairAsync(proposal.Script, linked.Token).ConfigureAwait(true);
@@ -537,7 +640,6 @@ namespace GymClock
                 _session.SetGeneratedProposal(proposal);
                 SetProposalText(proposal.Script);
                 RenderValidation(proposal.Issues, proposal.ParsedProgram, proposal.IsValid ? ProposalValidationState.Valid : ProposalValidationState.Invalid);
-                AppendConversation("User", request);
                 AppendConversation("Assistant", proposal.IsValid
                     ? "Generated a valid proposal."
                     : "Generated a proposal with validation issues.");
@@ -643,6 +745,7 @@ namespace GymClock
         {
             _conversation.Clear();
             _session.Clear();
+            ResetClarificationState();
             ResetConversationUi();
         }
 
@@ -671,6 +774,7 @@ namespace GymClock
         private void ResetConversationUi()
         {
             rtbConversation.Clear();
+            UpdateConversationOverflowIndicator();
             SetProposalText(string.Empty);
             RenderValidation(Array.Empty<ProgramValidationIssue>(), null, ProposalValidationState.NotValidated);
             txtRequest.Clear();
@@ -681,7 +785,7 @@ namespace GymClock
             _updatingProposalText = true;
             try
             {
-                rtbProposedScript.Text = text ?? string.Empty;
+                rtbProposedScript.Text = NormalizeCommonAiAliases(text);
             }
             finally
             {
@@ -702,6 +806,7 @@ namespace GymClock
             }
 
             _currentIssues = (issues ?? Array.Empty<ProgramValidationIssue>()).ToList();
+            HighlightIssueLines(null);
 
             switch (state)
             {
@@ -724,6 +829,64 @@ namespace GymClock
                 : BuildSummary(parsed);
 
             btnApply.Enabled = _session.CanApply && !_isBusy;
+        }
+
+        private void HighlightIssueLines(int? emphasizedLine)
+        {
+            if (_isHighlightingIssueLines) return;
+            _isHighlightingIssueLines = true;
+
+            int originalStart = rtbProposedScript.SelectionStart;
+            int originalLength = rtbProposedScript.SelectionLength;
+
+            try
+            {
+                foreach (int line in _highlightedIssueLines.ToList())
+                {
+                    if (line < 0 || line >= rtbProposedScript.Lines.Length) continue;
+                    int start = rtbProposedScript.GetFirstCharIndexFromLine(line);
+                    if (start < 0) continue;
+
+                    string lineText = rtbProposedScript.Lines[line] ?? string.Empty;
+                    rtbProposedScript.SelectionStart = start;
+                    rtbProposedScript.SelectionLength = Math.Max(1, lineText.Length);
+                    rtbProposedScript.SelectionBackColor = rtbProposedScript.BackColor;
+                }
+
+                _highlightedIssueLines.Clear();
+
+                HashSet<int> issueLines = new HashSet<int>();
+                foreach (ProgramValidationIssue issue in _currentIssues)
+                {
+                    if (!issue.LineNumber.HasValue || issue.LineNumber.Value <= 0) continue;
+                    int line = issue.LineNumber.Value - 1;
+                    if (line < 0 || line >= rtbProposedScript.Lines.Length) continue;
+                    issueLines.Add(line);
+                }
+
+                foreach (int line in issueLines.OrderBy(x => x))
+                {
+                    int start = rtbProposedScript.GetFirstCharIndexFromLine(line);
+                    if (start < 0) continue;
+
+                    string lineText = rtbProposedScript.Lines[line] ?? string.Empty;
+                    rtbProposedScript.SelectionStart = start;
+                    rtbProposedScript.SelectionLength = Math.Max(1, lineText.Length);
+                    rtbProposedScript.SelectionBackColor = line == emphasizedLine
+                        ? Color.FromArgb(255, 230, 180)
+                        : Color.FromArgb(255, 244, 214);
+                    _highlightedIssueLines.Add(line);
+                }
+
+                int maxSelection = rtbProposedScript.TextLength;
+                rtbProposedScript.SelectionStart = Math.Min(Math.Max(0, originalStart), maxSelection);
+                rtbProposedScript.SelectionLength = Math.Max(0, Math.Min(originalLength, Math.Max(0, maxSelection - rtbProposedScript.SelectionStart)));
+                rtbProposedScript.SelectionBackColor = rtbProposedScript.BackColor;
+            }
+            finally
+            {
+                _isHighlightingIssueLines = false;
+            }
         }
 
         private static string BuildSummary(WorkoutProgram program)
@@ -759,20 +922,51 @@ namespace GymClock
             if (string.IsNullOrWhiteSpace(text)) return;
             if (rtbConversation.TextLength > 0) rtbConversation.AppendText(Environment.NewLine + Environment.NewLine);
             rtbConversation.AppendText(role + ": " + text.Trim());
+            rtbConversation.SelectionStart = rtbConversation.TextLength;
+            rtbConversation.SelectionLength = 0;
+            rtbConversation.ScrollToCaret();
+            UpdateConversationOverflowIndicator();
         }
+
+        private void UpdateConversationOverflowIndicator()
+        {
+            if (rtbConversation.IsDisposed) return;
+
+            int firstVisibleLine = GetFirstVisibleLine(rtbConversation);
+            int totalLines = Math.Max(0, rtbConversation.GetLineFromCharIndex(rtbConversation.TextLength) + 1);
+            int visibleLines = Math.Max(1, rtbConversation.ClientSize.Height / Math.Max(1, rtbConversation.Font.Height));
+            bool hasMoreBelow = totalLines > visibleLines && firstVisibleLine + visibleLines < totalLines;
+
+            int indicatorX = rtbConversation.Left + Math.Max(4, (rtbConversation.Width - lblConversationMore.Width) / 2);
+            int indicatorY = rtbConversation.Top + 6;
+            lblConversationMore.Location = new Point(indicatorX, indicatorY);
+
+            lblConversationMore.Visible = hasMoreBelow;
+            lblConversationMore.BringToFront();
+        }
+
+        private static int GetFirstVisibleLine(RichTextBox box)
+        {
+            if (box == null || box.IsDisposed) return 0;
+            return (int)SendMessage(box.Handle, EmGetFirstVisibleLine, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
         private void SetBusy(bool busy)
         {
             _isBusy = busy;
-            btnSend.Text = busy && _isGenerating ? "Generating..." : "Generate / Revise";
+            bool lockInputsForGeneration = busy && _isGenerating;
+            btnSend.Text = busy && _isGenerating ? "✨ Generating..." : "✨ Generate / Revise";
             btnCancel.Enabled = busy;
             btnApply.Enabled = !busy && _session.CanApply;
-            btnNewConversation.Enabled = !busy;
-            btnLoadCurrentProgram.Enabled = !busy;
-            btnValidate.Enabled = !busy;
-            cboSuggestedPrompt.Enabled = !busy;
-            txtRequest.Enabled = !busy;
-            rtbProposedScript.ReadOnly = busy;
+            btnNewConversation.Enabled = !lockInputsForGeneration;
+            btnLoadCurrentProgram.Enabled = !lockInputsForGeneration;
+            btnValidate.Enabled = !lockInputsForGeneration;
+            cboSuggestedPrompt.Enabled = !lockInputsForGeneration;
+            txtRequest.Enabled = !lockInputsForGeneration;
+            rtbProposedScript.ReadOnly = lockInputsForGeneration;
 
             LocalAiSetupStatus status = _setupService?.LastSetupStatus;
             if (status == null)
@@ -787,6 +981,390 @@ namespace GymClock
             ApplySetupStatus(status);
         }
 
+        private bool TryHandleClarificationInput(string userInput, out string requestToGenerate, out string assistantReply, out bool shouldGenerate)
+        {
+            requestToGenerate = userInput ?? string.Empty;
+            assistantReply = string.Empty;
+            shouldGenerate = true;
+
+            string text = (userInput ?? string.Empty).Trim();
+            if (text.Length == 0) return false;
+
+            if (_clarificationStage == ClarificationStage.None && !_awaitingModeClarification)
+            {
+                return false;
+            }
+
+            shouldGenerate = false;
+
+            if (_clarificationStage == ClarificationStage.None)
+            {
+                _clarificationStage = ClarificationStage.AwaitMode;
+            }
+
+            switch (_clarificationStage)
+            {
+                case ClarificationStage.AwaitMode:
+                    if (!TryGetModeFromChoice(text, out string mode))
+                    {
+                        assistantReply = "I still need the mode choice. Reply with 1, 2, 3, or 4." + Environment.NewLine
+                            + "Quick replies: 1=SHARED, 2=SEQUENTIAL, 3=PARALLEL, 4=CIRCUIT";
+                        return true;
+                    }
+
+                    _pendingClarificationMode = mode;
+                    _clarificationStage = ClarificationStage.AwaitStructure;
+                    assistantReply = BuildStructureQuestion(mode);
+                    return true;
+
+                case ClarificationStage.AwaitStructure:
+                    if (!TryGetStructureChoice(_pendingClarificationMode, text, out string structureInstruction, out string structureSummary))
+                    {
+                        assistantReply = BuildStructureQuestion(_pendingClarificationMode);
+                        return true;
+                    }
+
+                    _pendingStructureInstruction = structureInstruction;
+                    _pendingStructureSummary = structureSummary;
+                    _clarificationStage = ClarificationStage.AwaitDurationTolerance;
+                    assistantReply = BuildDurationToleranceQuestion();
+                    return true;
+
+                case ClarificationStage.AwaitDurationTolerance:
+                    if (!TryGetDurationToleranceChoice(text, out string durationInstruction, out string durationSummary))
+                    {
+                        assistantReply = BuildDurationToleranceQuestion();
+                        return true;
+                    }
+
+                    _pendingDurationInstruction = durationInstruction;
+                    _pendingDurationSummary = durationSummary;
+                    _clarificationStage = ClarificationStage.AwaitConfirmation;
+                    assistantReply = BuildConfirmationPrompt();
+                    return true;
+
+                case ClarificationStage.AwaitConfirmation:
+                    if (IsYes(text))
+                    {
+                        shouldGenerate = true;
+                        requestToGenerate = BuildClarifiedGenerationRequest();
+                        assistantReply = "Generating now with: " + _pendingClarificationMode
+                            + " | " + _pendingStructureSummary
+                            + " | " + _pendingDurationSummary;
+                        ResetClarificationState();
+                        return true;
+                    }
+
+                    if (IsNo(text))
+                    {
+                        _clarificationStage = ClarificationStage.AwaitMode;
+                        assistantReply = BuildModeQuestion(null);
+                        return true;
+                    }
+
+                    if (string.Equals(text, "edit", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _clarificationStage = ClarificationStage.AwaitStructure;
+                        assistantReply = BuildStructureQuestion(_pendingClarificationMode);
+                        return true;
+                    }
+
+                    assistantReply = BuildConfirmationPrompt();
+                    return true;
+            }
+
+            return true;
+        }
+
+        private string BuildModeQuestion(string fallback)
+        {
+            string baseText = string.IsNullOrWhiteSpace(fallback)
+                ? "Before I generate, choose the mode so the script validates correctly:" + Environment.NewLine
+                    + "1) MODE SHARED - one timeline for the whole group." + Environment.NewLine
+                    + "2) MODE SEQUENTIAL - station-by-station rotation (each station needs timing blocks)." + Environment.NewLine
+                    + "3) MODE PARALLEL - station lanes run at the same time." + Environment.NewLine
+                    + "4) MODE CIRCUIT - shared rounds repeated across a station list." + Environment.NewLine
+                    + "Reply with a number (1-4) or type the mode name."
+                : fallback.Trim();
+
+            return baseText + Environment.NewLine + "Quick replies: 1, 2, 3, 4";
+        }
+
+        private string BuildStructureQuestion(string mode)
+        {
+            if (string.Equals(mode, "SEQUENTIAL", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "PARALLEL", StringComparison.OrdinalIgnoreCase))
+            {
+                return "Great. Choose station structure:" + Environment.NewLine
+                    + "1) 6 stations, 3 rounds" + Environment.NewLine
+                    + "2) 8 stations, 3 rounds" + Environment.NewLine
+                    + "3) 10 stations, 2 rounds" + Environment.NewLine
+                    + "4) Auto choose structure" + Environment.NewLine
+                    + "Quick replies: 1, 2, 3, 4";
+            }
+
+            return "Great. Choose station structure:" + Environment.NewLine
+                + "1) 6 stations, 5 rounds" + Environment.NewLine
+                + "2) 8 stations, 4 rounds" + Environment.NewLine
+                + "3) 10 stations, 3 rounds" + Environment.NewLine
+                + "4) Auto choose structure" + Environment.NewLine
+                + "Quick replies: 1, 2, 3, 4";
+        }
+
+        private static bool TryGetStructureChoice(string mode, string input, out string instruction, out string summary)
+        {
+            instruction = string.Empty;
+            summary = string.Empty;
+
+            if (!TryGetNumericChoice(input, out int choice) || choice < 1 || choice > 4) return false;
+
+            bool laneMode = string.Equals(mode, "SEQUENTIAL", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "PARALLEL", StringComparison.OrdinalIgnoreCase);
+
+            if (choice == 4)
+            {
+                if (laneMode)
+                {
+                    instruction = "Use at least 6 stations and include both cardio and resistance exercises; choose rounds to fit requested duration.";
+                    summary = "Auto structure (min 6 stations)";
+                }
+                else
+                {
+                    instruction = "Use at least 8 stations with a cardio/resistance mix (at least 4 cardio and 4 resistance); choose rounds to fit requested duration.";
+                    summary = "Auto structure (min 8 stations)";
+                }
+                return true;
+            }
+
+            if (laneMode)
+            {
+                if (choice == 1) { instruction = "Use 6 stations and 3 rounds."; summary = "6 stations / 3 rounds"; return true; }
+                if (choice == 2) { instruction = "Use 8 stations and 3 rounds."; summary = "8 stations / 3 rounds"; return true; }
+                instruction = "Use 10 stations and 2 rounds."; summary = "10 stations / 2 rounds"; return true;
+            }
+
+            if (choice == 1) { instruction = "Use 6 stations and 5 rounds."; summary = "6 stations / 5 rounds"; return true; }
+            if (choice == 2) { instruction = "Use 8 stations and 4 rounds."; summary = "8 stations / 4 rounds"; return true; }
+            instruction = "Use 10 stations and 3 rounds."; summary = "10 stations / 3 rounds"; return true;
+        }
+
+        private static string BuildDurationToleranceQuestion()
+        {
+            return "Choose duration strictness:" + Environment.NewLine
+                + "1) Strict (target as close as possible)" + Environment.NewLine
+                + "2) Balanced (within about ±5 minutes)" + Environment.NewLine
+                + "3) Flexible (within about ±8 minutes)" + Environment.NewLine
+                + "Quick replies: 1, 2, 3";
+        }
+
+        private static bool TryGetDurationToleranceChoice(string input, out string instruction, out string summary)
+        {
+            instruction = string.Empty;
+            summary = string.Empty;
+
+            if (TryGetNumericChoice(input, out int choice))
+            {
+                if (choice == 1)
+                {
+                    instruction = "Keep total duration very close to the requested time.";
+                    summary = "Strict";
+                    return true;
+                }
+
+                if (choice == 2)
+                {
+                    instruction = "Keep total duration within about plus or minus 5 minutes from the requested time.";
+                    summary = "Balanced (±5m)";
+                    return true;
+                }
+
+                if (choice == 3)
+                {
+                    instruction = "Keep total duration within about plus or minus 8 minutes from the requested time.";
+                    summary = "Flexible (±8m)";
+                    return true;
+                }
+            }
+
+            string text = (input ?? string.Empty).Trim();
+            if (text.IndexOf("strict", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                instruction = "Keep total duration very close to the requested time.";
+                summary = "Strict";
+                return true;
+            }
+
+            if (text.IndexOf("balanced", StringComparison.OrdinalIgnoreCase) >= 0 || text.IndexOf("5", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                instruction = "Keep total duration within about plus or minus 5 minutes from the requested time.";
+                summary = "Balanced (±5m)";
+                return true;
+            }
+
+            if (text.IndexOf("flexible", StringComparison.OrdinalIgnoreCase) >= 0 || text.IndexOf("8", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                instruction = "Keep total duration within about plus or minus 8 minutes from the requested time.";
+                summary = "Flexible (±8m)";
+                return true;
+            }
+
+            return false;
+        }
+
+        private string BuildConfirmationPrompt()
+        {
+            return "Confirm generation settings:" + Environment.NewLine
+                + "- Mode: " + _pendingClarificationMode + Environment.NewLine
+                + "- Structure: " + _pendingStructureSummary + Environment.NewLine
+                + "- Duration: " + _pendingDurationSummary + Environment.NewLine
+                + "Reply Y to generate, EDIT to change structure, or N to restart mode selection." + Environment.NewLine
+                + "Quick replies: Y, EDIT, N";
+        }
+
+        private string BuildClarifiedGenerationRequest()
+        {
+            string context = string.IsNullOrWhiteSpace(_pendingClarificationRequest)
+                ? "Create a program"
+                : _pendingClarificationRequest.Trim();
+
+            return context + Environment.NewLine
+                + "Use MODE " + _pendingClarificationMode + "." + Environment.NewLine
+                + _pendingStructureInstruction + Environment.NewLine
+                + _pendingDurationInstruction + Environment.NewLine
+                + "Include explicit cardio and resistance exercises in station names and/or notes.";
+        }
+
+        private static bool TryGetNumericChoice(string input, out int choice)
+        {
+            choice = 0;
+            string text = (input ?? string.Empty).Trim();
+            if (int.TryParse(text, out choice)) return true;
+
+            string[] parts = text
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n')
+                .Split(new[] { ' ', '\t', '\n', ',', ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
+
+            for (int i = parts.Length - 1; i >= 0; i--)
+            {
+                if (int.TryParse(parts[i], out choice)) return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsYes(string text)
+        {
+            return string.Equals(text, "y", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "generate", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "go", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "ok", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsNo(string text)
+        {
+            return string.Equals(text, "n", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "no", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "restart", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void ResetClarificationState()
+        {
+            _awaitingModeClarification = false;
+            _clarificationStage = ClarificationStage.None;
+            _pendingClarificationRequest = string.Empty;
+            _pendingClarificationMode = string.Empty;
+            _pendingStructureInstruction = string.Empty;
+            _pendingStructureSummary = string.Empty;
+            _pendingDurationInstruction = string.Empty;
+            _pendingDurationSummary = string.Empty;
+        }
+
+        private static bool TryGetModeFromChoice(string input, out string mode)
+        {
+            mode = string.Empty;
+            string value = (input ?? string.Empty).Trim();
+            if (value.Length == 0) return false;
+
+            if (value.IndexOf("MODE SHARED", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                mode = "SHARED";
+                return true;
+            }
+
+            if (value.IndexOf("MODE SEQUENTIAL", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                mode = "SEQUENTIAL";
+                return true;
+            }
+
+            if (value.IndexOf("MODE PARALLEL", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                mode = "PARALLEL";
+                return true;
+            }
+
+            if (value.IndexOf("MODE CIRCUIT", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                mode = "CIRCUIT";
+                return true;
+            }
+
+            string[] lineParts = value
+                .Replace("\r\n", "\n")
+                .Replace('\r', '\n')
+                .Split(new[] { '\n', ' ', '\t', ',', ';', ':' }, StringSplitOptions.RemoveEmptyEntries);
+
+            for (int i = lineParts.Length - 1; i >= 0; i--)
+            {
+                if (TryGetModeFromSingleToken(lineParts[i], out mode)) return true;
+            }
+
+            return TryGetModeFromSingleToken(value, out mode);
+        }
+
+        private static bool TryGetModeFromSingleToken(string token, out string mode)
+        {
+            mode = string.Empty;
+            string value = (token ?? string.Empty).Trim();
+            if (value.Length == 0) return false;
+
+            if (string.Equals(value, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "shared", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "mode shared", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = "SHARED";
+                return true;
+            }
+
+            if (string.Equals(value, "2", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "sequential", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "mode sequential", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = "SEQUENTIAL";
+                return true;
+            }
+
+            if (string.Equals(value, "3", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "parallel", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "mode parallel", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = "PARALLEL";
+                return true;
+            }
+
+            if (string.Equals(value, "4", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "circuit", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(value, "mode circuit", StringComparison.OrdinalIgnoreCase))
+            {
+                mode = "CIRCUIT";
+                return true;
+            }
+
+            return false;
+        }
+
         private void Issues_SelectedIndexChanged(object sender, EventArgs e)
         {
             int index = lstIssues.SelectedIndex;
@@ -797,6 +1375,8 @@ namespace GymClock
 
             int line = issue.LineNumber.Value - 1;
             if (line < 0 || line >= rtbProposedScript.Lines.Length) return;
+
+            HighlightIssueLines(line);
 
             int start = rtbProposedScript.GetFirstCharIndexFromLine(line);
             if (start < 0) return;

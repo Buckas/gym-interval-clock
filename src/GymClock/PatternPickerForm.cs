@@ -64,6 +64,7 @@ namespace GymClock
         public PatternPickerForm()
         {
             Text = "Add Pattern";
+            Icon = AppIconProvider.GetIcon();
             Font = new Font("Segoe UI", 9F);
             AutoScaleMode = AutoScaleMode.None;
             ClientSize = new Size(360, 340);

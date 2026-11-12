@@ -64,6 +64,7 @@ namespace GymClock
         public ProgramEditorForm()
         {
             InitializeComponent();
+            Icon = AppIconProvider.GetIcon();
         }
 
         public ProgramEditorForm(TimerSettings settings)

@@ -143,6 +143,23 @@ END STATION
         }
 
         [Fact]
+        public void ValidDurations_WithMinuteAndSecondWords_Passes()
+        {
+            string script = @"PROGRAM ""Word Units""
+MODE SHARED
+REPEAT 1
+    WORK 10min
+    REST 30sec
+    RECOVERY 15seconds
+END
+STATION ""A""
+END STATION";
+
+            ProgramValidationResult result = _validator.Validate(script);
+            Assert.True(result.IsValid);
+        }
+
+        [Fact]
         public void MissingProgram_Fails()
         {
             string script = @"MODE SHARED
