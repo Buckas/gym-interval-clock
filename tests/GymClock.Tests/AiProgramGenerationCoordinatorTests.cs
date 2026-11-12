@@ -992,6 +992,65 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public async Task SkaterBounds_PickWithExtraInstruction_AppliesOptionWithNotes()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "Lateral Bounds | Explode side to side\nPlyometric Lunges | Drive through the heel\nQuick Jumps | Maximize vertical leap"
+            });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+            ConversationState conversation = new ConversationState();
+
+            AiProgramProposal suggestion = await coordinator.GenerateAsync(
+                "I want to change \"Skater Bounds\" to something else. Do you have any suggestions?",
+                WholeGroupHiitSequential, conversation, CancellationToken.None);
+            Assert.True(suggestion.LeftUnchanged);
+
+            AiProgramProposal applied = await coordinator.GenerateAsync(
+                "3\r\nMake sure you give work out notes for it",
+                WholeGroupHiitSequential, conversation, CancellationToken.None);
+
+            Assert.True(applied.IsValid, string.Join(" | ", applied.Issues.Select(i => i.Message)));
+            Assert.Equal(1, fake.CallCount);
+            Assert.Equal("Quick Jumps", applied.ParsedProgram.Stations[5].Name);
+            Assert.Equal("Maximize vertical leap", applied.ParsedProgram.Stations[5].WorkInstruction);
+            Assert.Contains("work note: \"Maximize vertical leap\"", applied.AssistantMessage);
+        }
+
+        [Fact]
+        public async Task ExplicitSwap_AskingForNotes_GetsCueFromAi()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { "Stay light and land softly." });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal applied = await coordinator.GenerateAsync(
+                "Replace Skater Bounds with Tuck Jumps and add a coaching note",
+                WholeGroupHiitSequential, new ConversationState(), CancellationToken.None);
+
+            Assert.True(applied.IsValid, string.Join(" | ", applied.Issues.Select(i => i.Message)));
+            Assert.Equal("Tuck Jumps", applied.ParsedProgram.Stations[5].Name);
+            Assert.Equal("Stay light and land softly", applied.ParsedProgram.Stations[5].WorkInstruction);
+        }
+
+        [Theory]
+        [InlineData("3\nMake sure you give work out notes for it", "Tuck Jumps")]
+        [InlineData("Option 2, and add good notes please", "Jump Rope")]
+        public void PendingOption_IsPicked_WithTrailingInstruction(string reply, string expected)
+        {
+            WorkoutProgram baseline = new ProgramProposalValidator().Validate(WholeGroupHiitSequential).ParsedProgram;
+            PendingStationSuggestion pending = new PendingStationSuggestion
+            {
+                StationName = "Skipping",
+                Options = new[] { new StationOption("Jump Squats", null), new StationOption("Jump Rope", null), new StationOption("Tuck Jumps", null) }
+            };
+
+            Assert.True(AiProgramGenerationCoordinator.TryPickPendingOption(reply, pending, baseline, out StationOption pick));
+            Assert.Equal(expected, pick.Name);
+        }
+
+        [Fact]
         public void PendingOption_NotPicked_WhenReplyTargetsAnotherStation()
         {
             WorkoutProgram baseline = new ProgramProposalValidator().Validate(WholeGroupHiitSequential).ParsedProgram;

@@ -179,7 +179,9 @@ namespace GymClock.AI
                 string message =
                     "I couldn't produce a safe change to your program, so it has been left unchanged."
                     + (reason.Length > 0 ? Environment.NewLine + "Problems with my attempt: " + reason : string.Empty)
-                    + Environment.NewLine + "Try rephrasing, e.g. 'Replace \"Cardio: High Knees\" with Burpees'.";
+                    + Environment.NewLine + "Try rephrasing, e.g. 'Replace \""
+                    + (baselineProgram.Stations.Count > 0 ? baselineProgram.Stations[baselineProgram.Stations.Count - 1].Name : "Station 1")
+                    + "\" with Burpees'.";
                 state.AddAssistant("Left the current program unchanged after invalid AI attempts.");
                 return UnchangedProposal(request, baselineResult, message);
             }
@@ -214,9 +216,15 @@ namespace GymClock.AI
             @"\b(replace|replacing|replacement|swap|swapping|substitute|instead\s+of|alternative\s+(to|for)|change|changing|rename|something\s+else|different\s+(exercise|station|one|activity))\b",
             RegexOptions.IgnoreCase);
 
-        // Edits to a station's look or notes are not exercise swaps.
+        // Edits to a station's look or position are never exercise swaps.
         private static readonly Regex NotASwap = new Regex(
-            @"\b(colou?r|note|notes|worknote|restnote|cue|cues|instruction|instructions|order|position|move\s+.*\s+(up|down|before|after))\b",
+            @"\b(colou?r|order|position|move\s+.*\s+(up|down|before|after))\b",
+            RegexOptions.IgnoreCase);
+
+        // Mentioning notes is only a swap when a replacement exercise is named
+        // ("replace X with Y and add a note"), not for "change the note on X".
+        private static readonly Regex NotesMention = new Regex(
+            @"\b(note|notes|worknote|restnote|cue|cues|instruction|instructions)\b",
             RegexOptions.IgnoreCase);
 
         private static readonly Regex VagueReplacement = new Regex(
@@ -258,13 +266,17 @@ namespace GymClock.AI
             Match m = Regex.Match(after, "^[\"”']?\\s*,?\\s*(?:with|for|by|to)\\s+[\"“']?([^\"“”?!.,\\n]{2,60})", RegexOptions.IgnoreCase);
             if (m.Success)
             {
-                string candidate = m.Groups[1].Value.Trim();
-                if (!VagueReplacement.IsMatch(candidate) && !candidate.StartsWith("a ", StringComparison.OrdinalIgnoreCase))
+                // Stop the name at a joined instruction: "Tuck Jumps and add a note" -> "Tuck Jumps".
+                string candidate = Regex.Split(m.Groups[1].Value, @"\s+(?:and|then|but|plus|also|please|with)\b", RegexOptions.IgnoreCase)[0].Trim();
+                if (candidate.Length >= 2
+                    && !VagueReplacement.IsMatch(candidate)
+                    && !candidate.StartsWith("a ", StringComparison.OrdinalIgnoreCase))
                 {
                     explicitReplacement = candidate;
                 }
             }
 
+            if (explicitReplacement == null && NotesMention.IsMatch(text)) return false;
             return true;
         }
 
@@ -286,6 +298,12 @@ namespace GymClock.AI
             {
                 newName = explicitReplacement;
                 note = explicitNote;
+
+                bool wantsNotes = Regex.IsMatch(request ?? string.Empty, @"\b(notes?|cues?|instructions?|coaching)\b", RegexOptions.IgnoreCase);
+                if (string.IsNullOrWhiteSpace(note) && wantsNotes)
+                {
+                    note = await SuggestCueAsync(newName, cancellationToken).ConfigureAwait(false);
+                }
             }
             else
             {
@@ -331,6 +349,24 @@ namespace GymClock.AI
                         : string.Empty)
                     + proposal.AssistantMessage
             };
+        }
+
+        private async Task<string> SuggestCueAsync(string exercise, CancellationToken cancellationToken)
+        {
+            string reply = await _aiService.GenerateTextAsync(new[]
+            {
+                new AiChatMessage(AiChatRole.System,
+                    "You are a fitness coach. Reply with one short coaching cue (under 12 words) for the exercise. No other text.",
+                    DateTimeOffset.Now),
+                new AiChatMessage(AiChatRole.User, "Exercise: " + exercise, DateTimeOffset.Now)
+            }, cancellationToken).ConfigureAwait(false);
+
+            string cue = CleanMarkdownFences(reply ?? string.Empty)
+                .Replace("\r", string.Empty)
+                .Split('\n')
+                .Select(l => l.Trim().Trim('"', '*', '-', ' ').TrimEnd('.'))
+                .FirstOrDefault(l => l.Length > 0);
+            return cue != null && cue.Length <= 120 ? cue : null;
         }
 
         private static readonly Regex SuggestionIntent = new Regex(
@@ -425,6 +461,19 @@ namespace GymClock.AI
             {
                 pick = byName;
                 return true;
+            }
+
+            // A reply that starts with the number ("3", "Option 2, and add notes ...") is a pick,
+            // whatever follows it.
+            Match leading = Regex.Match(text, @"^\s*(?:option|number|no\.?|#)?\s*([1-9])(?!\d)(?!\s*(s|sec|secs|seconds|m|min|mins|minutes|x|rounds?|stations?)\b)", RegexOptions.IgnoreCase);
+            if (leading.Success)
+            {
+                int leadIndex = int.Parse(leading.Groups[1].Value) - 1;
+                if (leadIndex >= 0 && leadIndex < pending.Options.Count)
+                {
+                    pick = pending.Options[leadIndex];
+                    return true;
+                }
             }
 
             if (text.Length > 40) return false; // longer replies are new requests, not a pick
@@ -1088,6 +1137,8 @@ namespace GymClock.AI
         {
             // "keep the rest the same" is not a request to change REST periods.
             string text = Regex.Replace(request ?? string.Empty, @"\bthe\s+rest\b", " ", RegexOptions.IgnoreCase);
+            // "work out notes" / "work note" / "rest notes" are about notes, not timings.
+            text = Regex.Replace(text, @"\b(work[\s-]*out|work\s*notes?|rest\s*notes?)\b", " ", RegexOptions.IgnoreCase);
             return Regex.IsMatch(
                 text,
                 @"\b(work|rest|recovery|move|second|seconds|sec|secs|minute|minutes|min|mins|duration|time|timing|timings|longer|shorter|round|rounds|repeat|repeats|interval|intervals|pyramid|between|\d+\s*s)\b",
@@ -1208,10 +1259,13 @@ namespace GymClock.AI
                 {
                     changes.Add("Station " + (i + 1) + " colour: " + Blank(b.Colour) + " -> " + Blank(a.Colour));
                 }
-                if (!string.Equals(b.WorkInstruction ?? string.Empty, a.WorkInstruction ?? string.Empty, StringComparison.Ordinal)
-                    || !string.Equals(b.RestInstruction ?? string.Empty, a.RestInstruction ?? string.Empty, StringComparison.Ordinal))
+                if (!string.Equals(b.WorkInstruction ?? string.Empty, a.WorkInstruction ?? string.Empty, StringComparison.Ordinal))
                 {
-                    changes.Add("Station " + (i + 1) + " notes updated");
+                    changes.Add("Station " + (i + 1) + " work note: \"" + (a.WorkInstruction ?? string.Empty) + "\"");
+                }
+                if (!string.Equals(b.RestInstruction ?? string.Empty, a.RestInstruction ?? string.Empty, StringComparison.Ordinal))
+                {
+                    changes.Add("Station " + (i + 1) + " rest note: \"" + (a.RestInstruction ?? string.Empty) + "\"");
                 }
             }
             for (int i = common; i < after.Stations.Count; i++) changes.Add("Added station \"" + after.Stations[i].Name + "\"");
