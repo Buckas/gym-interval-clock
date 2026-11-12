@@ -13,9 +13,13 @@ namespace GymClock.AI
             get { return _messages; }
         }
 
+        /// <summary>Replacement options offered for a station, waiting for the user to pick one.</summary>
+        public PendingStationSuggestion PendingSuggestion { get; set; }
+
         public void Clear()
         {
             _messages.Clear();
+            PendingSuggestion = null;
         }
 
         public void AddUser(string content)
@@ -40,5 +44,13 @@ namespace GymClock.AI
             if (string.IsNullOrWhiteSpace(content)) return;
             _messages.Add(new AiChatMessage(role, content.Trim(), DateTimeOffset.Now));
         }
+    }
+
+    public sealed record StationOption(string Name, string Note);
+
+    public sealed class PendingStationSuggestion
+    {
+        public string StationName { get; init; } = string.Empty;
+        public IReadOnlyList<StationOption> Options { get; init; } = Array.Empty<StationOption>();
     }
 }

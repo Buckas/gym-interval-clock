@@ -46,6 +46,21 @@ namespace GymClock.AI
                 : null;
             bool isRevision = baselineProgram != null && !IsFreshProgramRequest(requestBeforeAugmentation);
 
+            // A reply like "2" or "go with Jump Rope" right after we offered options.
+            PendingStationSuggestion pending = state.PendingSuggestion;
+            state.PendingSuggestion = null;
+            if (pending != null && isRevision && TryPickPendingOption(requestBeforeAugmentation, pending, baselineProgram, out StationOption pick))
+            {
+                int pickIndex = baselineProgram.Stations.FindIndex(s =>
+                    string.Equals(s.Name, pending.StationName, StringComparison.OrdinalIgnoreCase));
+                if (pickIndex >= 0)
+                {
+                    return await SwapStationAsync(
+                        requestBeforeAugmentation, baselineResult, baselineProgram, pickIndex, pick.Name, pick.Note, state, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+
             if (isRevision && TryBuildUnknownStationReply(requestBeforeAugmentation, baselineProgram, out string unknownStationReply))
             {
                 state.AddAssistant(unknownStationReply);
@@ -54,8 +69,16 @@ namespace GymClock.AI
 
             if (isRevision && TryDetectStationSwap(requestBeforeAugmentation, baselineProgram, out int swapIndex, out string explicitReplacement))
             {
+                if (explicitReplacement == null && IsSuggestionRequest(requestBeforeAugmentation))
+                {
+                    // The user asked for ideas, not a change: offer options and leave the program alone.
+                    return await SuggestStationOptionsAsync(
+                        requestBeforeAugmentation, baselineResult, baselineProgram, swapIndex, state, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
                 return await SwapStationAsync(
-                    requestBeforeAugmentation, baselineResult, baselineProgram, swapIndex, explicitReplacement, state, cancellationToken)
+                    requestBeforeAugmentation, baselineResult, baselineProgram, swapIndex, explicitReplacement, null, state, cancellationToken)
                     .ConfigureAwait(false);
             }
 
@@ -251,6 +274,7 @@ namespace GymClock.AI
             WorkoutProgram baseline,
             int stationIndex,
             string explicitReplacement,
+            string explicitNote,
             ConversationState state,
             CancellationToken cancellationToken)
         {
@@ -261,6 +285,7 @@ namespace GymClock.AI
             if (!string.IsNullOrWhiteSpace(explicitReplacement))
             {
                 newName = explicitReplacement;
+                note = explicitNote;
             }
             else
             {
@@ -308,9 +333,158 @@ namespace GymClock.AI
             };
         }
 
+        private static readonly Regex SuggestionIntent = new Regex(
+            @"\b(suggest|suggests|suggestion|suggestions|recommend|recommendation|recommendations|ideas?|options|alternatives|thoughts"
+            + @"|what\s+(could|should|would|can|else|do\s+you)|which\s+(exercise|one|station)|do\s+you\s+have|any\s+(good\s+)?(ideas|thoughts|options))\b",
+            RegexOptions.IgnoreCase);
+
+        /// <summary>True when the user is asking for ideas rather than telling us to make the change.</summary>
+        public static bool IsSuggestionRequest(string request)
+        {
+            return SuggestionIntent.IsMatch(request ?? string.Empty);
+        }
+
+        private const int SuggestionCount = 3;
+
+        private async Task<AiProgramProposal> SuggestStationOptionsAsync(
+            string request,
+            ProgramValidationResult baselineResult,
+            WorkoutProgram baseline,
+            int stationIndex,
+            ConversationState state,
+            CancellationToken cancellationToken)
+        {
+            StationDef target = baseline.Stations[stationIndex];
+            List<StationOption> options = new List<StationOption>();
+
+            for (int attempt = 0; attempt < 2 && options.Count == 0; attempt++)
+            {
+                string reply = await _aiService.GenerateTextAsync(
+                    BuildSwapSuggestionMessages(request, baseline, target, attempt > 0, SuggestionCount), cancellationToken).ConfigureAwait(false);
+
+                foreach (string line in (CleanMarkdownFences(reply ?? string.Empty)).Replace("\r", string.Empty).Split('\n'))
+                {
+                    ParseSwapSuggestion(line, baseline, out string name, out string note);
+                    if (name != null && !options.Any(o => string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        options.Add(new StationOption(name, note));
+                    }
+                    if (options.Count == SuggestionCount) break;
+                }
+            }
+
+            string message;
+            if (options.Count == 0)
+            {
+                message = "I couldn't come up with suggestions for \"" + target.Name + "\" this time. Nothing has been changed."
+                    + Environment.NewLine + "You can name one yourself, e.g. 'Replace \"" + target.Name + "\" with Lateral Lunges'.";
+            }
+            else
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.AppendLine("Here are some options to replace \"" + target.Name + "\":");
+                for (int i = 0; i < options.Count; i++)
+                {
+                    sb.AppendLine("  " + (i + 1) + ") " + options[i].Name
+                        + (string.IsNullOrWhiteSpace(options[i].Note) ? string.Empty : " - " + options[i].Note));
+                }
+                sb.AppendLine("Nothing has been changed yet.");
+                sb.Append("Reply with " + (options.Count == 1 ? "1" : "a number (1-" + options.Count + ")")
+                    + " to use one, or say e.g. 'Replace \"" + target.Name + "\" with " + options[0].Name + "'.");
+                message = sb.ToString();
+
+                state.PendingSuggestion = new PendingStationSuggestion { StationName = target.Name, Options = options };
+            }
+
+            state.AddAssistant(message);
+            return UnchangedProposal(request, baselineResult, message);
+        }
+
+        private static readonly string[] OrdinalWords = { "first", "second", "third", "fourth", "fifth" };
+
+        public static bool TryPickPendingOption(string request, PendingStationSuggestion pending, WorkoutProgram baseline, out StationOption pick)
+        {
+            pick = null;
+            string text = (request ?? string.Empty).Trim().TrimEnd('.', '!');
+            if (pending?.Options == null || pending.Options.Count == 0 || text.Length == 0) return false;
+
+            // Naming some other station means this is a new request, not a pick.
+            if (baseline != null && baseline.Stations.Any(s =>
+                    !string.Equals(s.Name, pending.StationName, StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(s.Name)
+                    && text.IndexOf(s.Name, StringComparison.OrdinalIgnoreCase) >= 0))
+            {
+                return false;
+            }
+
+            // Picked by name, e.g. "Let's go with Jump Rope".
+            StationOption byName = pending.Options
+                .OrderByDescending(o => o.Name.Length)
+                .FirstOrDefault(o => text.IndexOf(o.Name, StringComparison.OrdinalIgnoreCase) >= 0);
+            if (byName != null)
+            {
+                pick = byName;
+                return true;
+            }
+
+            if (text.Length > 40) return false; // longer replies are new requests, not a pick
+
+            Match number = Regex.Match(text, @"\b([1-9])\b");
+            int index = -1;
+            if (number.Success)
+            {
+                index = int.Parse(number.Groups[1].Value) - 1;
+            }
+            else
+            {
+                for (int i = 0; i < OrdinalWords.Length; i++)
+                {
+                    if (Regex.IsMatch(text, @"\b" + OrdinalWords[i] + @"\b", RegexOptions.IgnoreCase)) index = i;
+                }
+            }
+
+            if (index < 0 || index >= pending.Options.Count) return false;
+            pick = pending.Options[index];
+            return true;
+        }
+
         private static IReadOnlyList<AiChatMessage> BuildSwapSuggestionMessages(
             string request, WorkoutProgram baseline, StationDef target, bool strict)
         {
+            return BuildSwapSuggestionMessages(request, baseline, target, strict, 1);
+        }
+
+        private static IReadOnlyList<AiChatMessage> BuildSwapSuggestionMessages(
+            string request, WorkoutProgram baseline, StationDef target, bool strict, int count)
+        {
+            if (count > 1)
+            {
+                string otherStations = string.Join(", ", baseline.Stations
+                    .Where(s => !ReferenceEquals(s, target))
+                    .Select(s => s.Name));
+                string listSystem =
+                    "You are a fitness coach helping edit a group interval workout. "
+                    + "Suggest exactly " + count + " different exercises. Reply with exactly " + count + " lines, "
+                    + "each in the form: Exercise Name | short coaching cue. "
+                    + "Each exercise name must be 1 to 4 words. No other text, no numbering, no explanation.";
+                if (strict)
+                {
+                    listSystem += " Example reply:\nLateral Lunges | Sink low and push off the outside foot\nJump Rope | Stay light on the balls of your feet\nTuck Jumps | Drive the knees to the chest";
+                }
+
+                string listUser =
+                    "Workout \"" + baseline.Name + "\". Other stations: " + otherStations + ".\n"
+                    + "Suggest replacements for the station \"" + target.Name + "\" that are not already in the workout "
+                    + "and suit the same work/rest timing.\n"
+                    + "Coach's request: " + request;
+
+                return new[]
+                {
+                    new AiChatMessage(AiChatRole.System, listSystem, DateTimeOffset.Now),
+                    new AiChatMessage(AiChatRole.User, listUser, DateTimeOffset.Now)
+                };
+            }
+
             string others = string.Join(", ", baseline.Stations
                 .Where(s => !ReferenceEquals(s, target))
                 .Select(s => s.Name));

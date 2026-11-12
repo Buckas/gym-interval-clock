@@ -806,7 +806,7 @@ namespace GymClock.Tests
                 fake, new ProgramProposalValidator(), new AiAssistantOptions());
 
             AiProgramProposal proposal = await coordinator.GenerateAsync(
-                "Replace \"Cardio: High Knees\" with something else, what do you suggest?",
+                "Replace \"Cardio: High Knees\" with something else",
                 ColouredPyramidCircuit,
                 new ConversationState(),
                 CancellationToken.None);
@@ -902,7 +902,7 @@ namespace GymClock.Tests
                 fake, new ProgramProposalValidator(), new AiAssistantOptions());
 
             AiProgramProposal proposal = await coordinator.GenerateAsync(
-                "I want a different station to replace \"Skater Bounds\", what do you suggest?",
+                "Swap \"Skater Bounds\" for something else",
                 WholeGroupHiitSequential,
                 new ConversationState(),
                 CancellationToken.None);
@@ -938,6 +938,81 @@ namespace GymClock.Tests
         {
             WorkoutProgram baseline = new ProgramProposalValidator().Validate(WholeGroupHiitSequential).ParsedProgram;
             Assert.False(AiProgramGenerationCoordinator.TryDetectStationSwap(request, baseline, out _, out _));
+        }
+
+        [Fact]
+        public async Task SuggestionQuestion_OffersOptions_WithoutChanging_ThenNumberAppliesChoice()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "1. Jump Squats | Explode up and land softly\n2. Jump Rope | Stay light on your feet\n3. Tuck Jumps | Knees to chest"
+            });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+            ConversationState conversation = new ConversationState();
+
+            AiProgramProposal suggestion = await coordinator.GenerateAsync(
+                "I want to change \"Skipping\" to something else. Do you have a suggestion?",
+                WholeGroupHiitSequential, conversation, CancellationToken.None);
+
+            Assert.True(suggestion.LeftUnchanged);
+            Assert.Equal(WholeGroupHiitSequential, suggestion.Script);
+            Assert.Contains("1) Jump Squats", suggestion.AssistantMessage);
+            Assert.Contains("2) Jump Rope", suggestion.AssistantMessage);
+            Assert.Contains("3) Tuck Jumps", suggestion.AssistantMessage);
+            Assert.Contains("Nothing has been changed", suggestion.AssistantMessage);
+
+            AiProgramProposal applied = await coordinator.GenerateAsync(
+                "2", WholeGroupHiitSequential, conversation, CancellationToken.None);
+
+            Assert.True(applied.IsValid, string.Join(" | ", applied.Issues.Select(i => i.Message)));
+            Assert.False(applied.LeftUnchanged);
+            Assert.Equal(1, fake.CallCount); // the pick itself needs no AI call
+            Assert.Equal("Jump Rope", applied.ParsedProgram.Stations[2].Name);
+            Assert.Equal("Stay light on your feet", applied.ParsedProgram.Stations[2].WorkInstruction);
+            Assert.Equal("Rest and take in the deep breaths", applied.ParsedProgram.Stations[2].RestInstruction);
+        }
+
+        [Theory]
+        [InlineData("2", "Jump Rope")]
+        [InlineData("option 3", "Tuck Jumps")]
+        [InlineData("the first one", "Jump Squats")]
+        [InlineData("Let's go with jump rope", "Jump Rope")]
+        public void PendingOption_IsPicked(string reply, string expected)
+        {
+            WorkoutProgram baseline = new ProgramProposalValidator().Validate(WholeGroupHiitSequential).ParsedProgram;
+            PendingStationSuggestion pending = new PendingStationSuggestion
+            {
+                StationName = "Skipping",
+                Options = new[] { new StationOption("Jump Squats", null), new StationOption("Jump Rope", null), new StationOption("Tuck Jumps", null) }
+            };
+
+            Assert.True(AiProgramGenerationCoordinator.TryPickPendingOption(reply, pending, baseline, out StationOption pick));
+            Assert.Equal(expected, pick.Name);
+        }
+
+        [Fact]
+        public void PendingOption_NotPicked_WhenReplyTargetsAnotherStation()
+        {
+            WorkoutProgram baseline = new ProgramProposalValidator().Validate(WholeGroupHiitSequential).ParsedProgram;
+            PendingStationSuggestion pending = new PendingStationSuggestion
+            {
+                StationName = "Skipping",
+                Options = new[] { new StationOption("Jump Rope", null) }
+            };
+
+            Assert.False(AiProgramGenerationCoordinator.TryPickPendingOption("Replace Burpees with Jump Rope", pending, baseline, out _));
+        }
+
+        [Theory]
+        [InlineData("I want to change \"Skipping\" to something else. Do you have a suggestion?", true)]
+        [InlineData("What could I replace Skipping with?", true)]
+        [InlineData("Any ideas for a different exercise for Skipping", true)]
+        [InlineData("Change Skipping to something else", false)]
+        [InlineData("Replace Skipping with a different exercise", false)]
+        public void SuggestionIntent_IsDistinguishedFromInstruction(string request, bool isSuggestion)
+        {
+            Assert.Equal(isSuggestion, AiProgramGenerationCoordinator.IsSuggestionRequest(request));
         }
 
         private static string ValidSharedScript()
