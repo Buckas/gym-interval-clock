@@ -38,6 +38,20 @@ namespace GymClock.AI
             ConversationState state = conversation ?? new ConversationState();
             state.AddUser(request);
 
+            ProgramValidationResult baselineResult = string.IsNullOrWhiteSpace(currentValidatedScript)
+                ? null
+                : _validator.Validate(currentValidatedScript);
+            WorkoutProgram baselineProgram = baselineResult != null && baselineResult.IsValid
+                ? baselineResult.ParsedProgram
+                : null;
+            bool isRevision = baselineProgram != null && !IsFreshProgramRequest(requestBeforeAugmentation);
+
+            if (isRevision && TryBuildUnknownStationReply(requestBeforeAugmentation, baselineProgram, out string unknownStationReply))
+            {
+                state.AddAssistant(unknownStationReply);
+                return UnchangedProposal(requestBeforeAugmentation, baselineResult, unknownStationReply);
+            }
+
             if (TryBuildRevisionStationPolicyClarification(requestBeforeAugmentation, currentValidatedScript, out string revisionClarification))
             {
                 state.AddAssistant(revisionClarification);
@@ -76,7 +90,7 @@ namespace GymClock.AI
 
             for (int generationAttempt = 0; generationAttempt < maxGenerations; generationAttempt++)
             {
-                IReadOnlyList<AiChatMessage> generationMessages = BuildGenerationMessages(generationRequest, currentValidatedScript, state);
+                IReadOnlyList<AiChatMessage> generationMessages = BuildGenerationMessages(generationRequest, currentValidatedScript, isRevision, state);
                 string first = await _aiService.GenerateTextAsync(generationMessages, cancellationToken).ConfigureAwait(false);
                 string firstScript = CleanMarkdownFences(first);
                 firstScript = NormalizeInlineCommands(firstScript);
@@ -86,12 +100,12 @@ namespace GymClock.AI
                 firstValidation = ApplyRequestRequirementIssues(request, firstValidation);
                 firstValidation = EnforceExplicitExerciseRequirements(request, firstValidation);
                 firstValidation = EnforceMinimumScriptShape(firstValidation);
-                firstValidation = EnforceRevisionBaselineShape(request, currentValidatedScript, firstValidation);
+                firstValidation = EnforceRevisionBaselineShape(requestBeforeAugmentation, isRevision ? baselineProgram : null, firstValidation);
 
                 if (firstValidation.IsValid)
                 {
                     state.AddAssistant("Proposed a valid program script.");
-                    return ToProposal(request, firstValidation);
+                    return ToProposal(request, firstValidation, isRevision ? baselineProgram : null);
                 }
 
                 ProgramValidationResult repairValidation = firstValidation;
@@ -99,7 +113,8 @@ namespace GymClock.AI
 
                 for (int repairAttempt = 0; repairAttempt < maxRepairs; repairAttempt++)
                 {
-                    IReadOnlyList<AiChatMessage> repairMessages = BuildRepairMessages(request, repaired, repairValidation.Issues, state);
+                    IReadOnlyList<AiChatMessage> repairMessages = BuildRepairMessages(
+                        request, repaired, repairValidation.Issues, isRevision ? currentValidatedScript : null, state);
                     repaired = await _aiService.GenerateTextAsync(repairMessages, cancellationToken).ConfigureAwait(false);
                     repaired = CleanMarkdownFences(repaired);
                     repaired = NormalizeInlineCommands(repaired);
@@ -109,12 +124,12 @@ namespace GymClock.AI
                     repairValidation = ApplyRequestRequirementIssues(request, repairValidation);
                     repairValidation = EnforceExplicitExerciseRequirements(request, repairValidation);
                     repairValidation = EnforceMinimumScriptShape(repairValidation);
-                    repairValidation = EnforceRevisionBaselineShape(request, currentValidatedScript, repairValidation);
+                    repairValidation = EnforceRevisionBaselineShape(requestBeforeAugmentation, isRevision ? baselineProgram : null, repairValidation);
 
                     if (repairValidation.IsValid)
                     {
                         state.AddAssistant("Repaired proposal into a valid program script.");
-                        return ToProposal(request, repairValidation);
+                        return ToProposal(request, repairValidation, isRevision ? baselineProgram : null);
                     }
                 }
 
@@ -124,6 +139,19 @@ namespace GymClock.AI
                     state.AddAssistant("Previous proposal invalid; retrying generation.");
                     generationRequest = BuildRetryGenerationRequest(request, lastValidation.Issues, generationAttempt + 2, maxGenerations);
                 }
+            }
+
+            if (baselineProgram != null)
+            {
+                // Never replace an existing program with a canned template: that silently
+                // discards the user's mode, timings, colours and stations. Leave it alone instead.
+                string reason = DescribeTopIssues(lastValidation);
+                string message =
+                    "I couldn't produce a safe change to your program, so it has been left unchanged."
+                    + (reason.Length > 0 ? Environment.NewLine + "Problems with my attempt: " + reason : string.Empty)
+                    + Environment.NewLine + "Try rephrasing, e.g. 'Replace \"Cardio: High Knees\" with Burpees'.";
+                state.AddAssistant("Left the current program unchanged after invalid AI attempts.");
+                return UnchangedProposal(request, baselineResult, message);
             }
 
             if (TryBuildDeterministicTemplateFallback(request, out ProgramValidationResult fallbackValidation))
@@ -535,51 +563,74 @@ namespace GymClock.AI
             };
         }
 
+        /// <summary>
+        /// When revising an existing program, reject proposals that change things the user
+        /// did not ask to change (mode, station count, timings, station colours).
+        /// <paramref name="baseline"/> is null when this is not a revision.
+        /// </summary>
         private static ProgramValidationResult EnforceRevisionBaselineShape(
             string request,
-            string currentValidatedScript,
+            WorkoutProgram baseline,
             ProgramValidationResult validation)
         {
             if (validation == null) return new ProgramValidationResult();
-            if (string.IsNullOrWhiteSpace(currentValidatedScript)) return validation;
-            if (validation.ParsedProgram == null) return validation;
+            if (baseline == null) return validation;
+            WorkoutProgram proposed = validation.ParsedProgram;
+            if (proposed == null) return validation;
 
             string req = request ?? string.Empty;
-            bool looksLikeRevision = LooksLikeRevisionRequest(req)
-                || req.IndexOf("current program", StringComparison.OrdinalIgnoreCase) >= 0
-                || req.IndexOf("current script", StringComparison.OrdinalIgnoreCase) >= 0
-                || req.IndexOf("existing program", StringComparison.OrdinalIgnoreCase) >= 0;
-            if (!looksLikeRevision) return validation;
-
-            ProgramValidationResult baselineValidation = new ProgramProposalValidator().Validate(currentValidatedScript);
-            WorkoutProgram baseline = baselineValidation?.ParsedProgram;
-            if (baseline == null) return validation;
-
             List<ProgramValidationIssue> extra = new List<ProgramValidationIssue>();
 
-            bool wantsModePreserved = req.IndexOf("without changing mode", StringComparison.OrdinalIgnoreCase) >= 0
-                || req.IndexOf("keep mode", StringComparison.OrdinalIgnoreCase) >= 0
-                || req.IndexOf("same mode", StringComparison.OrdinalIgnoreCase) >= 0;
-
-            if (wantsModePreserved && validation.ParsedProgram.Mode != baseline.Mode)
+            if (proposed.Mode != baseline.Mode && !MentionsMode(req))
             {
                 extra.Add(new ProgramValidationIssue(
                     ValidationSeverity.Error,
                     null,
-                    "Revision changed MODE even though the request says not to change mode."));
+                    "Revision changed MODE from " + baseline.Mode.ToString().ToUpperInvariant()
+                    + " to " + proposed.Mode.ToString().ToUpperInvariant()
+                    + " but the request did not ask for a mode change. Keep MODE "
+                    + baseline.Mode.ToString().ToUpperInvariant() + "."));
             }
 
-            bool stationCountExplicitlyRequested = TryExtractRequestedCount(req, "station", out _);
-            if (!stationCountExplicitlyRequested
-                && baseline.Stations != null
-                && validation.ParsedProgram.Stations != null
+            bool stationCountChangeAllowed = TryExtractRequestedCount(req, "station", out _)
+                || HasAddOrRemoveStationIntent(req);
+            if (!stationCountChangeAllowed
                 && baseline.Stations.Count > 0
-                && validation.ParsedProgram.Stations.Count != baseline.Stations.Count)
+                && proposed.Stations.Count != baseline.Stations.Count)
             {
                 extra.Add(new ProgramValidationIssue(
                     ValidationSeverity.Error,
                     null,
-                    "Revision changed station count from baseline without an explicit station-count request."));
+                    "Revision changed station count from " + baseline.Stations.Count + " to " + proposed.Stations.Count
+                    + " without an explicit station-count request."));
+            }
+
+            if (!MentionsTiming(req) && !SameTimings(baseline, proposed))
+            {
+                extra.Add(new ProgramValidationIssue(
+                    ValidationSeverity.Error,
+                    null,
+                    "Revision changed REPEAT/WORK/REST timings but the request did not ask for timing changes. "
+                    + "Copy the timing lines exactly from the current script."));
+            }
+
+            if (req.IndexOf("colour", StringComparison.OrdinalIgnoreCase) < 0
+                && req.IndexOf("color", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                foreach (StationDef original in baseline.Stations)
+                {
+                    StationDef match = proposed.Stations.FirstOrDefault(s =>
+                        string.Equals(s.Name, original.Name, StringComparison.OrdinalIgnoreCase));
+                    if (match != null
+                        && !string.Equals(match.Colour ?? string.Empty, original.Colour ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                    {
+                        extra.Add(new ProgramValidationIssue(
+                            ValidationSeverity.Error,
+                            null,
+                            "Revision changed or removed the COLOUR of station \"" + original.Name
+                            + "\". Keep its COLOUR line exactly as in the current script."));
+                    }
+                }
             }
 
             if (extra.Count == 0) return validation;
@@ -590,6 +641,166 @@ namespace GymClock.AI
                 ParsedProgram = validation.ParsedProgram,
                 Issues = validation.Issues.Concat(extra).ToArray()
             };
+        }
+
+        private static readonly string[] FreshProgramPhrases =
+        {
+            "new program", "new workout", "new session", "new class", "from scratch", "start over",
+            "start again", "brand new", "different program", "another program", "different workout",
+            "another workout", "create a", "generate a"
+        };
+
+        private static bool IsFreshProgramRequest(string request)
+        {
+            string value = request ?? string.Empty;
+            return FreshProgramPhrases.Any(p => value.IndexOf(p, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool MentionsMode(string request)
+        {
+            return Regex.IsMatch(request ?? string.Empty, @"\b(shared|sequential|parallel|circuit)\b", RegexOptions.IgnoreCase);
+        }
+
+        private static bool MentionsTiming(string request)
+        {
+            // "keep the rest the same" is not a request to change REST periods.
+            string text = Regex.Replace(request ?? string.Empty, @"\bthe\s+rest\b", " ", RegexOptions.IgnoreCase);
+            return Regex.IsMatch(
+                text,
+                @"\b(work|rest|recovery|move|second|seconds|sec|secs|minute|minutes|min|mins|duration|time|timing|timings|longer|shorter|round|rounds|repeat|repeats|interval|intervals|pyramid|between|\d+\s*s)\b",
+                RegexOptions.IgnoreCase);
+        }
+
+        private static bool HasAddOrRemoveStationIntent(string request)
+        {
+            return Regex.IsMatch(
+                request ?? string.Empty,
+                @"\b(add|remove|delete|drop|extra|another|fewer|more)\b[^.]*\bstations?\b|\bstations?\b[^.]*\b(add|remove|delete|drop)\b",
+                RegexOptions.IgnoreCase);
+        }
+
+        private static bool SameTimings(WorkoutProgram a, WorkoutProgram b)
+        {
+            return TimingSignature(a).SequenceEqual(TimingSignature(b));
+        }
+
+        private static IEnumerable<string> TimingSignature(WorkoutProgram program)
+        {
+            if (program.Mode == ExecutionMode.Parallel)
+            {
+                return program.BuildParallelSequences()
+                    .SelectMany((lane, i) => lane.Select(x => i + ":" + x.Block.Type + ":" + x.Block.Seconds))
+                    .ToList();
+            }
+
+            return program.BuildRuntimeSequence()
+                .Where(x => x.Block != null)
+                .Select(x => x.Block.Type + ":" + x.Block.Seconds)
+                .ToList();
+        }
+
+        /// <summary>
+        /// If the user names a station in quotes that doesn't exist in the current program,
+        /// say so instead of letting the model guess (or rewrite everything).
+        /// </summary>
+        private static bool TryBuildUnknownStationReply(string request, WorkoutProgram baseline, out string reply)
+        {
+            reply = string.Empty;
+            string text = request ?? string.Empty;
+            if (baseline.Stations.Count == 0) return false;
+
+            bool editIntent = Regex.IsMatch(text, @"\b(replace|replacing|swap|instead|remove|rename|change|different|substitute)\b", RegexOptions.IgnoreCase);
+            if (!editIntent) return false;
+
+            List<string> quoted = Regex.Matches(text, "[\"“”]([^\"“”]{2,80})[\"“”]")
+                .Cast<Match>()
+                .Select(m => m.Groups[1].Value.Trim())
+                .Where(q => q.Length > 0 && !string.Equals(q, baseline.Name, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (quoted.Count == 0) return false;
+
+            bool anyMatches = quoted.Any(q => baseline.Stations.Any(s =>
+                (s.Name ?? string.Empty).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0));
+            if (anyMatches) return false;
+
+            reply = "I can't find a station called \"" + quoted[0] + "\" in the current program, so nothing has been changed."
+                + Environment.NewLine + "The current stations are:"
+                + Environment.NewLine + string.Join(Environment.NewLine, baseline.Stations.Select((s, i) => "  " + (i + 1) + ") " + s.Name))
+                + Environment.NewLine + "Tell me which one to replace.";
+            return true;
+        }
+
+        private static AiProgramProposal UnchangedProposal(string request, ProgramValidationResult baseline, string message)
+        {
+            return new AiProgramProposal
+            {
+                UserRequest = request,
+                Script = baseline.Script,
+                ParsedProgram = baseline.ParsedProgram,
+                Issues = baseline.Issues,
+                LeftUnchanged = true,
+                AssistantMessage = message
+            };
+        }
+
+        private static string DescribeTopIssues(ProgramValidationResult validation)
+        {
+            if (validation?.Issues == null) return string.Empty;
+            return string.Join(" ", validation.Issues
+                .Where(i => i.Severity == ValidationSeverity.Error)
+                .Select(i => i.Message)
+                .Distinct()
+                .Take(2));
+        }
+
+        /// <summary>A short, human-readable list of what a revision changed, so changes are never silent.</summary>
+        internal static string DescribeChanges(WorkoutProgram before, WorkoutProgram after)
+        {
+            if (before == null || after == null) return string.Empty;
+
+            List<string> changes = new List<string>();
+            if (before.Mode != after.Mode)
+            {
+                changes.Add("Mode: " + before.Mode.ToString().ToUpperInvariant() + " -> " + after.Mode.ToString().ToUpperInvariant());
+            }
+            if (!string.Equals(before.Name, after.Name, StringComparison.Ordinal))
+            {
+                changes.Add("Name: \"" + before.Name + "\" -> \"" + after.Name + "\"");
+            }
+            if (!SameTimings(before, after))
+            {
+                changes.Add("Timings changed");
+            }
+
+            int common = Math.Min(before.Stations.Count, after.Stations.Count);
+            for (int i = 0; i < common; i++)
+            {
+                StationDef b = before.Stations[i];
+                StationDef a = after.Stations[i];
+                if (!string.Equals(b.Name, a.Name, StringComparison.Ordinal))
+                {
+                    changes.Add("Station " + (i + 1) + ": \"" + b.Name + "\" -> \"" + a.Name + "\"");
+                }
+                if (!string.Equals(b.Colour ?? string.Empty, a.Colour ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+                {
+                    changes.Add("Station " + (i + 1) + " colour: " + Blank(b.Colour) + " -> " + Blank(a.Colour));
+                }
+                if (!string.Equals(b.WorkInstruction ?? string.Empty, a.WorkInstruction ?? string.Empty, StringComparison.Ordinal)
+                    || !string.Equals(b.RestInstruction ?? string.Empty, a.RestInstruction ?? string.Empty, StringComparison.Ordinal))
+                {
+                    changes.Add("Station " + (i + 1) + " notes updated");
+                }
+            }
+            for (int i = common; i < after.Stations.Count; i++) changes.Add("Added station \"" + after.Stations[i].Name + "\"");
+            for (int i = common; i < before.Stations.Count; i++) changes.Add("Removed station \"" + before.Stations[i].Name + "\"");
+
+            if (changes.Count == 0) return "The proposal is identical to the current program.";
+            return "Changes from the current program:" + Environment.NewLine + string.Join(Environment.NewLine, changes.Select(c => "  - " + c));
+        }
+
+        private static string Blank(string value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "(none)" : value;
         }
 
         private static bool IsGenericStationName(string stationName)
@@ -647,13 +858,25 @@ namespace GymClock.AI
             };
         }
 
-        private IReadOnlyList<AiChatMessage> BuildGenerationMessages(string request, string currentValidatedScript, ConversationState conversation)
+        private const string RevisionRules =
+            "This is a REVISION of the current script. Make the smallest change that satisfies the request. " +
+            "Copy everything the request does not mention exactly as it is: PROGRAM name, MODE, REPEAT counts, " +
+            "every WORK/REST/RECOVERY/MOVE line, BETWEEN blocks, and every other STATION with its COLOUR, WORKNOTE and RESTNOTE lines. " +
+            "When replacing a station, keep its position and its COLOUR line and change only its name (and notes if relevant). " +
+            "If the user asks what you suggest, choose the best option yourself and apply it directly in the script. " +
+            "Your reply must be the complete script only - never a prose answer.";
+
+        private IReadOnlyList<AiChatMessage> BuildGenerationMessages(
+            string request,
+            string currentValidatedScript,
+            bool isRevision,
+            ConversationState conversation)
         {
             List<AiChatMessage> messages = new List<AiChatMessage>
             {
                 new AiChatMessage(
-                    AiChatRole.Assistant,
-                    BuildSystemInstruction(),
+                    AiChatRole.System,
+                    BuildSystemInstruction() + (isRevision ? " " + RevisionRules : string.Empty),
                     DateTimeOffset.Now)
             };
 
@@ -661,7 +884,8 @@ namespace GymClock.AI
             {
                 messages.Add(new AiChatMessage(
                     AiChatRole.User,
-                    "Current validated script to revise:\n" + currentValidatedScript.Trim(),
+                    (isRevision ? "Current script (revise this; keep everything not mentioned unchanged):\n" : "Current validated script to revise:\n")
+                    + currentValidatedScript.Trim(),
                     DateTimeOffset.Now));
             }
 
@@ -678,9 +902,17 @@ namespace GymClock.AI
             string request,
             string invalidScript,
             IReadOnlyList<ProgramValidationIssue> issues,
+            string revisionBaselineScript,
             ConversationState conversation)
         {
+            bool isRevision = !string.IsNullOrWhiteSpace(revisionBaselineScript);
             StringBuilder sb = new StringBuilder();
+            if (isRevision)
+            {
+                sb.AppendLine("Current script being revised (keep everything the request does not mention exactly as here):");
+                sb.AppendLine(revisionBaselineScript.Trim());
+                sb.AppendLine();
+            }
             sb.AppendLine("The previous response is invalid Gym Interval Clock script.");
             sb.AppendLine("Fix only the validation errors listed below.");
             sb.AppendLine("Return only the complete corrected script.");
@@ -704,8 +936,8 @@ namespace GymClock.AI
             List<AiChatMessage> messages = new List<AiChatMessage>
             {
                 new AiChatMessage(
-                    AiChatRole.Assistant,
-                    BuildSystemInstruction(),
+                    AiChatRole.System,
+                    BuildSystemInstruction() + (isRevision ? " " + RevisionRules : string.Empty),
                     DateTimeOffset.Now)
             };
 
@@ -1202,14 +1434,15 @@ namespace GymClock.AI
             return mentionsProgramShape && !mentionsSpecificStructure;
         }
 
-        private static AiProgramProposal ToProposal(string userRequest, ProgramValidationResult validation)
+        private static AiProgramProposal ToProposal(string userRequest, ProgramValidationResult validation, WorkoutProgram revisionBaseline = null)
         {
             return new AiProgramProposal
             {
                 UserRequest = userRequest,
                 Script = validation.Script,
                 ParsedProgram = validation.ParsedProgram,
-                Issues = validation.Issues
+                Issues = validation.Issues,
+                AssistantMessage = revisionBaseline != null ? DescribeChanges(revisionBaseline, validation.ParsedProgram) : string.Empty
             };
         }
 

@@ -46,9 +46,15 @@ namespace GymClock.AI
             await EnsureReadyAsync(null, cancellationToken).ConfigureAwait(false);
 
             IEnumerable<ChatMessage> request = messages.Select(m =>
-                m.Role == AiChatRole.User
-                    ? ChatMessage.FromUser(m.Content ?? string.Empty)
-                    : ChatMessage.FromAssistant(m.Content ?? string.Empty));
+            {
+                string content = m.Content ?? string.Empty;
+                switch (m.Role)
+                {
+                    case AiChatRole.User: return ChatMessage.FromUser(content);
+                    case AiChatRole.System: return ChatMessage.FromSystem(content);
+                    default: return ChatMessage.FromAssistant(content);
+                }
+            });
 
             var response = await _chatClient.CompleteChatAsync(request, cancellationToken).ConfigureAwait(false);
 

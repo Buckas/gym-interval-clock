@@ -13,6 +13,12 @@ namespace GymClock.AI
         public bool RequiresClarification { get; init; }
         public string AssistantMessage { get; init; } = string.Empty;
 
+        /// <summary>
+        /// True when the assistant deliberately left the current program untouched
+        /// (e.g. it could not produce a safe revision). The UI must not replace the draft.
+        /// </summary>
+        public bool LeftUnchanged { get; init; }
+
         public bool IsValid
         {
             get { return ParsedProgram != null && Issues.All(x => x.Severity != ValidationSeverity.Error); }

@@ -730,6 +730,148 @@ namespace GymClock.Tests
             Assert.NotNull(proposal.ParsedProgram);
             Assert.Equal(ExecutionMode.Circuit, proposal.ParsedProgram.Mode);
             Assert.Equal(6, proposal.ParsedProgram.Stations.Count);
+            Assert.True(proposal.LeftUnchanged);
+            Assert.Equal(baselineScript, proposal.Script);
+        }
+
+        // Regression: a station-swap request on a CIRCUIT program used to come back as the
+        // canned SHARED template (different timings, colours stripped).
+        private const string ColouredPyramidCircuit =
+            "PROGRAM \"30 Minute Cardio & Resistance Pyramid\"\n"
+            + "MODE CIRCUIT\n\n"
+            + "REPEAT 5\n"
+            + "    WORK 6s\n    REST 5s\n    WORK 9s\n    REST 5s\n    WORK 12s\n    REST 5s\n"
+            + "    WORK 9s\n    REST 5s\n    WORK 6s\n    REST 5s\n"
+            + "END\n\n"
+            + "STATION \"Cardio: Jumping Jacks\"\n    COLOUR #FF80FF\nEND STATION\n\n"
+            + "STATION \"Resistance: Push Ups\"\n    COLOUR #FF00FF\nEND STATION\n\n"
+            + "STATION \"Cardio: High Knees\"\n    COLOUR #FF0080\nEND STATION\n\n"
+            + "STATION \"Resistance: Bodyweight Squats\"\n    COLOUR #8000FF\nEND STATION\n\n"
+            + "STATION \"Cardio: Mountain Climbers\"\n    COLOUR #400080\nEND STATION\n\n"
+            + "STATION \"Resistance: Lunges\"\n    COLOUR #FFFFFF\nEND STATION";
+
+        [Fact]
+        public async Task Revision_UnknownQuotedStation_RepliesWithStationList_WithoutCallingAi()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(Array.Empty<string>());
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a different station to replace \"Skater Bounds\", what do you suggest?",
+                ColouredPyramidCircuit,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.LeftUnchanged);
+            Assert.Equal(ColouredPyramidCircuit, proposal.Script);
+            Assert.Equal(0, fake.CallCount);
+            Assert.Contains("Skater Bounds", proposal.AssistantMessage);
+            Assert.Contains("Cardio: Mountain Climbers", proposal.AssistantMessage);
+        }
+
+        [Fact]
+        public async Task Revision_AllAttemptsInvalid_LeavesProgramUnchanged_InsteadOfTemplateFallback()
+        {
+            string prose = "I suggest replacing it with Burpees, which are a great cardio exercise.";
+            string templateLike =
+                "PROGRAM \"30 Minute Cardio & Resistance Pyramid\"\nMODE SHARED\n\n"
+                + "REPEAT 6\n    WORK 30\n    REST 15\n    WORK 45\n    REST 15\n    WORK 60\n    REST 15\nEND\n\n"
+                + "STATION \"Cardio: Jumping Jacks\"\nEND STATION\n\nSTATION \"Resistance: Push Ups\"\nEND STATION\n\n"
+                + "STATION \"Cardio: Burpees\"\nEND STATION\n\nSTATION \"Resistance: Bodyweight Squats\"\nEND STATION\n\n"
+                + "STATION \"Cardio: Mountain Climbers\"\nEND STATION\n\nSTATION \"Resistance: Lunges\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { prose, templateLike });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a different station to replace \"Cardio: High Knees\", what do you suggest?",
+                ColouredPyramidCircuit,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.LeftUnchanged);
+            Assert.Equal(ColouredPyramidCircuit, proposal.Script);
+            Assert.Equal(2, fake.CallCount);
+            Assert.Equal(AiChatRole.System, fake.Calls[0][0].Role);
+            Assert.Contains("REVISION", fake.Calls[0][0].Content);
+        }
+
+        [Fact]
+        public async Task Revision_MinimalStationSwap_IsAccepted_AndChangesAreSummarised()
+        {
+            string swapped = ColouredPyramidCircuit.Replace("Cardio: High Knees", "Cardio: Burpees");
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { swapped });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Replace \"Cardio: High Knees\" with something else, what do you suggest?",
+                ColouredPyramidCircuit,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.False(proposal.LeftUnchanged);
+            Assert.Equal(ExecutionMode.Circuit, proposal.ParsedProgram.Mode);
+            Assert.Equal("#FF0080", proposal.ParsedProgram.Stations[2].Colour, ignoreCase: true);
+            Assert.Contains("Station 3: \"Cardio: High Knees\" -> \"Cardio: Burpees\"", proposal.AssistantMessage);
+        }
+
+        [Fact]
+        public async Task Revision_DroppingColours_IsRejected()
+        {
+            string noColours = string.Join("\n", ColouredPyramidCircuit.Split('\n').Where(l => !l.Trim().StartsWith("COLOUR")));
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { noColours, noColours });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Swap \"Resistance: Lunges\" for Glute Bridges",
+                ColouredPyramidCircuit,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.LeftUnchanged);
+            Assert.Equal(ColouredPyramidCircuit, proposal.Script);
+        }
+
+        private const string WholeGroupHiitSequential =
+            "PROGRAM \"Whole Group HIIT\"\nMODE SEQUENTIAL\n\n"
+            + "BETWEEN\n    MOVE 1m \"Move to the next station\"\nEND BETWEEN\n\n"
+            + "STATION \"Shuttle Runs\"\n    WORKNOTE \"Go at 80% and keep the pace\"\n    RESTNOTE \"Walk to recover\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n\n"
+            + "STATION \"Bodyweight Squats\"\n    WORKNOTE \"Use what weight is right for you\"\n    RESTNOTE \"Walk to recover\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n\n"
+            + "STATION \"Skipping\"\n    WORKNOTE \"Go as hard as you can - keep skipping\"\n    RESTNOTE \"Rest and take in the deep breaths\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n\n"
+            + "STATION \"Step-Ups\"\n    WORKNOTE \"Swap alternative feet to step up on i.e Start with left and then do right\"\n    RESTNOTE \"Keep moving to recover\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n\n"
+            + "STATION \"Mountain Climbers\"\n    WORKNOTE \"This always hurts - keep it going the whole time\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n\n"
+            + "STATION \"Skater Bounds\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n\n"
+            + "STATION \"Burpees\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n\n"
+            + "STATION \"High Knees\"\n    REPEAT 3\n        WORK 40s\n        RECOVERY 20s\n    END\nEND STATION\n";
+
+        [Fact]
+        public void WholeGroupHiit_BaselineIsValid()
+        {
+            ProgramValidationResult r = new ProgramProposalValidator().Validate(WholeGroupHiitSequential);
+            Assert.True(r.IsValid, string.Join(" | ", r.Issues.Select(i => i.Message)));
+        }
+
+        [Fact]
+        public async Task WholeGroupHiit_SkaterBoundsSwap_NeverReturnsTemplate()
+        {
+            string prose = "I suggest Lateral Lunges as a replacement for Skater Bounds.";
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { prose, prose });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a different station to replace \"Skater Bounds\", what do you suggest?",
+                WholeGroupHiitSequential,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.LeftUnchanged, proposal.Script);
+            Assert.Equal(WholeGroupHiitSequential, proposal.Script);
         }
 
         private static string ValidSharedScript()

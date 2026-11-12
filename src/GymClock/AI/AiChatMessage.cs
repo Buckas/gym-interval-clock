@@ -5,7 +5,8 @@ namespace GymClock.AI
     public enum AiChatRole
     {
         User,
-        Assistant
+        Assistant,
+        System
     }
 
     public sealed record AiChatMessage(

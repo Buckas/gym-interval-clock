@@ -641,6 +641,13 @@ namespace GymClock
                 _pendingDurationInstruction = string.Empty;
                 _pendingDurationSummary = string.Empty;
 
+                if (proposal.LeftUnchanged)
+                {
+                    // The assistant chose not to touch the program; keep the draft editor as-is.
+                    AppendConversation("Assistant", proposal.AssistantMessage);
+                    return;
+                }
+
                 if (!proposal.IsValid)
                 {
                     AiProgramProposal repaired = await TryAutoRepairAsync(proposal.Script, linked.Token).ConfigureAwait(true);
@@ -655,9 +662,14 @@ namespace GymClock
                 _session.SetGeneratedProposal(proposal);
                 SetProposalText(proposal.Script);
                 RenderValidation(proposal.Issues, proposal.ParsedProgram, proposal.IsValid ? ProposalValidationState.Valid : ProposalValidationState.Invalid);
-                AppendConversation("Assistant", proposal.IsValid
+                string summary = proposal.IsValid
                     ? "Generated a valid proposal."
-                    : "Generated a proposal with validation issues.");
+                    : "Generated a proposal with validation issues.";
+                if (!string.IsNullOrWhiteSpace(proposal.AssistantMessage))
+                {
+                    summary += Environment.NewLine + proposal.AssistantMessage;
+                }
+                AppendConversation("Assistant", summary);
             }
             catch (OperationCanceledException)
             {
