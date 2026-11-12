@@ -33,9 +33,26 @@ namespace GymClock.AI
             string request = (userRequest ?? string.Empty).Trim();
             if (request.Length == 0) throw new ArgumentException("User request must not be empty.", nameof(userRequest));
             request = NormalizeStructuredRequest(request);
+            string requestBeforeAugmentation = request;
 
             ConversationState state = conversation ?? new ConversationState();
             state.AddUser(request);
+
+            if (TryBuildRevisionStationPolicyClarification(requestBeforeAugmentation, currentValidatedScript, out string revisionClarification))
+            {
+                state.AddAssistant(revisionClarification);
+                return new AiProgramProposal
+                {
+                    UserRequest = requestBeforeAugmentation,
+                    Script = currentValidatedScript ?? string.Empty,
+                    ParsedProgram = null,
+                    Issues = Array.Empty<ProgramValidationIssue>(),
+                    RequiresClarification = true,
+                    AssistantMessage = revisionClarification
+                };
+            }
+
+            request = AugmentRevisionRequestWithBaselineConstraints(requestBeforeAugmentation, currentValidatedScript);
 
             if (TryBuildModeClarification(request, currentValidatedScript, out string clarification))
             {
@@ -69,6 +86,7 @@ namespace GymClock.AI
                 firstValidation = ApplyRequestRequirementIssues(request, firstValidation);
                 firstValidation = EnforceExplicitExerciseRequirements(request, firstValidation);
                 firstValidation = EnforceMinimumScriptShape(firstValidation);
+                firstValidation = EnforceRevisionBaselineShape(request, currentValidatedScript, firstValidation);
 
                 if (firstValidation.IsValid)
                 {
@@ -91,6 +109,7 @@ namespace GymClock.AI
                     repairValidation = ApplyRequestRequirementIssues(request, repairValidation);
                     repairValidation = EnforceExplicitExerciseRequirements(request, repairValidation);
                     repairValidation = EnforceMinimumScriptShape(repairValidation);
+                    repairValidation = EnforceRevisionBaselineShape(request, currentValidatedScript, repairValidation);
 
                     if (repairValidation.IsValid)
                     {
@@ -204,6 +223,52 @@ namespace GymClock.AI
             if (!string.IsNullOrWhiteSpace(explicitDirective)) merged.Add(explicitDirective);
 
             return string.Join(Environment.NewLine, merged).Trim();
+        }
+
+        private string AugmentRevisionRequestWithBaselineConstraints(string request, string currentValidatedScript)
+        {
+            string text = (request ?? string.Empty).Trim();
+            if (text.Length == 0) return text;
+            if (string.IsNullOrWhiteSpace(currentValidatedScript)) return text;
+
+            bool looksLikeRevision = LooksLikeRevisionRequest(text)
+                || text.IndexOf("current program", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("current script", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("existing program", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!looksLikeRevision) return text;
+
+            ProgramValidationResult baselineValidation = _validator.Validate(currentValidatedScript);
+            WorkoutProgram baseline = baselineValidation?.ParsedProgram;
+            if (baseline == null) return text;
+
+            List<string> additions = new List<string>();
+
+            bool wantsModePreserved = text.IndexOf("without changing mode", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("keep mode", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("same mode", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (wantsModePreserved && !ContainsModeHint(text))
+            {
+                additions.Add("Use MODE " + baseline.Mode.ToString().ToUpperInvariant() + ".");
+            }
+
+            bool hasStationDirective = TryExtractRequestedCount(text, "station", out _);
+            if (!hasStationDirective && baseline.Stations != null && baseline.Stations.Count > 0)
+            {
+                additions.Add("Use " + baseline.Stations.Count + " stations.");
+            }
+
+            if (additions.Count == 0) return text;
+
+            StringBuilder merged = new StringBuilder(text);
+            foreach (string add in additions)
+            {
+                merged.AppendLine();
+                merged.Append(add);
+            }
+
+            return NormalizeStructuredRequest(merged.ToString());
         }
 
         private static string NormalizeInlineCommands(string script)
@@ -365,6 +430,71 @@ namespace GymClock.AI
             return commaParts.Length >= 3 && hintCount >= 1;
         }
 
+        private bool TryBuildRevisionStationPolicyClarification(string request, string currentValidatedScript, out string clarification)
+        {
+            clarification = string.Empty;
+
+            string text = (request ?? string.Empty).Trim();
+            if (text.Length == 0) return false;
+            if (string.IsNullOrWhiteSpace(currentValidatedScript)) return false;
+
+            bool looksLikeRevision = LooksLikeRevisionRequest(text)
+                || text.IndexOf("current program", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("current script", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("existing program", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!looksLikeRevision) return false;
+
+            if (ContainsStationPolicyDirective(text)) return false;
+
+            ProgramValidationResult baselineValidation = _validator.Validate(currentValidatedScript);
+            if (baselineValidation?.ParsedProgram == null) return false;
+
+            bool durationChangeIntent = text.IndexOf("duration", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("minute", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("minutes", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("longer", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("shorter", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("increase total", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("reduce total", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("decrease total", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!durationChangeIntent) return false;
+
+            if (TryExtractRequestedCount(text, "station", out _)) return false;
+            if (HasExplicitStationEditIntent(text)) return false;
+
+            clarification =
+                "To revise duration safely, choose station-change policy:" + Environment.NewLine
+                + "1) Keep station count and station details unchanged." + Environment.NewLine
+                + "2) Keep station count, allow station detail updates." + Environment.NewLine
+                + "3) Allow station count and detail changes if needed." + Environment.NewLine
+                + "Reply with 1, 2, or 3." + Environment.NewLine
+                + "Quick replies: 1, 2, 3";
+            return true;
+        }
+
+        private static bool ContainsStationPolicyDirective(string request)
+        {
+            string text = request ?? string.Empty;
+            return text.IndexOf("Preserve station count", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("station count and station details unchanged", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("allow station detail updates", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("allow station count and detail changes", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool HasExplicitStationEditIntent(string request)
+        {
+            string text = request ?? string.Empty;
+            return text.IndexOf("replace station", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("rename station", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("change station", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("update station", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("remove station", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("add station", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("change exercise", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("update exercise", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("replace exercise", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private static ProgramValidationResult EnforceExplicitExerciseRequirements(string request, ProgramValidationResult validation)
         {
             if (validation == null) return new ProgramValidationResult();
@@ -402,6 +532,63 @@ namespace GymClock.AI
                 Script = validation.Script,
                 ParsedProgram = validation.ParsedProgram,
                 Issues = issues
+            };
+        }
+
+        private static ProgramValidationResult EnforceRevisionBaselineShape(
+            string request,
+            string currentValidatedScript,
+            ProgramValidationResult validation)
+        {
+            if (validation == null) return new ProgramValidationResult();
+            if (string.IsNullOrWhiteSpace(currentValidatedScript)) return validation;
+            if (validation.ParsedProgram == null) return validation;
+
+            string req = request ?? string.Empty;
+            bool looksLikeRevision = LooksLikeRevisionRequest(req)
+                || req.IndexOf("current program", StringComparison.OrdinalIgnoreCase) >= 0
+                || req.IndexOf("current script", StringComparison.OrdinalIgnoreCase) >= 0
+                || req.IndexOf("existing program", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!looksLikeRevision) return validation;
+
+            ProgramValidationResult baselineValidation = new ProgramProposalValidator().Validate(currentValidatedScript);
+            WorkoutProgram baseline = baselineValidation?.ParsedProgram;
+            if (baseline == null) return validation;
+
+            List<ProgramValidationIssue> extra = new List<ProgramValidationIssue>();
+
+            bool wantsModePreserved = req.IndexOf("without changing mode", StringComparison.OrdinalIgnoreCase) >= 0
+                || req.IndexOf("keep mode", StringComparison.OrdinalIgnoreCase) >= 0
+                || req.IndexOf("same mode", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (wantsModePreserved && validation.ParsedProgram.Mode != baseline.Mode)
+            {
+                extra.Add(new ProgramValidationIssue(
+                    ValidationSeverity.Error,
+                    null,
+                    "Revision changed MODE even though the request says not to change mode."));
+            }
+
+            bool stationCountExplicitlyRequested = TryExtractRequestedCount(req, "station", out _);
+            if (!stationCountExplicitlyRequested
+                && baseline.Stations != null
+                && validation.ParsedProgram.Stations != null
+                && baseline.Stations.Count > 0
+                && validation.ParsedProgram.Stations.Count != baseline.Stations.Count)
+            {
+                extra.Add(new ProgramValidationIssue(
+                    ValidationSeverity.Error,
+                    null,
+                    "Revision changed station count from baseline without an explicit station-count request."));
+            }
+
+            if (extra.Count == 0) return validation;
+
+            return new ProgramValidationResult
+            {
+                Script = validation.Script,
+                ParsedProgram = validation.ParsedProgram,
+                Issues = validation.Issues.Concat(extra).ToArray()
             };
         }
 
@@ -1065,6 +1252,17 @@ namespace GymClock.AI
                     }
                 }
 
+                if (trimmed.Equals("END", StringComparison.OrdinalIgnoreCase))
+                {
+                    int next = lineIndex + 1;
+                    while (next < lines.Length && string.IsNullOrWhiteSpace(lines[next])) next++;
+                    if (next < lines.Length
+                        && lines[next].Trim().StartsWith("END STATION", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+                }
+
                 if (trimmed.Equals("COLOUR", StringComparison.OrdinalIgnoreCase)
                     || trimmed.Equals("COLOR", StringComparison.OrdinalIgnoreCase))
                 {
@@ -1105,9 +1303,19 @@ namespace GymClock.AI
             List<string> balanced = new List<string>(normalized.Count + 8);
             int openStations = 0;
             int openBetween = 0;
+            int openRepeat = 0;
             foreach (string line in normalized)
             {
                 string trimmed = (line ?? string.Empty).Trim();
+
+                if ((trimmed.StartsWith("STATION ", StringComparison.OrdinalIgnoreCase)
+                     || trimmed.StartsWith("BETWEEN", StringComparison.OrdinalIgnoreCase))
+                    && openRepeat > 0)
+                {
+                    balanced.Add("END");
+                    openRepeat = 0;
+                }
+
                 if (trimmed.StartsWith("STATION ", StringComparison.OrdinalIgnoreCase) && openStations > 0)
                 {
                     balanced.Add("END STATION");
@@ -1127,10 +1335,14 @@ namespace GymClock.AI
 
                 if (trimmed.Equals("BETWEEN", StringComparison.OrdinalIgnoreCase)) openBetween++;
                 else if (trimmed.StartsWith("END BETWEEN", StringComparison.OrdinalIgnoreCase) && openBetween > 0) openBetween--;
+
+                if (trimmed.StartsWith("REPEAT ", StringComparison.OrdinalIgnoreCase)) openRepeat++;
+                else if (trimmed.Equals("END", StringComparison.OrdinalIgnoreCase) && openRepeat > 0) openRepeat--;
             }
 
             while (openStations-- > 0) balanced.Add("END STATION");
             while (openBetween-- > 0) balanced.Add("END BETWEEN");
+            while (openRepeat-- > 0) balanced.Add("END");
 
             return string.Join(Environment.NewLine, balanced);
         }

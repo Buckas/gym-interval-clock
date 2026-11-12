@@ -15,6 +15,7 @@ namespace GymClock
         private enum ClarificationStage
         {
             None,
+            AwaitRevisionStationPolicy,
             AwaitMode,
             AwaitStructure,
             AwaitDurationTolerance,
@@ -72,6 +73,8 @@ namespace GymClock
         private string _pendingStructureSummary = string.Empty;
         private string _pendingDurationInstruction = string.Empty;
         private string _pendingDurationSummary = string.Empty;
+        private string _pendingRevisionStationPolicyInstruction = string.Empty;
+        private string _pendingRevisionStationPolicySummary = string.Empty;
         private List<ProgramValidationIssue> _currentIssues = new List<ProgramValidationIssue>();
         private readonly List<int> _highlightedIssueLines = new List<int>();
 
@@ -606,14 +609,26 @@ namespace GymClock
                 if (proposal.RequiresClarification)
                 {
                     _awaitingModeClarification = true;
-                    _clarificationStage = ClarificationStage.AwaitMode;
                     _pendingClarificationRequest = userInput;
                     _pendingClarificationMode = string.Empty;
                     _pendingStructureInstruction = string.Empty;
                     _pendingStructureSummary = string.Empty;
                     _pendingDurationInstruction = string.Empty;
                     _pendingDurationSummary = string.Empty;
-                    AppendConversation("Assistant", BuildModeQuestion(proposal.AssistantMessage));
+                    _pendingRevisionStationPolicyInstruction = string.Empty;
+                    _pendingRevisionStationPolicySummary = string.Empty;
+
+                    string clarificationText = proposal.AssistantMessage?.Trim() ?? string.Empty;
+                    if (clarificationText.IndexOf("station-change policy", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        _clarificationStage = ClarificationStage.AwaitRevisionStationPolicy;
+                        AppendConversation("Assistant", clarificationText);
+                    }
+                    else
+                    {
+                        _clarificationStage = ClarificationStage.AwaitMode;
+                        AppendConversation("Assistant", BuildModeQuestion(proposal.AssistantMessage));
+                    }
                     return;
                 }
 
@@ -1017,6 +1032,21 @@ namespace GymClock
                     assistantReply = BuildStructureQuestion(mode);
                     return true;
 
+                case ClarificationStage.AwaitRevisionStationPolicy:
+                    if (!TryGetRevisionStationPolicyChoice(text, out string stationPolicyInstruction, out string stationPolicySummary))
+                    {
+                        assistantReply = BuildRevisionStationPolicyQuestion();
+                        return true;
+                    }
+
+                    _pendingRevisionStationPolicyInstruction = stationPolicyInstruction;
+                    _pendingRevisionStationPolicySummary = stationPolicySummary;
+                    shouldGenerate = true;
+                    requestToGenerate = BuildRevisionClarifiedRequest();
+                    assistantReply = "Generating now with station policy: " + stationPolicySummary;
+                    ResetClarificationState();
+                    return true;
+
                 case ClarificationStage.AwaitStructure:
                     if (!TryGetStructureChoice(_pendingClarificationMode, text, out string structureInstruction, out string structureSummary))
                     {
@@ -1088,6 +1118,16 @@ namespace GymClock
                 : fallback.Trim();
 
             return baseText + Environment.NewLine + "Quick replies: 1, 2, 3, 4";
+        }
+
+        private string BuildRevisionStationPolicyQuestion()
+        {
+            return "To revise duration safely, choose station-change policy:" + Environment.NewLine
+                + "1) Keep station count and station details unchanged." + Environment.NewLine
+                + "2) Keep station count, allow station detail updates." + Environment.NewLine
+                + "3) Allow station count and detail changes if needed." + Environment.NewLine
+                + "Reply with 1, 2, or 3." + Environment.NewLine
+                + "Quick replies: 1, 2, 3";
         }
 
         private string BuildStructureQuestion(string mode)
@@ -1234,6 +1274,52 @@ namespace GymClock
                 + "Include explicit cardio and resistance exercises in station names and/or notes.";
         }
 
+        private string BuildRevisionClarifiedRequest()
+        {
+            string context = string.IsNullOrWhiteSpace(_pendingClarificationRequest)
+                ? txtRequest.Text.Trim()
+                : _pendingClarificationRequest.Trim();
+
+            List<string> lines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(context)) lines.Add(context);
+            if (!string.IsNullOrWhiteSpace(_pendingRevisionStationPolicyInstruction)) lines.Add(_pendingRevisionStationPolicyInstruction);
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        private static bool TryGetRevisionStationPolicyChoice(string input, out string instruction, out string summary)
+        {
+            instruction = string.Empty;
+            summary = string.Empty;
+
+            string value = (input ?? string.Empty).Trim();
+            if (value.Length == 0) return false;
+
+            string normalized = value.ToLowerInvariant();
+            if (normalized == "1" || normalized.Contains("unchanged") || normalized.Contains("keep station count and station details"))
+            {
+                instruction = "Preserve station count and station details from the current program. Do not rename, add, remove, or replace stations/exercises.";
+                summary = "Keep station count and details unchanged";
+                return true;
+            }
+
+            if (normalized == "2" || normalized.Contains("allow station detail") || normalized.Contains("keep station count"))
+            {
+                instruction = "Preserve station count from the current program. Station names/details may be updated only if needed.";
+                summary = "Keep station count, allow detail updates";
+                return true;
+            }
+
+            if (normalized == "3" || normalized.Contains("allow station count") || normalized.Contains("count and detail changes"))
+            {
+                instruction = "Station count and station details may change if required to satisfy the request.";
+                summary = "Allow station count and detail changes";
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool TryGetNumericChoice(string input, out int choice)
         {
             choice = 0;
@@ -1279,6 +1365,8 @@ namespace GymClock
             _pendingStructureSummary = string.Empty;
             _pendingDurationInstruction = string.Empty;
             _pendingDurationSummary = string.Empty;
+            _pendingRevisionStationPolicyInstruction = string.Empty;
+            _pendingRevisionStationPolicySummary = string.Empty;
         }
 
         private static bool TryGetModeFromChoice(string input, out string mode)
