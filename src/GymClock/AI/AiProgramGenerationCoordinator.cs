@@ -1254,7 +1254,7 @@ namespace GymClock.AI
 
         // "This workout includes A, B, C, and D." -> lead-in + list items.
         private static readonly Regex InlineList = new Regex(
-            @"^(?<lead>.*?\b(?:includes?|including|are|has|have|such as|like|:))\s+(?<items>[^,]+(?:,\s*[^,]+){2,}?)(?<end>[.!?]?)$",
+            @"^(?<lead>.*?(?:\b(?:includes?|including|consists?\s+of|consisting\s+of|made\s+up\s+of|contains?|containing|comprises?|features?|covers?|are|has|have|such\s+as|like|with)\b|:))\s+(?<items>[^,]+(?:,\s*[^,]+){2,}?)(?<end>[.!?]?)$",
             RegexOptions.Compiled);
 
         /// <summary>

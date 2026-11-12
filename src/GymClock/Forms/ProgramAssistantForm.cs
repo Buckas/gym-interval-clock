@@ -214,11 +214,21 @@ namespace GymClock
             rtbConversation.MouseWheel += (s, e) => UpdateConversationOverflowIndicator();
 
             lblConversationMore.AutoSize = true;
-            lblConversationMore.ForeColor = Color.DimGray;
-            lblConversationMore.BackColor = Color.WhiteSmoke;
-            lblConversationMore.Text = "▼ More below";
-            lblConversationMore.Location = new Point(200, 236);
+            lblConversationMore.ForeColor = Color.White;
+            lblConversationMore.BackColor = Color.SteelBlue;
+            lblConversationMore.Font = new Font(Font, FontStyle.Bold);
+            lblConversationMore.Padding = new Padding(8, 2, 8, 3);
+            lblConversationMore.Cursor = Cursors.Hand;
+            lblConversationMore.Text = "▼ More below - click to jump to latest";
+            lblConversationMore.Location = new Point(200, 420);
             lblConversationMore.Visible = false;
+            lblConversationMore.Click += (s, e) =>
+            {
+                rtbConversation.SelectionStart = rtbConversation.TextLength;
+                rtbConversation.SelectionLength = 0;
+                rtbConversation.ScrollToCaret();
+                UpdateConversationOverflowIndicator();
+            };
 
             Label lblRequest = new Label { Text = "Request", AutoSize = true, Location = new Point(12, 450) };
             txtRequest.Location = new Point(12, 474);
@@ -955,25 +965,31 @@ namespace GymClock
 
             // Speaker name in bold on its own line, message indented underneath,
             // and a blank line between messages so the conversation is easy to scan.
+            // Formatting is applied to the exact ranges after the text is inserted; setting it on an
+            // empty caret beforehand doesn't stick reliably (the first messages ended up unindented).
+            _ = rtbConversation.Handle;
+
+            bool isUser = string.Equals(role, "User", StringComparison.OrdinalIgnoreCase);
+            string label = isUser ? "You" : role;
+            string body = text.Trim().Replace("\r\n", "\n").Replace('\r', '\n');
+
             if (rtbConversation.TextLength > 0) rtbConversation.AppendText("\n\n");
 
-            rtbConversation.SelectionStart = rtbConversation.TextLength;
-            rtbConversation.SelectionLength = 0;
+            int labelStart = rtbConversation.TextLength;
+            rtbConversation.AppendText(label + "\n");
+            int bodyStart = rtbConversation.TextLength;
+            rtbConversation.AppendText(body);
+            int bodyEnd = rtbConversation.TextLength;
+
+            rtbConversation.Select(labelStart, label.Length);
             rtbConversation.SelectionIndent = 0;
             rtbConversation.SelectionFont = new Font(rtbConversation.Font, FontStyle.Bold);
-            rtbConversation.SelectionColor = string.Equals(role, "User", StringComparison.OrdinalIgnoreCase)
-                ? Color.SteelBlue
-                : Color.SeaGreen;
-            rtbConversation.AppendText((string.Equals(role, "User", StringComparison.OrdinalIgnoreCase) ? "You" : role) + "\n");
+            rtbConversation.SelectionColor = isUser ? Color.SteelBlue : Color.SeaGreen;
 
-            string body = text.Trim().Replace("\r\n", "\n").Replace('\r', '\n');
-            rtbConversation.SelectionStart = rtbConversation.TextLength;
-            rtbConversation.SelectionLength = 0;
+            rtbConversation.Select(bodyStart, bodyEnd - bodyStart);
+            rtbConversation.SelectionIndent = 14;
             rtbConversation.SelectionFont = rtbConversation.Font;
             rtbConversation.SelectionColor = rtbConversation.ForeColor;
-            rtbConversation.SelectionIndent = 12;
-            rtbConversation.AppendText(body);
-            rtbConversation.SelectionIndent = 0;
 
             rtbConversation.SelectionStart = rtbConversation.TextLength;
             rtbConversation.SelectionLength = 0;
@@ -990,8 +1006,10 @@ namespace GymClock
             int visibleLines = Math.Max(1, rtbConversation.ClientSize.Height / Math.Max(1, rtbConversation.Font.Height));
             bool hasMoreBelow = totalLines > visibleLines && firstVisibleLine + visibleLines < totalLines;
 
-            int indicatorX = rtbConversation.Left + Math.Max(4, (rtbConversation.Width - lblConversationMore.Width) / 2);
-            int indicatorY = rtbConversation.Top + 6;
+            // Bottom-centre of the conversation box, just inside its lower edge (clear of the scrollbar).
+            int usableWidth = rtbConversation.ClientSize.Width;
+            int indicatorX = rtbConversation.Left + Math.Max(4, (usableWidth - lblConversationMore.Width) / 2);
+            int indicatorY = rtbConversation.Bottom - lblConversationMore.Height - 6;
             lblConversationMore.Location = new Point(indicatorX, indicatorY);
 
             lblConversationMore.Visible = hasMoreBelow;

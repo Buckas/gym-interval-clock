@@ -1143,6 +1143,21 @@ namespace GymClock.Tests
             Assert.Equal(12, lines.Length);
         }
 
+        [Theory]
+        [InlineData("The workout consists of jumping jacks, push ups, squats, mountain climbers, and lunges.", "The workout consists of:")]
+        [InlineData("Your stations are Shuttle Runs, Skipping, Burpees and High Knees.", "Your stations are:")]
+        [InlineData("It contains squats, lunges, burpees, and planks.", "It contains:")]
+        public void FormatForChat_BulletsListsWithVariousLeadIns(string sentence, string expectedLead)
+        {
+            string[] lines = AiProgramGenerationCoordinator.FormatForChat(sentence)
+                .Split(new[] { Environment.NewLine }, StringSplitOptions.None);
+
+            Assert.Equal(expectedLead, lines[0]);
+            Assert.True(lines.Length >= 5, string.Join(" | ", lines));
+            Assert.All(lines.Skip(1), l => Assert.StartsWith("  \u2022 ", l));
+            Assert.DoesNotContain(lines, l => l.EndsWith("."));
+        }
+
         [Fact]
         public void FormatForChat_KeepsAbbreviationsAndShortLists()
         {
