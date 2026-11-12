@@ -78,7 +78,6 @@ namespace GymClock
         private List<ProgramValidationIssue> _currentIssues = new List<ProgramValidationIssue>();
         private readonly List<int> _highlightedIssueLines = new List<int>();
 
-        private const int EmGetFirstVisibleLine = 0x00CE;
 
         public string AppliedScript { get; private set; }
 
@@ -143,100 +142,109 @@ namespace GymClock
             Text = "Program Assistant (Local AI)";
             Icon = AppIconProvider.GetIcon();
             StartPosition = FormStartPosition.CenterParent;
-            Size = new Size(1120, 860);
-            MinimumSize = new Size(980, 780);
             Font = new Font("Segoe UI", 10F);
             ShowInTaskbar = false;
             TopMost = true;
 
+            // Open large (about 90% of the screen it appears on), never bigger than the work area.
+            Rectangle work = Screen.FromPoint(Cursor.Position).WorkingArea;
+            Size = new Size(Math.Min(work.Width, Math.Max(1100, work.Width * 9 / 10)),
+                            Math.Min(work.Height, Math.Max(800, work.Height * 9 / 10)));
+
+            // Everything is laid out with auto-sizing table/flow panels so it follows the font size
+            // (display scaling) and window resizing, instead of fixed pixel positions that clip text.
+
             lblLocalAiStatus.Text = "Local AI status: FREE / ON DEVICE";
             lblLocalAiStatus.AutoSize = true;
-            lblLocalAiStatus.Location = new Point(12, 10);
+            lblLocalAiStatus.Margin = new Padding(0, 0, 0, 2);
 
-            pnlSetup.Location = new Point(12, 62);
-            pnlSetup.Size = new Size(1078, 144);
+            lblPrivacy.Text = "Do not include student names or confidential health information in AI requests.";
+            lblPrivacy.AutoSize = true;
+            lblPrivacy.ForeColor = Color.DarkGoldenrod;
+            lblPrivacy.Margin = new Padding(0, 0, 0, 6);
+
+            // ---- Setup / status panel (shrinks to its content) ----
+            // Its height follows the inner layout (see setupLayout.SizeChanged below), so it shrinks
+            // when the setup buttons / progress bar are hidden.
             pnlSetup.BorderStyle = BorderStyle.FixedSingle;
+            pnlSetup.AutoSize = false;
+            pnlSetup.Dock = DockStyle.Fill;
+            pnlSetup.Margin = new Padding(0, 0, 0, 8);
+            pnlSetup.Padding = new Padding(8, 6, 8, 6);
 
-            lblSetup.Location = new Point(10, 10);
-            lblSetup.Size = new Size(1048, 74);
+            lblSetup.AutoSize = true;
+            lblSetup.Margin = new Padding(0, 0, 0, 4);
             lblSetup.Text = "Local AI runs on this computer and has no per-request API charge."
                 + Environment.NewLine
                 + "An internet connection may be required for the initial runtime/model download."
                 + Environment.NewLine
                 + "No cloud AI service will be used by Gym Interval Clock Version 3.0.";
 
-            btnSetup.Text = "Set Up Local AI";
-            btnSetup.Location = new Point(10, 82);
-            btnSetup.Size = new Size(132, 30);
-            btnSetup.Click += async (s, e) => await SetupLocalAiAsync();
-
-            btnRetry.Text = "Retry";
-            btnRetry.Location = new Point(148, 82);
-            btnRetry.Size = new Size(90, 30);
-            btnRetry.Click += async (s, e) => await SetupLocalAiAsync();
-
-            btnDetails.Text = "View Details";
-            btnDetails.Location = new Point(244, 82);
-            btnDetails.Size = new Size(112, 30);
-            btnDetails.Click += (s, e) => ShowSetupDetails();
-
-            prgSetup.Location = new Point(10, 126);
-            prgSetup.Size = new Size(1048, 12);
-            prgSetup.Style = ProgressBarStyle.Marquee;
-            prgSetup.MarqueeAnimationSpeed = 25;
-            prgSetup.Visible = false;
-
             lblSetupProgress.AutoSize = true;
-            lblSetupProgress.Location = new Point(10, 102);
             lblSetupProgress.ForeColor = Color.DimGray;
             lblSetupProgress.Text = string.Empty;
             lblSetupProgress.Visible = false;
 
-            pnlSetup.Controls.Add(lblSetup);
-            pnlSetup.Controls.Add(prgSetup);
-            pnlSetup.Controls.Add(lblSetupProgress);
-            pnlSetup.Controls.Add(btnSetup);
-            pnlSetup.Controls.Add(btnRetry);
-            pnlSetup.Controls.Add(btnDetails);
+            prgSetup.Dock = DockStyle.Fill;
+            prgSetup.Style = ProgressBarStyle.Marquee;
+            prgSetup.MarqueeAnimationSpeed = 25;
+            prgSetup.Visible = false;
+            prgSetup.Margin = new Padding(0, 2, 0, 4);
 
-            lblPrivacy.Text = "Do not include student names or confidential health information in AI requests.";
-            lblPrivacy.AutoSize = true;
-            lblPrivacy.ForeColor = Color.DarkGoldenrod;
-            lblPrivacy.Location = new Point(12, 34);
+            btnSetup.Text = "Set Up Local AI";
+            btnSetup.Click += async (s, e) => await SetupLocalAiAsync();
+            btnRetry.Text = "Retry";
+            btnRetry.Click += async (s, e) => await SetupLocalAiAsync();
+            btnDetails.Text = "View Details";
+            btnDetails.Click += (s, e) => ShowSetupDetails();
 
-            Label lblConversation = new Label { Text = "Conversation", AutoSize = true, Location = new Point(12, 208) };
-            rtbConversation.Location = new Point(12, 232);
-            rtbConversation.Size = new Size(530, 210);
+            TableLayoutPanel setupLayout = NewStack();
+            setupLayout.Dock = DockStyle.Top;
+            AddRow(setupLayout, lblSetup);
+            AddRow(setupLayout, lblSetupProgress);
+            AddRow(setupLayout, prgSetup);
+            AddRow(setupLayout, NewButtonRow(btnSetup, btnRetry, btnDetails));
+            pnlSetup.Controls.Add(setupLayout);
+            setupLayout.SizeChanged += (s, e) =>
+            {
+                int height = setupLayout.Height + pnlSetup.Padding.Vertical + 2;
+                if (pnlSetup.Height != height) pnlSetup.Height = height;
+            };
+
+            // ---- Left column: conversation + request ----
+            rtbConversation.Dock = DockStyle.Fill;
             rtbConversation.ReadOnly = true;
             rtbConversation.ScrollBars = RichTextBoxScrollBars.Vertical;
+            rtbConversation.Margin = new Padding(0);
             rtbConversation.VScroll += (s, e) => UpdateConversationOverflowIndicator();
-            rtbConversation.Resize += (s, e) => UpdateConversationOverflowIndicator();
-            rtbConversation.MouseWheel += (s, e) => UpdateConversationOverflowIndicator();
+            rtbConversation.Resize += (s, e) => QueueConversationIndicatorUpdate();
+            rtbConversation.MouseWheel += (s, e) => QueueConversationIndicatorUpdate();
+            rtbConversation.KeyUp += (s, e) => UpdateConversationOverflowIndicator();
+            rtbConversation.MouseUp += (s, e) => UpdateConversationOverflowIndicator();
+            rtbConversation.TextChanged += (s, e) => QueueConversationIndicatorUpdate();
 
-            lblConversationMore.AutoSize = true;
+            // "More below" sits in its own strip under the conversation box (never over the text).
+            lblConversationMore.AutoSize = false;
+            lblConversationMore.Dock = DockStyle.Fill;
+            lblConversationMore.TextAlign = ContentAlignment.MiddleCenter;
             lblConversationMore.ForeColor = Color.White;
             lblConversationMore.BackColor = Color.SteelBlue;
             lblConversationMore.Font = new Font(Font, FontStyle.Bold);
-            lblConversationMore.Padding = new Padding(8, 2, 8, 3);
             lblConversationMore.Cursor = Cursors.Hand;
-            lblConversationMore.Text = "▼ More below - click to jump to latest";
-            lblConversationMore.Location = new Point(200, 420);
+            lblConversationMore.Margin = new Padding(0, 0, 0, 4);
+            lblConversationMore.Text = "▼ More below - click to jump to the latest message";
             lblConversationMore.Visible = false;
             lblConversationMore.Click += (s, e) =>
             {
-                rtbConversation.SelectionStart = rtbConversation.TextLength;
-                rtbConversation.SelectionLength = 0;
-                rtbConversation.ScrollToCaret();
+                ScrollConversationToBottom();
                 UpdateConversationOverflowIndicator();
             };
 
-            Label lblRequest = new Label { Text = "Request", AutoSize = true, Location = new Point(12, 450) };
-            txtRequest.Location = new Point(12, 474);
             txtRequest.Multiline = true;
-            txtRequest.Size = new Size(530, 110);
+            txtRequest.ScrollBars = ScrollBars.Vertical;
+            txtRequest.Dock = DockStyle.Fill;
 
-            cboSuggestedPrompt.Location = new Point(12, 592);
-            cboSuggestedPrompt.Size = new Size(530, 28);
+            cboSuggestedPrompt.Dock = DockStyle.Fill;
             cboSuggestedPrompt.DropDownStyle = ComboBoxStyle.DropDownList;
             cboSuggestedPrompt.Items.AddRange(new object[]
             {
@@ -250,95 +258,198 @@ namespace GymClock
             cboSuggestedPrompt.SelectedIndexChanged += SuggestedPrompt_SelectedIndexChanged;
 
             btnSend.Text = "✨ Generate / Revise";
-            btnSend.Location = new Point(12, 628);
-            btnSend.Size = new Size(210, 42);
             btnSend.Click += async (s, e) => await GenerateAsync();
-
             btnCancel.Text = "Cancel";
-            btnCancel.Location = new Point(228, 628);
-            btnCancel.Size = new Size(88, 42);
             btnCancel.Click += (s, e) => _requestCts?.Cancel();
-
             btnNewConversation.Text = "New Chat";
-            btnNewConversation.Location = new Point(322, 628);
-            btnNewConversation.Size = new Size(100, 42);
             btnNewConversation.Click += (s, e) => NewConversation();
-
             btnLoadCurrentProgram.Text = "Load Program";
-            btnLoadCurrentProgram.Location = new Point(428, 628);
-            btnLoadCurrentProgram.Size = new Size(114, 42);
             btnLoadCurrentProgram.Click += (s, e) => LoadCurrentProgramIntoAssistant();
 
-            Label lblProposal = new Label { Text = "Proposed Script", AutoSize = true, Location = new Point(560, 208) };
-            rtbProposedScript.Location = new Point(560, 232);
-            rtbProposedScript.Size = new Size(530, 350);
+            TableLayoutPanel left = NewStack();
+            left.AutoSize = false; // fill the cell; never grow past it and overlap
+            left.Dock = DockStyle.Fill;
+            left.Margin = new Padding(0, 0, 8, 0);
+            AddRow(left, NewHeading("Conversation"));
+            AddRow(left, rtbConversation, SizeType.Percent, 100);
+            _rowConversationMore = AddRow(left, lblConversationMore, SizeType.Absolute, 30);
+            AddRow(left, NewHeading("Request"));
+            _rowRequest = AddRow(left, txtRequest, SizeType.Absolute, 90);
+            AddRow(left, cboSuggestedPrompt);
+            AddRow(left, NewButtonRow(btnSend, btnCancel, btnNewConversation, btnLoadCurrentProgram));
+            _leftColumn = left;
+
+            // ---- Right column: proposed script + validation ----
+            rtbProposedScript.Dock = DockStyle.Fill;
+            rtbProposedScript.Margin = new Padding(0);
             rtbProposedScript.TextChanged += ProposedScript_TextChanged;
 
             lblValidationStatus.Text = "Validation: Not validated";
             lblValidationStatus.AutoSize = true;
-            lblValidationStatus.Location = new Point(560, 590);
+            lblValidationStatus.Margin = new Padding(0, 6, 0, 2);
 
             btnValidate.Text = "Validate";
-            btnValidate.Location = new Point(560, 624);
-            btnValidate.Size = new Size(95, 36);
             btnValidate.Click += (s, e) => ValidateCurrentProposal();
-
-            Label lblValidationHelp = new Label
-            {
-                Text = "Validation runs automatically. Use Validate only after manual script edits.",
-                AutoSize = false,
-                ForeColor = Color.DimGray,
-                Location = new Point(560, 666),
-                Size = new Size(530, 34)
-            };
-
             btnApply.Text = "Apply to Editor";
-            btnApply.Location = new Point(661, 624);
-            btnApply.Size = new Size(170, 36);
             btnApply.Click += (s, e) => ApplyToEditor();
-
             btnCopyScript.Text = "Copy Script";
-            btnCopyScript.Location = new Point(837, 624);
-            btnCopyScript.Size = new Size(120, 36);
             btnCopyScript.Click += (s, e) =>
             {
                 if (!string.IsNullOrWhiteSpace(rtbProposedScript.Text)) Clipboard.SetText(rtbProposedScript.Text);
             };
 
-            lblProgramSummary.Text = "Summary: -";
-            lblProgramSummary.Location = new Point(560, 708);
-            lblProgramSummary.Size = new Size(530, 24);
+            Label lblValidationHelp = new Label
+            {
+                Text = "Validation runs automatically. Use Validate only after manual script edits.",
+                AutoSize = true,
+                ForeColor = Color.DimGray,
+                Margin = new Padding(0, 2, 0, 2)
+            };
 
-            Label lblIssues = new Label { Text = "Validation Issues", AutoSize = true, Location = new Point(12, 728) };
-            lstIssues.Location = new Point(12, 750);
-            lstIssues.Size = new Size(1078, 56);
+            lblProgramSummary.Text = "Summary: -";
+            lblProgramSummary.AutoSize = true;
+            lblProgramSummary.Margin = new Padding(0, 2, 0, 0);
+
+            TableLayoutPanel right = NewStack();
+            right.AutoSize = false;
+            right.Dock = DockStyle.Fill;
+            right.Margin = new Padding(8, 0, 0, 0);
+            AddRow(right, NewHeading("Proposed Script"));
+            AddRow(right, rtbProposedScript, SizeType.Percent, 100);
+            AddRow(right, lblValidationStatus);
+            AddRow(right, NewButtonRow(btnValidate, btnApply, btnCopyScript));
+            AddRow(right, lblValidationHelp);
+            AddRow(right, lblProgramSummary);
+
+            TableLayoutPanel columns = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                Margin = new Padding(0)
+            };
+            columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            columns.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+            columns.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+            columns.Controls.Add(left, 0, 0);
+            columns.Controls.Add(right, 1, 0);
+
+            // ---- Bottom: validation issues ----
+            lstIssues.Dock = DockStyle.Fill;
+            lstIssues.IntegralHeight = false;
             lstIssues.SelectedIndexChanged += Issues_SelectedIndexChanged;
 
-            Controls.Add(lblLocalAiStatus);
-            Controls.Add(lblPrivacy);
-            Controls.Add(pnlSetup);
-            Controls.Add(lblConversation);
-            Controls.Add(lblConversationMore);
-            Controls.Add(rtbConversation);
-            Controls.Add(lblRequest);
-            Controls.Add(txtRequest);
-            Controls.Add(cboSuggestedPrompt);
-            Controls.Add(btnSend);
-            Controls.Add(btnCancel);
-            Controls.Add(btnNewConversation);
-            Controls.Add(btnLoadCurrentProgram);
-            Controls.Add(lblProposal);
-            Controls.Add(rtbProposedScript);
-            Controls.Add(lblValidationStatus);
-            Controls.Add(lblValidationHelp);
-            Controls.Add(btnValidate);
-            Controls.Add(btnApply);
-            Controls.Add(btnCopyScript);
-            Controls.Add(lblProgramSummary);
-            Controls.Add(lblIssues);
-            Controls.Add(lstIssues);
+            TableLayoutPanel root = NewStack();
+            root.Dock = DockStyle.Fill;
+            root.AutoSize = false;
+            root.Padding = new Padding(10);
+            AddRow(root, lblLocalAiStatus);
+            AddRow(root, lblPrivacy);
+            AddRow(root, pnlSetup);
+            AddRow(root, columns, SizeType.Percent, 100);
+            AddRow(root, NewHeading("Validation Issues"));
+            _rowIssues = AddRow(root, lstIssues, SizeType.Absolute, 70);
+            _root = root;
+
+            Controls.Add(root);
+
+            _wrappingLabels = new[] { (lblSetup, (Control)pnlSetup), (lblValidationHelp, (Control)right), (lblProgramSummary, (Control)right) };
+            Load += (s, e) => ApplyFontMetrics();
+            FontChanged += (s, e) => ApplyFontMetrics();
+            DpiChanged += (s, e) => BeginInvoke(new Action(ApplyFontMetrics));
+            root.SizeChanged += (s, e) => UpdateWrapWidths();
 
             FormClosing += ProgramAssistantForm_FormClosing;
+        }
+
+        private TableLayoutPanel _root;
+        private TableLayoutPanel _leftColumn;
+        private int _rowConversationMore;
+        private int _rowRequest;
+        private int _rowIssues;
+        private (Label Label, Control Container)[] _wrappingLabels = Array.Empty<(Label, Control)>();
+        private bool _indicatorUpdateQueued;
+
+        /// <summary>Row heights that depend on the (DPI-scaled) font, recalculated when it changes.</summary>
+        private void ApplyFontMetrics()
+        {
+            if (_root == null || IsDisposed) return;
+            int line = Font.Height;
+            _leftColumn.RowStyles[_rowConversationMore] = new RowStyle(SizeType.Absolute, lblConversationMore.Font.Height + line / 2 + 4);
+            _leftColumn.RowStyles[_rowRequest] = new RowStyle(SizeType.Absolute, line * 4 + 10);
+            _root.RowStyles[_rowIssues] = new RowStyle(SizeType.Absolute, lstIssues.ItemHeight * 2 + 8);
+
+            // Never let the window get so small that the conversation box disappears.
+            Rectangle work = Screen.FromControl(this).WorkingArea;
+            MinimumSize = new Size(Math.Min(work.Width, line * 44), Math.Min(work.Height, line * 34));
+            UpdateWrapWidths();
+            QueueConversationIndicatorUpdate();
+        }
+
+        /// <summary>Long labels wrap to their column instead of running off the edge.</summary>
+        private void UpdateWrapWidths()
+        {
+            foreach ((Label label, Control container) in _wrappingLabels)
+            {
+                int width = Math.Max(100, container.ClientSize.Width - container.Padding.Horizontal - label.Margin.Horizontal - 4);
+                label.MaximumSize = new Size(width, 0);
+            }
+        }
+
+        private static TableLayoutPanel NewStack()
+        {
+            TableLayoutPanel panel = new TableLayoutPanel
+            {
+                ColumnCount = 1,
+                RowCount = 0,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Margin = new Padding(0),
+                Padding = new Padding(0)
+            };
+            panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            return panel;
+        }
+
+        private static int AddRow(TableLayoutPanel panel, Control control, SizeType sizeType = SizeType.AutoSize, float height = 0)
+        {
+            int row = panel.RowCount;
+            panel.RowCount = row + 1;
+            panel.RowStyles.Add(new RowStyle(sizeType, height));
+            panel.Controls.Add(control, 0, row);
+            return row;
+        }
+
+        private Label NewHeading(string text)
+        {
+            return new Label
+            {
+                Text = text,
+                AutoSize = true,
+                Font = new Font(Font, FontStyle.Bold),
+                Margin = new Padding(0, 4, 0, 3)
+            };
+        }
+
+        private static FlowLayoutPanel NewButtonRow(params Button[] buttons)
+        {
+            FlowLayoutPanel row = new FlowLayoutPanel
+            {
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                WrapContents = true,
+                Dock = DockStyle.Fill,
+                Margin = new Padding(0, 4, 0, 2)
+            };
+            foreach (Button b in buttons)
+            {
+                b.AutoSize = true;
+                b.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                b.Padding = new Padding(10, 4, 10, 4);
+                b.Margin = new Padding(0, 0, 6, 0);
+                row.Controls.Add(b);
+            }
+            return row;
         }
 
         private async Task SetupLocalAiAsync()
@@ -991,36 +1102,63 @@ namespace GymClock
             rtbConversation.SelectionFont = rtbConversation.Font;
             rtbConversation.SelectionColor = rtbConversation.ForeColor;
 
+            // Show the new message from its start: scroll to the bottom, then bring the speaker line
+            // into view. For a long assistant reply that leaves its first lines at the top and the
+            // "More below" strip showing; short messages simply end up at the bottom.
+            ScrollConversationToBottom();
+            if (!isUser)
+            {
+                rtbConversation.SelectionStart = labelStart;
+                rtbConversation.SelectionLength = 0;
+                rtbConversation.ScrollToCaret();
+            }
+            rtbConversation.SelectionStart = rtbConversation.TextLength;
+            rtbConversation.SelectionLength = 0;
+            QueueConversationIndicatorUpdate();
+        }
+
+        private void ScrollConversationToBottom()
+        {
+            if (rtbConversation.IsDisposed) return;
             rtbConversation.SelectionStart = rtbConversation.TextLength;
             rtbConversation.SelectionLength = 0;
             rtbConversation.ScrollToCaret();
-            UpdateConversationOverflowIndicator();
+            SendMessage(rtbConversation.Handle, WmVScroll, (IntPtr)SbBottom, IntPtr.Zero);
+        }
+
+        /// <summary>Re-check after the control has finished laying out / scrolling.</summary>
+        private void QueueConversationIndicatorUpdate()
+        {
+            if (_indicatorUpdateQueued || !IsHandleCreated || IsDisposed) return;
+            _indicatorUpdateQueued = true;
+            BeginInvoke(new Action(() =>
+            {
+                _indicatorUpdateQueued = false;
+                UpdateConversationOverflowIndicator();
+            }));
         }
 
         private void UpdateConversationOverflowIndicator()
         {
-            if (rtbConversation.IsDisposed) return;
+            if (rtbConversation.IsDisposed || !rtbConversation.IsHandleCreated) return;
 
-            int firstVisibleLine = GetFirstVisibleLine(rtbConversation);
-            int totalLines = Math.Max(0, rtbConversation.GetLineFromCharIndex(rtbConversation.TextLength) + 1);
-            int visibleLines = Math.Max(1, rtbConversation.ClientSize.Height / Math.Max(1, rtbConversation.Font.Height));
-            bool hasMoreBelow = totalLines > visibleLines && firstVisibleLine + visibleLines < totalLines;
+            // Compare where the last character is drawn with the visible area (pixels, so wrapped
+            // lines are accounted for). Below the bottom edge => there is unread text.
+            bool hasMoreBelow = false;
+            if (rtbConversation.TextLength > 0)
+            {
+                Point end = rtbConversation.GetPositionFromCharIndex(rtbConversation.TextLength - 1);
+                hasMoreBelow = end.Y + rtbConversation.Font.Height > rtbConversation.ClientSize.Height + 2;
+            }
 
-            // Bottom-centre of the conversation box, just inside its lower edge (clear of the scrollbar).
-            int usableWidth = rtbConversation.ClientSize.Width;
-            int indicatorX = rtbConversation.Left + Math.Max(4, (usableWidth - lblConversationMore.Width) / 2);
-            int indicatorY = rtbConversation.Bottom - lblConversationMore.Height - 6;
-            lblConversationMore.Location = new Point(indicatorX, indicatorY);
-
-            lblConversationMore.Visible = hasMoreBelow;
-            lblConversationMore.BringToFront();
+            if (lblConversationMore.Visible != hasMoreBelow)
+            {
+                lblConversationMore.Visible = hasMoreBelow;
+            }
         }
 
-        private static int GetFirstVisibleLine(RichTextBox box)
-        {
-            if (box == null || box.IsDisposed) return 0;
-            return (int)SendMessage(box.Handle, EmGetFirstVisibleLine, IntPtr.Zero, IntPtr.Zero);
-        }
+        private const int WmVScroll = 0x0115;
+        private const int SbBottom = 7;
 
         [DllImport("user32.dll", CharSet = CharSet.Auto)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
