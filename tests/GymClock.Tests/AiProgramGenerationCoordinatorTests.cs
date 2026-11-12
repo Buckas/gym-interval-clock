@@ -786,7 +786,7 @@ namespace GymClock.Tests
                 fake, new ProgramProposalValidator(), new AiAssistantOptions());
 
             AiProgramProposal proposal = await coordinator.GenerateAsync(
-                "I want a different station to replace \"Cardio: High Knees\", what do you suggest?",
+                "Make the station names more fun for the kids",
                 ColouredPyramidCircuit,
                 new ConversationState(),
                 CancellationToken.None);
@@ -801,8 +801,7 @@ namespace GymClock.Tests
         [Fact]
         public async Task Revision_MinimalStationSwap_IsAccepted_AndChangesAreSummarised()
         {
-            string swapped = ColouredPyramidCircuit.Replace("Cardio: High Knees", "Cardio: Burpees");
-            FakeAiProgramService fake = new FakeAiProgramService(new[] { swapped });
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { "Burpees | Chest to floor, jump at the top" });
             AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
                 fake, new ProgramProposalValidator(), new AiAssistantOptions());
 
@@ -817,6 +816,26 @@ namespace GymClock.Tests
             Assert.Equal(ExecutionMode.Circuit, proposal.ParsedProgram.Mode);
             Assert.Equal("#FF0080", proposal.ParsedProgram.Stations[2].Colour, ignoreCase: true);
             Assert.Contains("Station 3: \"Cardio: High Knees\" -> \"Cardio: Burpees\"", proposal.AssistantMessage);
+            Assert.Equal(1, fake.CallCount);
+            Assert.Equal("Chest to floor, jump at the top", proposal.ParsedProgram.Stations[2].WorkInstruction);
+        }
+
+        [Fact]
+        public async Task Revision_ExplicitSwap_IsAppliedWithoutCallingAi()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(Array.Empty<string>());
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Swap \"Resistance: Lunges\" for Glute Bridges",
+                ColouredPyramidCircuit,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.Equal(0, fake.CallCount);
+            Assert.Equal(ColouredPyramidCircuit.Replace("Resistance: Lunges", "Resistance: Glute Bridges"), proposal.Script);
         }
 
         [Fact]
@@ -828,7 +847,7 @@ namespace GymClock.Tests
                 fake, new ProgramProposalValidator(), new AiAssistantOptions());
 
             AiProgramProposal proposal = await coordinator.GenerateAsync(
-                "Swap \"Resistance: Lunges\" for Glute Bridges",
+                "Add a short coaching note to every station",
                 ColouredPyramidCircuit,
                 new ConversationState(),
                 CancellationToken.None);
@@ -872,6 +891,29 @@ namespace GymClock.Tests
 
             Assert.True(proposal.LeftUnchanged, proposal.Script);
             Assert.Equal(WholeGroupHiitSequential, proposal.Script);
+            Assert.Equal(2, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task WholeGroupHiit_SkaterBoundsSwap_RenamesOnlyThatStation()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { "Lateral Lunges | Sink low and push off the outside foot" });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a different station to replace \"Skater Bounds\", what do you suggest?",
+                WholeGroupHiitSequential,
+                new ConversationState(),
+                CancellationToken.None);
+
+            string expected = WholeGroupHiitSequential.Replace(
+                "STATION \"Skater Bounds\"\n",
+                "STATION \"Lateral Lunges\"\n    WORKNOTE \"Sink low and push off the outside foot\"\n");
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.Equal(expected, proposal.Script);
+            Assert.Equal(1, fake.CallCount);
+            Assert.Contains("Lateral Lunges", proposal.AssistantMessage);
         }
 
         private static string ValidSharedScript()

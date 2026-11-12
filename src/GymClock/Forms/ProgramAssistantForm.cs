@@ -675,7 +675,12 @@ namespace GymClock
             {
                 if (!_isClosing && !IsDisposed)
                 {
-                    AppendConversation("Assistant", "Generation cancelled.");
+                    AppendConversation("User", userInput);
+                    AppendConversation("Assistant", timeoutCts.IsCancellationRequested && !_requestCts.IsCancellationRequested
+                        ? "The local AI took longer than " + (int)_options.GenerationTimeout.TotalMinutes
+                          + " minutes, so I stopped. Your program is unchanged. Try a shorter, more specific request "
+                          + "(e.g. 'Replace \"Burpees\" with Squat Jumps')."
+                        : "Generation cancelled. Your program is unchanged.");
                 }
             }
             catch (Exception ex)

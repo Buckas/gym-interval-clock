@@ -52,6 +52,13 @@ namespace GymClock.AI
                 return UnchangedProposal(requestBeforeAugmentation, baselineResult, unknownStationReply);
             }
 
+            if (isRevision && TryDetectStationSwap(requestBeforeAugmentation, baselineProgram, out int swapIndex, out string explicitReplacement))
+            {
+                return await SwapStationAsync(
+                    requestBeforeAugmentation, baselineResult, baselineProgram, swapIndex, explicitReplacement, state, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             if (TryBuildRevisionStationPolicyClarification(requestBeforeAugmentation, currentValidatedScript, out string revisionClarification))
             {
                 state.AddAssistant(revisionClarification);
@@ -173,6 +180,243 @@ namespace GymClock.AI
                         "Unable to generate a valid script after automatic retries.")
                 }
             });
+        }
+
+        // ---- Station swap fast path -------------------------------------------------------
+        // Replacing one station is the most common edit. Instead of asking a small local model
+        // to rewrite the whole script (slow, and it tends to change other things), ask it only
+        // for an exercise name and apply the rename to the script text ourselves.
+
+        private static readonly Regex SwapIntent = new Regex(
+            @"\b(replace|replacing|replacement|swap|swapping|substitute|instead\s+of|alternative\s+(to|for))\b",
+            RegexOptions.IgnoreCase);
+
+        private static readonly Regex VagueReplacement = new Regex(
+            @"\b(something|anything|else|suggest|suggestion|alternative|another|different|other|better|you)\b",
+            RegexOptions.IgnoreCase);
+
+        internal static bool TryDetectStationSwap(string request, WorkoutProgram baseline, out int stationIndex, out string explicitReplacement)
+        {
+            stationIndex = -1;
+            explicitReplacement = null;
+            string text = request ?? string.Empty;
+            if (baseline == null || baseline.Stations.Count == 0) return false;
+            if (!SwapIntent.IsMatch(text)) return false;
+            if (MentionsTiming(text) || MentionsMode(text)) return false; // more than a simple swap
+
+            // Find the longest station name mentioned in the request (quoted or not).
+            int bestLength = 0;
+            int mentionEnd = -1;
+            for (int i = 0; i < baseline.Stations.Count; i++)
+            {
+                string name = baseline.Stations[i].Name ?? string.Empty;
+                if (name.Length == 0) continue;
+                int at = text.IndexOf(name, StringComparison.OrdinalIgnoreCase);
+                if (at < 0)
+                {
+                    name = StripPrefix(name); // "High Knees" for "Cardio: High Knees"
+                    at = name.Length >= 3 ? text.IndexOf(name, StringComparison.OrdinalIgnoreCase) : -1;
+                }
+                if (at < 0 || name.Length <= bestLength) continue;
+                bestLength = name.Length;
+                stationIndex = i;
+                mentionEnd = at + name.Length;
+            }
+
+            if (stationIndex < 0) return false;
+
+            // "replace X with Y" / "swap X for Y" -> Y is given, no AI needed.
+            string after = text.Substring(mentionEnd);
+            Match m = Regex.Match(after, "^[\"”']?\\s*,?\\s*(?:with|for|by|to)\\s+[\"“']?([^\"“”?!.,\\n]{2,60})", RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                string candidate = m.Groups[1].Value.Trim();
+                if (!VagueReplacement.IsMatch(candidate) && !candidate.StartsWith("a ", StringComparison.OrdinalIgnoreCase))
+                {
+                    explicitReplacement = candidate;
+                }
+            }
+
+            return true;
+        }
+
+        private async Task<AiProgramProposal> SwapStationAsync(
+            string request,
+            ProgramValidationResult baselineResult,
+            WorkoutProgram baseline,
+            int stationIndex,
+            string explicitReplacement,
+            ConversationState state,
+            CancellationToken cancellationToken)
+        {
+            StationDef target = baseline.Stations[stationIndex];
+            string newName = null;
+            string note = null;
+
+            if (!string.IsNullOrWhiteSpace(explicitReplacement))
+            {
+                newName = explicitReplacement;
+            }
+            else
+            {
+                for (int attempt = 0; attempt < 2 && newName == null; attempt++)
+                {
+                    string reply = await _aiService.GenerateTextAsync(
+                        BuildSwapSuggestionMessages(request, baseline, target, attempt > 0), cancellationToken).ConfigureAwait(false);
+                    ParseSwapSuggestion(reply, baseline, out newName, out note);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(newName))
+            {
+                string message = "I couldn't come up with a usable replacement for \"" + target.Name
+                    + "\", so your program is unchanged. Try naming one, e.g. 'Replace \"" + target.Name + "\" with Lateral Lunges'.";
+                state.AddAssistant(message);
+                return UnchangedProposal(request, baselineResult, message);
+            }
+
+            newName = ApplyNamePrefixConvention(target.Name, newName);
+            string script = RenameStationInScript(baselineResult.Script, target.Name, newName, note);
+
+            ProgramValidationResult validation = _validator.Validate(script);
+            validation = EnforceRevisionBaselineShape(request, baseline, validation);
+            if (!validation.IsValid)
+            {
+                string message = "I couldn't apply that change safely, so your program is unchanged. " + DescribeTopIssues(validation);
+                state.AddAssistant(message);
+                return UnchangedProposal(request, baselineResult, message);
+            }
+
+            state.AddAssistant("Replaced station \"" + target.Name + "\" with \"" + newName + "\".");
+            AiProgramProposal proposal = ToProposal(request, validation, baseline);
+            return new AiProgramProposal
+            {
+                UserRequest = proposal.UserRequest,
+                Script = proposal.Script,
+                ParsedProgram = proposal.ParsedProgram,
+                Issues = proposal.Issues,
+                AssistantMessage = (explicitReplacement == null
+                        ? "Suggested replacement for \"" + target.Name + "\": " + newName
+                          + (string.IsNullOrWhiteSpace(note) ? string.Empty : " (" + note + ")") + Environment.NewLine
+                        : string.Empty)
+                    + proposal.AssistantMessage
+            };
+        }
+
+        private static IReadOnlyList<AiChatMessage> BuildSwapSuggestionMessages(
+            string request, WorkoutProgram baseline, StationDef target, bool strict)
+        {
+            string others = string.Join(", ", baseline.Stations
+                .Where(s => !ReferenceEquals(s, target))
+                .Select(s => s.Name));
+
+            string system =
+                "You are a fitness coach helping edit a group interval workout. "
+                + "Suggest exactly one exercise. Reply with exactly one line in the form: Exercise Name | short coaching cue. "
+                + "The exercise name must be 1 to 4 words. No other text, no lists, no explanation.";
+            if (strict)
+            {
+                system += " Example reply: Lateral Lunges | Sink low and push off the outside foot";
+            }
+
+            string user =
+                "Workout \"" + baseline.Name + "\". Other stations: " + others + ".\n"
+                + "Replace the station \"" + target.Name + "\" with a different exercise that is not already in the workout "
+                + "and suits the same work/rest timing.\n"
+                + "Coach's request: " + request;
+
+            return new[]
+            {
+                new AiChatMessage(AiChatRole.System, system, DateTimeOffset.Now),
+                new AiChatMessage(AiChatRole.User, user, DateTimeOffset.Now)
+            };
+        }
+
+        internal static void ParseSwapSuggestion(string reply, WorkoutProgram baseline, out string name, out string note)
+        {
+            name = null;
+            note = null;
+
+            string line = CleanMarkdownFences(reply ?? string.Empty)
+                .Replace("\r", string.Empty)
+                .Split('\n')
+                .Select(l => l.Trim())
+                .FirstOrDefault(l => l.Length > 0);
+            if (line == null) return;
+
+            line = Regex.Replace(line, @"^(\d+[.)]|[-*•])\s*", string.Empty);   // list markers
+            line = line.Replace("**", string.Empty).Replace("\"", string.Empty);
+            line = Regex.Replace(line, @"^(exercise( name)?|replacement|suggestion)\s*:\s*", string.Empty, RegexOptions.IgnoreCase);
+
+            string[] parts = line.Split(new[] { '|' }, 2);
+            string candidate = parts[0].Trim().TrimEnd('.', ':', '-').Trim();
+            string cue = parts.Length > 1 ? parts[1].Trim() : null;
+
+            int words = candidate.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length;
+            if (candidate.Length < 2 || candidate.Length > 40 || words > 5) return;
+            if (Regex.IsMatch(candidate, @"^(PROGRAM|MODE|STATION|REPEAT|WORK|REST|I|I'd|Sure|Here)\b", RegexOptions.IgnoreCase)) return;
+            if (baseline.Stations.Any(s => string.Equals(StripPrefix(s.Name), StripPrefix(candidate), StringComparison.OrdinalIgnoreCase))) return;
+
+            name = candidate;
+            if (!string.IsNullOrWhiteSpace(cue) && cue.Length <= 120)
+            {
+                note = cue.TrimEnd('.');
+            }
+        }
+
+        private static string StripPrefix(string name)
+        {
+            string value = name ?? string.Empty;
+            int colon = value.IndexOf(':');
+            return (colon >= 0 ? value.Substring(colon + 1) : value).Trim();
+        }
+
+        /// <summary>Keeps naming like "Cardio: High Knees" consistent when the suggestion is just "Burpees".</summary>
+        private static string ApplyNamePrefixConvention(string oldName, string newName)
+        {
+            int colon = (oldName ?? string.Empty).IndexOf(':');
+            if (colon <= 0 || newName.IndexOf(':') >= 0) return newName;
+            return oldName.Substring(0, colon + 1) + " " + newName;
+        }
+
+        /// <summary>
+        /// Renames one STATION line in place and, when a cue is supplied, replaces (or adds) that
+        /// station's WORKNOTE. Every other line is left byte-for-byte as it was.
+        /// </summary>
+        internal static string RenameStationInScript(string script, string oldName, string newName, string workNote)
+        {
+            string newline = script.Contains("\r\n") ? "\r\n" : "\n";
+            List<string> lines = script.Replace("\r\n", "\n").Split('\n').ToList();
+            Regex stationLine = new Regex("^(\\s*STATION\\s+\")" + Regex.Escape(oldName) + "(\".*)$", RegexOptions.IgnoreCase);
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                Match m = stationLine.Match(lines[i]);
+                if (!m.Success) continue;
+
+                lines[i] = m.Groups[1].Value + newName.Replace("\"", "'") + m.Groups[2].Value;
+                if (string.IsNullOrWhiteSpace(workNote)) break;
+
+                string noteValue = workNote.Replace("\"", "'");
+                string indent = Regex.Match(lines[i], @"^\s*").Value + "    ";
+                for (int j = i + 1; j < lines.Count; j++)
+                {
+                    string t = lines[j].Trim();
+                    if (t.StartsWith("END STATION", StringComparison.OrdinalIgnoreCase))
+                    {
+                        lines.Insert(i + 1, indent + "WORKNOTE \"" + noteValue + "\"");
+                        break;
+                    }
+                    if (t.StartsWith("WORKNOTE", StringComparison.OrdinalIgnoreCase))
+                    {
+                        lines[j] = Regex.Match(lines[j], @"^\s*").Value + "WORKNOTE \"" + noteValue + "\"";
+                        break;
+                    }
+                }
+                break;
+            }
+
+            return string.Join(newline, lines);
         }
 
         private static string BuildRetryGenerationRequest(
