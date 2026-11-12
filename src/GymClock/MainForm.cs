@@ -188,6 +188,12 @@ namespace GymClock
         /// started rather than time left in one shared block - see
         /// ComputeParallelPositions and ParallelClock.Locate.
         /// </summary>
+        /// <summary>Parallel mode's rotation timing (rotation length, move length, how many), or null in other modes.</summary>
+        private ParallelRotationPlan _parallelPlan;
+
+        /// <summary>Last rotation/move state seen by the ticker, so the rotation cues fire once per change.</summary>
+        private int _lastRotationKey = -1;
+
         private bool IsParallelActive
         {
             get { return _program.Mode == ExecutionMode.Parallel && _phase == Phase.Active; }
@@ -221,6 +227,8 @@ namespace GymClock
             _parallelStations = _program.Mode == ExecutionMode.Parallel
                 ? _program.BuildParallelSequences()
                 : new List<List<ResolvedBlock>>();
+            _parallelPlan = _program.Mode == ExecutionMode.Parallel ? _program.GetParallelRotationPlan() : null;
+            _lastRotationKey = -1;
         }
 
         private RuntimeBlock CurrentBlock()
@@ -343,6 +351,53 @@ namespace GymClock
             return positions;
         }
 
+        /// <summary>
+        /// Parallel mode is otherwise silent (stations change at different moments), but
+        /// the whole room rotates together - so cue that: countdown beeps in the last
+        /// three seconds before a move or a new rotation, then the move / start cue.
+        /// </summary>
+        private void PlayParallelRotationCues()
+        {
+            if (_parallelPlan == null || _parallelPlan.Rotations <= 1 || _program.Continuous) return;
+
+            _parallelPlan.Locate(_phaseClock.Elapsed.TotalSeconds, out int rotation, out bool moving, out double toChange);
+            int key = (rotation * 2) + (moving ? 1 : 0);
+            if (_lastRotationKey >= 0 && key != _lastRotationKey)
+            {
+                if (moving) Beeper.CueMoveStart(); else Beeper.CueWorkStart();
+                _lastCueSecond = -1;
+            }
+            _lastRotationKey = key;
+
+            bool lastStretch = rotation == _parallelPlan.Rotations && !moving;
+            int secondsLeft = (int)Math.Ceiling(toChange - 0.0001);
+            if (!lastStretch && secondsLeft >= 1 && secondsLeft <= 3 && secondsLeft != _lastCueSecond)
+            {
+                _lastCueSecond = secondsLeft;
+                Beeper.CueCountdown();
+            }
+        }
+
+        /// <summary>"ROTATION 2 OF 4  -  ROTATE IN 6:42" (or the move countdown) for the Parallel dashboard header.</summary>
+        private string ParallelRotationText()
+        {
+            if (_parallelPlan == null || _parallelPlan.Rotations <= 1) return string.Empty;
+            _parallelPlan.Locate(_phaseClock.Elapsed.TotalSeconds, out int rotation, out bool moving, out double toChange);
+
+            if (moving)
+            {
+                return string.Format(CultureInfo.InvariantCulture, "MOVE TO THE NEXT STATION  -  ROTATION {0} STARTS IN {1}",
+                    rotation + 1, FormatClock(toChange));
+            }
+            if (rotation >= _parallelPlan.Rotations)
+            {
+                return string.Format(CultureInfo.InvariantCulture, "ROTATION {0} OF {0}  -  FINISHES IN {1}",
+                    _parallelPlan.Rotations, FormatClock(toChange));
+            }
+            return string.Format(CultureInfo.InvariantCulture, "ROTATION {0} OF {1}  -  ROTATE IN {2}",
+                rotation, _parallelPlan.Rotations, FormatClock(toChange));
+        }
+
         private bool AllParallelStationsFinished(List<StationPosition> positions)
         {
             if (_program.Continuous || positions.Count == 0) return false;
@@ -380,6 +435,7 @@ namespace GymClock
                 // stations transitioning at different moments don't turn into
                 // constant beeping. The only thing this loop watches for is the
                 // whole session ending once every station is done.
+                if (_phaseClock.IsRunning) PlayParallelRotationCues();
                 if (_phaseClock.IsRunning && AllParallelStationsFinished(ComputeParallelPositions())) FinishSession();
                 Invalidate();
                 return;
@@ -450,6 +506,7 @@ namespace GymClock
                 // together is still a useful, well-defined action.
                 _phaseClock.Restart();
                 _lastCueSecond = -1;
+                _lastRotationKey = -1;
                 Invalidate();
                 return;
             }
@@ -982,6 +1039,13 @@ namespace GymClock
                 // end around 0.17h) and the hint bar below (which starts at
                 // 0.92h) - tiles are solid-filled rectangles, so unlike text they
                 // would otherwise visibly paint over anything under them.
+                string rotationText = ParallelRotationText();
+                if (!string.IsNullOrEmpty(rotationText))
+                {
+                    DrawFitted(g, rotationText, _labelFamily, h * 0.050f, FontStyle.Bold, Ink,
+                        new RectangleF(paneLeft + (paneWidth * 0.05f), h * 0.130f, paneWidth * 0.90f, h * 0.055f));
+                }
+
                 RectangleF dashboardArea = new RectangleF(paneLeft + margin, h * 0.185f, paneWidth - (margin * 2f), h * 0.705f);
                 PaintParallelDashboard(g, dashboardArea);
             }
@@ -1490,6 +1554,7 @@ namespace GymClock
             {
                 int count = _parallelStations.Count;
                 text = _program.Name + "   -   Parallel (" + count + (count == 1 ? " station" : " stations") + ")";
+                if (_parallelPlan != null && _parallelPlan.Rotations > 1) text += ", " + _parallelPlan.Rotations + " rotations";
             }
             else if (_program.Mode == ExecutionMode.Sequential && _program.Stations.Count > 0)
             {
@@ -1694,6 +1759,9 @@ namespace GymClock
         private string BigNumberText()
         {
             if (_phase == Phase.Finished) return FormatClock(_sessionClock.Elapsed.TotalSeconds);
+
+            // Before a Parallel run starts there is no single "first block" - show the whole run length.
+            if (_phase == Phase.Idle && _parallelPlan != null) return FormatClock(_parallelPlan.TotalSeconds);
             return FormatSeconds(RemainingSeconds());
         }
 
@@ -1702,6 +1770,12 @@ namespace GymClock
             switch (_phase)
             {
                 case Phase.Idle:
+                    if (_parallelPlan != null && !_program.Continuous)
+                    {
+                        return string.Format(CultureInfo.InvariantCulture, "{0} STATIONS  -  {1} ROTATION{2} OF {3}  -  {4} MOVE",
+                            _parallelStations.Count, _parallelPlan.Rotations, _parallelPlan.Rotations == 1 ? string.Empty : "S",
+                            FormatClock(_parallelPlan.StationSeconds), FormatClock(_parallelPlan.MoveSeconds));
+                    }
                     return _program.Continuous
                         ? "CONTINUOUS - NO ROUND LIMIT"
                         : string.Format(CultureInfo.InvariantCulture, "{0} STEPS READY", _sequence.Count);

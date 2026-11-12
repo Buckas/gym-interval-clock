@@ -52,7 +52,10 @@ namespace GymClock
                 WriteIfMissing(Path.Combine(SamplesFolder, "Mixed Pace Stations.program.txt"), MixedPaceStations);
 
                 // Real sessions run at school ("Mount Everest" cardio/resistance unit).
-                WriteIfMissing(Path.Combine(SamplesFolder, "Everest Session 1 - The Journey Begins.program.txt"), EverestSession1);
+                ReplaceKnownOldSample(
+                    Path.Combine(SamplesFolder, "Everest Session 1 - The Journey Begins.program.txt"),
+                    EverestSession1,
+                    "written out once per rotation");
                 WriteIfMissing(Path.Combine(SamplesFolder, "Everest Session 2 - Resistance Circuit.program.txt"), EverestSession2);
                 WriteIfMissing(Path.Combine(SamplesFolder, "Everest Session 3 - Cardio Pyramid.program.txt"), EverestSession3);
 
@@ -92,6 +95,18 @@ namespace GymClock
             {
                 // Never let a missing/locked appdata folder stop the app from starting.
             }
+        }
+
+        /// <summary>
+        /// Writes the sample if missing, or replaces it when it is still a known older
+        /// shipped version (identified by <paramref name="oldMarker"/>) - a teacher's own
+        /// edits never contain that marker, so they are kept.
+        /// </summary>
+        private static void ReplaceKnownOldSample(string path, string content, string oldMarker)
+        {
+            if (File.Exists(path)
+                && File.ReadAllText(path).IndexOf(oldMarker, StringComparison.OrdinalIgnoreCase) < 0) return;
+            File.WriteAllText(path, content);
         }
 
         private static void WriteIfMissing(string path, string content)
@@ -489,31 +504,19 @@ END STATION
 ";
 
         private const string EverestSession1 =
-@"# Everest Session 1 - 4 stations, groups of 5-6, every group rotates every 8 minutes.
-# Each station has its OWN timing at the same time, so this uses Parallel mode with
-# the 8-minute pattern written out once per rotation and a 1-minute move between.
-# Every station lasts exactly 8:00, which keeps all the moves in sync.
+@"# Everest Session 1 - 4 stations, groups of 5-6. Each station has its OWN timing
+# (Parallel mode). Every station takes 8:00, then everyone moves together for 1 minute;
+# groups rotate once per station so every group visits all four.
 PROGRAM ""Everest Session 1 - The Journey Begins""
 MODE PARALLEL
+
+BETWEEN
+    MOVE 60 ""Rotate to the next station""
+END BETWEEN
 
 STATION ""Bike""
     WORKNOTE ""High intensity""
     RESTNOTE ""Spin recovery""
-    REPEAT 8
-        WORK 40
-        RECOVERY 20
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 8
-        WORK 40
-        RECOVERY 20
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 8
-        WORK 40
-        RECOVERY 20
-    END
-    MOVE 60 ""Rotate to the next station""
     REPEAT 8
         WORK 40
         RECOVERY 20
@@ -527,21 +530,6 @@ STATION ""Treadmill""
         WORK 60
         RECOVERY 60
     END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 4
-        WORK 60
-        RECOVERY 60
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 4
-        WORK 60
-        RECOVERY 60
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 4
-        WORK 60
-        RECOVERY 60
-    END
 END STATION
 
 STATION ""Skipping""
@@ -551,40 +539,10 @@ STATION ""Skipping""
         WORK 40
         REST 20
     END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 8
-        WORK 40
-        REST 20
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 8
-        WORK 40
-        REST 20
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 8
-        WORK 40
-        REST 20
-    END
 END STATION
 
 STATION ""Floor""
     WORKNOTE ""Mountain climbers / step ups / star jumps / burpees""
-    REPEAT 8
-        WORK 40
-        REST 20
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 8
-        WORK 40
-        REST 20
-    END
-    MOVE 60 ""Rotate to the next station""
-    REPEAT 8
-        WORK 40
-        REST 20
-    END
-    MOVE 60 ""Rotate to the next station""
     REPEAT 8
         WORK 40
         REST 20

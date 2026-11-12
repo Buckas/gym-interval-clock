@@ -249,6 +249,19 @@ namespace GymClock.AI
                         break;
                     }
 
+                    case "ROTATIONS":
+                    {
+                        int rotations;
+                        if (!int.TryParse(rest, NumberStyles.Integer, CultureInfo.InvariantCulture, out rotations) || rotations <= 0)
+                        {
+                            issues.Add(new ProgramValidationIssue(
+                                ValidationSeverity.Error,
+                                lineNo,
+                                "ROTATIONS requires a whole number greater than zero."));
+                        }
+                        break;
+                    }
+
                     case "PANEL":
                     {
                         if (rest.Length > 0 && !string.Equals(rest, "HIDE", StringComparison.OrdinalIgnoreCase))
@@ -346,21 +359,6 @@ namespace GymClock.AI
                     "Program has no stations. This is legal but unusual for station-based sessions."));
             }
 
-            if (totalTimedSeconds > 0 && totalTimedSeconds < 120)
-            {
-                issues.Add(new ProgramValidationIssue(
-                    ValidationSeverity.Warning,
-                    null,
-                    "Very short timed content (< 2 minutes)."));
-            }
-
-            if (totalTimedSeconds > 7200)
-            {
-                issues.Add(new ProgramValidationIssue(
-                    ValidationSeverity.Warning,
-                    null,
-                    "Very long timed content (> 2 hours)."));
-            }
 
             WorkoutProgram parsed = null;
             if (!issues.Any(x => x.Severity == ValidationSeverity.Error))
@@ -397,6 +395,18 @@ namespace GymClock.AI
                     {
                         List<RuntimeBlock> sequence = parsed.BuildRuntimeSequence();
                         executable = sequence.Any(b => b.Block != null && b.Block.Seconds > 0);
+                    }
+
+                    int runSeconds = parsed.Mode == ExecutionMode.Parallel
+                        ? parsed.BuildParallelSequences().Select(l => l.Sum(b => Math.Max(0, b.Block.Seconds))).DefaultIfEmpty(0).Max()
+                        : parsed.BuildRuntimeSequence().Sum(b => Math.Max(0, b.Block.Seconds));
+                    if (runSeconds > 0 && runSeconds < 120)
+                    {
+                        issues.Add(new ProgramValidationIssue(ValidationSeverity.Warning, null, "Very short program (under 2 minutes)."));
+                    }
+                    if (runSeconds > 7200)
+                    {
+                        issues.Add(new ProgramValidationIssue(ValidationSeverity.Warning, null, "Very long program (over 2 hours)."));
                     }
 
                     if (!executable)

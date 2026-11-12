@@ -1572,7 +1572,11 @@ namespace GymClock.AI
                 "Do not use Markdown fences. " +
                 "Do not add prose before or after the script. " +
                 "Never invent unsupported commands. " +
-                "Supported commands are PROGRAM, MODE, STATION, END STATION, BETWEEN, END BETWEEN, REPEAT, END, WORK, REST, RECOVERY, MOVE, COLOUR/COLOR, WORKNOTE, RESTNOTE, LINK, PANEL HIDE. " +
+                "Supported commands are PROGRAM, MODE, ROTATIONS, STATION, END STATION, BETWEEN, END BETWEEN, REPEAT, END, WORK, REST, RECOVERY, MOVE, COLOUR/COLOR, WORKNOTE, RESTNOTE, LINK, PANEL HIDE. " +
+                "Modes: MODE SHARED = fixed stations, one clock, nobody moves. " +
+                "MODE SEQUENTIAL = the whole class at one station at a time, each station has its own timing, BETWEEN holds the MOVE between stations. " +
+                "MODE PARALLEL = a group at every station, each station has its own timing inside its STATION block; groups rotate together, BETWEEN holds the MOVE between rotations, optional ROTATIONS n (default one per station). " +
+                "MODE CIRCUIT = a group at every station, one shared REPEAT timing before the stations, BETWEEN holds the MOVE; groups rotate together. " +
                 "PROGRAM must be followed by a quoted name, e.g. PROGRAM \"Session Name\". " +
                 "STATION must be followed by a quoted name, e.g. STATION \"Bike\". " +
                 "Do not emit LABEL (it is not a valid command). Put text in station name, WORKNOTE or RESTNOTE instead. " +
@@ -1993,15 +1997,18 @@ namespace GymClock.AI
 
             if (!shouldClarify) return false;
 
-            clarification =
-                "Before I generate, choose the mode so the script validates correctly:" + Environment.NewLine
-                + "1) MODE SHARED - one timeline for the whole group." + Environment.NewLine
-                + "2) MODE SEQUENTIAL - station-by-station rotation (each station needs timing blocks)." + Environment.NewLine
-                + "3) MODE PARALLEL - station lanes run at the same time." + Environment.NewLine
-                + "4) MODE CIRCUIT - shared rounds repeated across a station list." + Environment.NewLine
-                + "Reply with a number (1-4) or type the mode name.";
+            clarification = ModeQuestion;
             return true;
         }
+
+        /// <summary>The "how does your session run?" question, in teacher terms (order matches MODE 1-4).</summary>
+        public static readonly string ModeQuestion =
+            "How will this session run?" + Environment.NewLine
+            + "1) Fixed stations, one clock - everyone follows the same clock and nobody moves (Shared Timing)." + Environment.NewLine
+            + "2) Whole class together - everyone is at the same station, each station has its own timing, then all move on (Sequential)." + Environment.NewLine
+            + "3) Groups rotate, each station has its own clock - early finishers recover until the longest station is done, then everyone moves (Parallel)." + Environment.NewLine
+            + "4) Groups rotate, one clock - every station follows the same timing, then everyone moves (Shared Circuit)." + Environment.NewLine
+            + "Reply with a number (1-4).";
 
         private static bool ContainsModeHint(string request)
         {

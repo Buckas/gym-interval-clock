@@ -57,7 +57,8 @@ namespace GymClock.Tests
         {
             WorkoutProgram program = new WorkoutProgram
             {
-                Mode = ExecutionMode.Parallel
+                Mode = ExecutionMode.Parallel,
+                Rotations = 1 // a single pass: no rotation moves, just the stations side by side
             };
 
             Timeline station1 = new Timeline();

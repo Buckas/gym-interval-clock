@@ -142,6 +142,17 @@ namespace GymClock
                         inBetween = true;
                         break;
 
+                    case "ROTATIONS":
+                    {
+                        // Parallel mode: how many times groups rotate (0/absent = one per station).
+                        int rotations;
+                        if (int.TryParse(rest, NumberStyles.Integer, CultureInfo.InvariantCulture, out rotations) && rotations > 0)
+                        {
+                            program.Rotations = rotations;
+                        }
+                        break;
+                    }
+
                     case "MODE":
                     {
                         switch (rest.Trim().ToUpperInvariant())
@@ -239,7 +250,13 @@ namespace GymClock
                 && program.Stations.Count > 0;
 
             if (program.Mode == ExecutionMode.Sequential) sb.Append("MODE SEQUENTIAL").Append('\n');
-            else if (program.Mode == ExecutionMode.Parallel) sb.Append("MODE PARALLEL").Append('\n');
+            else if (program.Mode == ExecutionMode.Parallel)
+            {
+                sb.Append("MODE PARALLEL").Append('\n');
+                // Only written when the teacher has chosen a number; otherwise groups
+                // rotate once per station, which follows the station list automatically.
+                if (program.Rotations > 0) sb.Append("ROTATIONS ").Append(program.Rotations).Append('\n');
+            }
             else if (program.Mode == ExecutionMode.Circuit) sb.Append("MODE CIRCUIT").Append('\n');
             else if (program.Stations.Count > 0)
             {
@@ -257,7 +274,9 @@ namespace GymClock
                 // Written once, up front - it is one shared timeline played between
                 // every pair of stations, not a separate copy per gap, so writing it
                 // more than once would double it up the next time this is parsed.
-                if (program.Mode == ExecutionMode.Sequential && !program.BetweenStationsTimeline.IsEmpty)
+                // Sequential: played between stations. Parallel: the move between rotations.
+                if ((program.Mode == ExecutionMode.Sequential || program.Mode == ExecutionMode.Parallel)
+                    && !program.BetweenStationsTimeline.IsEmpty)
                 {
                     sb.Append("BETWEEN").Append('\n');
                     AppendTimeline(sb, program.BetweenStationsTimeline, "    ");

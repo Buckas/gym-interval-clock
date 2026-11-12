@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing.Design;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 
 namespace GymClock
@@ -496,6 +497,21 @@ namespace GymClock
         /// <summary>When true, the whole run order loops forever instead of finishing - the same idea as "rounds=0" today.</summary>
         public bool Continuous;
 
+        /// <summary>
+        /// Parallel mode: how many times the groups rotate through the stations.
+        /// 0 = automatic, one rotation per station so every group visits every station.
+        /// </summary>
+        public int Rotations;
+
+        /// <summary>Default move between rotations in Parallel mode when no BETWEEN block is given.</summary>
+        public const int DefaultRotationMoveSeconds = 30;
+
+        /// <summary>The number of rotations actually used in Parallel mode.</summary>
+        public int EffectiveRotations
+        {
+            get { return Rotations > 0 ? Rotations : Math.Max(1, Stations.Count); }
+        }
+
         public WorkoutProgram Clone()
         {
             WorkoutProgram program = new WorkoutProgram
@@ -503,7 +519,8 @@ namespace GymClock
                 Name = Name,
                 Mode = Mode,
                 SharedTimeline = SharedTimeline.Clone(),
-                Continuous = Continuous
+                Continuous = Continuous,
+                Rotations = Rotations
             };
             foreach (StationDef station in Stations) program.Stations.Add(station.Clone());
             program.BetweenStationsTimeline = BetweenStationsTimeline.Clone();
@@ -605,8 +622,105 @@ namespace GymClock
                 return result;
             }
 
-            for (int i = 0; i < Stations.Count; i++) result.Add(TimelineForStation(i).Resolve());
+            // Each station is a fixed place; groups rotate through them. Every
+            // rotation lasts as long as the longest station - stations that
+            // finish early show RECOVERY until then - and then everybody MOVEs
+            // together, so all stations always restart at the same moment.
+            ParallelRotationPlan plan = GetParallelRotationPlan();
+            List<ResolvedBlock> move = RotationMoveBlocks();
+
+            for (int i = 0; i < Stations.Count; i++)
+            {
+                List<ResolvedBlock> own = TimelineForStation(i).Resolve();
+                int ownSeconds = own.Sum(b => Math.Max(0, b.Block.Seconds));
+                List<ResolvedBlock> lane = new List<ResolvedBlock>();
+
+                for (int r = 0; r < plan.Rotations; r++)
+                {
+                    lane.AddRange(own);
+                    if (ownSeconds < plan.StationSeconds)
+                    {
+                        lane.Add(new ResolvedBlock
+                        {
+                            Block = new Block(BlockType.Recovery, plan.StationSeconds - ownSeconds)
+                            {
+                                Label = "Recover - rotating soon"
+                            }
+                        });
+                    }
+                    if (r < plan.Rotations - 1) lane.AddRange(move);
+                }
+
+                result.Add(lane);
+            }
+
             return result;
+        }
+
+        /// <summary>The move played between rotations in Parallel mode: the BETWEEN block, or a default MOVE.</summary>
+        private List<ResolvedBlock> RotationMoveBlocks()
+        {
+            if (!BetweenStationsTimeline.IsEmpty) return BetweenStationsTimeline.Resolve();
+            return new List<ResolvedBlock>
+            {
+                new ResolvedBlock
+                {
+                    Block = new Block(BlockType.Move, DefaultRotationMoveSeconds) { Label = "Rotate to the next station" }
+                }
+            };
+        }
+
+        /// <summary>Timing of the rotations in Parallel mode, for the display ("Rotation 2 of 4 - rotate in 3:10").</summary>
+        public ParallelRotationPlan GetParallelRotationPlan()
+        {
+            int longest = 0;
+            for (int i = 0; i < Stations.Count; i++)
+            {
+                longest = Math.Max(longest, TimelineForStation(i).Resolve().Sum(b => Math.Max(0, b.Block.Seconds)));
+            }
+
+            return new ParallelRotationPlan
+            {
+                Rotations = Stations.Count == 0 ? 1 : EffectiveRotations,
+                StationSeconds = longest,
+                MoveSeconds = Stations.Count == 0 ? 0 : RotationMoveBlocks().Sum(b => Math.Max(0, b.Block.Seconds))
+            };
+        }
+    }
+
+    /// <summary>How a Parallel-mode program's rotations are laid out in time.</summary>
+    public class ParallelRotationPlan
+    {
+        public int Rotations;
+        public int StationSeconds;   // length of one rotation's station work (the longest station)
+        public int MoveSeconds;      // move between rotations
+
+        public int TotalSeconds
+        {
+            get { return (Rotations * StationSeconds) + (Math.Max(0, Rotations - 1) * MoveSeconds); }
+        }
+
+        /// <summary>Where the run is at a given elapsed time: rotation (1-based), whether moving, and seconds until the next change.</summary>
+        public void Locate(double elapsed, out int rotation, out bool moving, out double secondsToNextChange)
+        {
+            double cycle = StationSeconds + MoveSeconds;
+            if (cycle <= 0 || Rotations <= 0) { rotation = 1; moving = false; secondsToNextChange = 0; return; }
+
+            int index = (int)Math.Floor(Math.Max(0, elapsed) / cycle);
+            if (index >= Rotations) index = Rotations - 1;
+            double into = Math.Max(0, elapsed) - (index * cycle);
+
+            rotation = index + 1;
+            if (into < StationSeconds || index == Rotations - 1)
+            {
+                moving = false;
+                secondsToNextChange = Math.Max(0, StationSeconds - into);
+            }
+            else
+            {
+                moving = true;
+                secondsToNextChange = Math.Max(0, cycle - into);
+            }
         }
     }
 }

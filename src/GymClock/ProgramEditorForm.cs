@@ -395,10 +395,37 @@ namespace GymClock
 
         private void ModeRadio_CheckedChanged(object sender, EventArgs e)
         {
-            _program.Mode = _modeSequential.Checked ? ExecutionMode.Sequential
+            ExecutionMode newMode = _modeSequential.Checked ? ExecutionMode.Sequential
                 : _modeParallel.Checked ? ExecutionMode.Parallel
                 : _modeCircuit.Checked ? ExecutionMode.Circuit
                 : ExecutionMode.Shared;
+            if (newMode == _program.Mode) { UpdateModeDescription(); return; }
+
+            // Sequential/Parallel stations each run their own timeline. Stations coming
+            // from Shared/Circuit have none yet (they silently fell back to the shared
+            // timing, so the Selected Timeline pane looked empty) - give each a copy of
+            // the shared timing so it is visible and editable straight away.
+            if ((newMode == ExecutionMode.Sequential || newMode == ExecutionMode.Parallel) && !_program.SharedTimeline.IsEmpty)
+            {
+                foreach (StationDef station in _program.Stations)
+                {
+                    if (station.Source == TimingSource.Custom && station.CustomTimeline.IsEmpty)
+                    {
+                        station.CustomTimeline = _program.SharedTimeline.Clone();
+                    }
+                }
+            }
+
+            // Parallel groups rotate together: make the move between rotations visible/editable.
+            if (newMode == ExecutionMode.Parallel && _program.BetweenStationsTimeline.IsEmpty && _program.Stations.Count >= 2)
+            {
+                _program.BetweenStationsTimeline.Add(new Block(BlockType.Move, WorkoutProgram.DefaultRotationMoveSeconds)
+                {
+                    Label = "Rotate to the next station"
+                });
+            }
+
+            _program.Mode = newMode;
             UpdateModeDescription();
             RefreshOutline();
         }
@@ -407,26 +434,27 @@ namespace GymClock
         {
             if (_modeParallel.Checked)
             {
-                _modeDesc.Text = "Every station runs its OWN pattern at the same time, independently - "
-                    + "e.g. one does a 4-minute Tabata while another does a 10-minute Pyramid, "
-                    + "both starting together but finishing separately.";
+                _modeDesc.Text = "A group at every station, each station with its OWN clock and timing (one tile "
+                    + "per station on screen). Stations that finish early show RECOVER until the longest one "
+                    + "is done, then everyone MOVEs together and the next rotation starts. Set the number of "
+                    + "rotations on the Program item (0 = once per station).";
             }
             else if (_modeSequential.Checked)
             {
-                _modeDesc.Text = "Stations run one after another - only one is active at a time, each with "
-                    + "its own pattern. The panel highlights whichever station is currently active.";
+                _modeDesc.Text = "The whole class is at the SAME station together. Each station has its own "
+                    + "timing (work/rest/recovery); when it finishes, everyone moves to the next station. "
+                    + "The current station is highlighted in the list.";
             }
             else if (_modeCircuit.Checked)
             {
-                _modeDesc.Text = "A different group is at every station at once, all doing the exact SAME "
-                    + "reps/work/rest - set once under Shared Timing - then everybody moves on to the "
-                    + "next station together. The panel lists every station with no highlighting, and "
+                _modeDesc.Text = "A group at every station, all following ONE clock (timing set once under "
+                    + "Shared Timing). When the timing finishes everyone moves to the next station together; "
                     + "the header counts STATION x OF y as the class rotates through.";
             }
             else
             {
-                _modeDesc.Text = "Every station follows the exact SAME countdown together - the panel is "
-                    + "informational only, since every station is in use at once.";
+                _modeDesc.Text = "Everyone follows ONE clock at a fixed station and nobody moves. The station "
+                    + "list is just a guide to who is where.";
             }
         }
 
@@ -583,6 +611,10 @@ namespace GymClock
                 if (_program.Mode == ExecutionMode.Sequential && _program.Stations.Count >= 2)
                 {
                     root.Nodes.Add(new TreeNode("Between Stations") { Tag = "BETWEEN" });
+                }
+                else if (_program.Mode == ExecutionMode.Parallel && _program.Stations.Count >= 2)
+                {
+                    root.Nodes.Add(new TreeNode("Move Between Rotations") { Tag = "BETWEEN" });
                 }
             }
 
@@ -1044,13 +1076,27 @@ namespace GymClock
             }
 
             [System.ComponentModel.Description(
-                "Shared: every station follows the exact same countdown together. " +
-                "Sequential: stations run one after another, one active at a time, each with its own pattern. " +
-                "Parallel: every station runs its own pattern at once, independently, finishing at different times.")]
+                "Shared: one clock, everyone stays at a fixed station. " +
+                "Sequential: the whole class is at one station at a time, each station with its own timing. " +
+                "Parallel: a group at every station, each station with its own clock; everyone rotates together. " +
+                "Circuit: a group at every station, one clock; everyone rotates together.")]
             public ExecutionMode Mode
             {
                 get { return _owner._program.Mode; }
                 set { _owner._program.Mode = value; }
+            }
+
+            [System.ComponentModel.Description(
+                "Parallel mode: how many times groups rotate through the stations. " +
+                "0 = automatic (once per station, so every group visits every station).")]
+            public int Rotations
+            {
+                get { return _owner._program.Rotations; }
+                set
+                {
+                    _owner._program.Rotations = Math.Max(0, value);
+                    _owner.RefreshScriptFromProgram();
+                }
             }
         }
 

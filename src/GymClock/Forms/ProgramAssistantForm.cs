@@ -1303,15 +1303,10 @@ namespace GymClock
         private string BuildModeQuestion(string fallback)
         {
             string baseText = string.IsNullOrWhiteSpace(fallback)
-                ? "Before I generate, choose the mode so the script validates correctly:" + Environment.NewLine
-                    + "1) MODE SHARED - one timeline for the whole group." + Environment.NewLine
-                    + "2) MODE SEQUENTIAL - station-by-station rotation (each station needs timing blocks)." + Environment.NewLine
-                    + "3) MODE PARALLEL - station lanes run at the same time." + Environment.NewLine
-                    + "4) MODE CIRCUIT - shared rounds repeated across a station list." + Environment.NewLine
-                    + "Reply with a number (1-4) or type the mode name."
+                ? AiProgramGenerationCoordinator.ModeQuestion
                 : fallback.Trim();
 
-            return baseText + Environment.NewLine + "Quick replies: 1, 2, 3, 4";
+            return baseText;
         }
 
         private string BuildRevisionStationPolicyQuestion()
