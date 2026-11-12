@@ -188,20 +188,25 @@ namespace GymClock.AI
         // for an exercise name and apply the rename to the script text ourselves.
 
         private static readonly Regex SwapIntent = new Regex(
-            @"\b(replace|replacing|replacement|swap|swapping|substitute|instead\s+of|alternative\s+(to|for))\b",
+            @"\b(replace|replacing|replacement|swap|swapping|substitute|instead\s+of|alternative\s+(to|for)|change|changing|rename|something\s+else|different\s+(exercise|station|one|activity))\b",
+            RegexOptions.IgnoreCase);
+
+        // Edits to a station's look or notes are not exercise swaps.
+        private static readonly Regex NotASwap = new Regex(
+            @"\b(colou?r|note|notes|worknote|restnote|cue|cues|instruction|instructions|order|position|move\s+.*\s+(up|down|before|after))\b",
             RegexOptions.IgnoreCase);
 
         private static readonly Regex VagueReplacement = new Regex(
             @"\b(something|anything|else|suggest|suggestion|alternative|another|different|other|better|you)\b",
             RegexOptions.IgnoreCase);
 
-        internal static bool TryDetectStationSwap(string request, WorkoutProgram baseline, out int stationIndex, out string explicitReplacement)
+        public static bool TryDetectStationSwap(string request, WorkoutProgram baseline, out int stationIndex, out string explicitReplacement)
         {
             stationIndex = -1;
             explicitReplacement = null;
             string text = request ?? string.Empty;
             if (baseline == null || baseline.Stations.Count == 0) return false;
-            if (!SwapIntent.IsMatch(text)) return false;
+            if (!SwapIntent.IsMatch(text) || NotASwap.IsMatch(text)) return false;
             if (MentionsTiming(text) || MentionsMode(text)) return false; // more than a simple swap
 
             // Find the longest station name mentioned in the request (quoted or not).

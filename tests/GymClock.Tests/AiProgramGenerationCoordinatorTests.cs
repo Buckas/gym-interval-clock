@@ -916,6 +916,30 @@ namespace GymClock.Tests
             Assert.Contains("Lateral Lunges", proposal.AssistantMessage);
         }
 
+        [Theory]
+        [InlineData("I want to change \"Skipping\" to something else. Do you have a suggestion?", null)]
+        [InlineData("Can you give me a different exercise for Skipping?", null)]
+        [InlineData("Change Skipping to Jump Squats", "Jump Squats")]
+        [InlineData("replace skipping with Battle Ropes", "Battle Ropes")]
+        public void StationSwap_IsDetected(string request, string expectedReplacement)
+        {
+            WorkoutProgram baseline = new ProgramProposalValidator().Validate(WholeGroupHiitSequential).ParsedProgram;
+
+            Assert.True(AiProgramGenerationCoordinator.TryDetectStationSwap(request, baseline, out int index, out string replacement));
+            Assert.Equal("Skipping", baseline.Stations[index].Name);
+            Assert.Equal(expectedReplacement, replacement);
+        }
+
+        [Theory]
+        [InlineData("Change the colour of Skipping to red")]
+        [InlineData("Change the work time on Skipping to 30 seconds")]
+        [InlineData("Change the note on Skipping")]
+        public void StationSwap_NotDetected_ForOtherEdits(string request)
+        {
+            WorkoutProgram baseline = new ProgramProposalValidator().Validate(WholeGroupHiitSequential).ParsedProgram;
+            Assert.False(AiProgramGenerationCoordinator.TryDetectStationSwap(request, baseline, out _, out _));
+        }
+
         private static string ValidSharedScript()
         {
             return "PROGRAM \"Shared\"\nMODE SHARED\nREPEAT 4\n    WORK 30\n    REST 15\nEND\n\nSTATION \"A\"\nCOLOUR #E53935\nWORKNOTE \"Push pace\"\nEND STATION";
