@@ -82,6 +82,13 @@ namespace GymClock.AI
                     .ConfigureAwait(false);
             }
 
+            if (baselineProgram != null && IsQuestion(requestBeforeAugmentation))
+            {
+                // "How many reps for Box Jumps?" is a question about the program, not an edit.
+                return await AnswerQuestionAsync(requestBeforeAugmentation, baselineResult, baselineProgram, state, cancellationToken)
+                    .ConfigureAwait(false);
+            }
+
             if (TryBuildRevisionStationPolicyClarification(requestBeforeAugmentation, currentValidatedScript, out string revisionClarification))
             {
                 state.AddAssistant(revisionClarification);
@@ -1177,6 +1184,80 @@ namespace GymClock.AI
         /// If the user names a station in quotes that doesn't exist in the current program,
         /// say so instead of letting the model guess (or rewrite everything).
         /// </summary>
+        // ---- Questions about the program ---------------------------------------------------
+
+        private static readonly Regex QuestionStart = new Regex(
+            @"^\s*(how|what|what's|why|which|who|when|where|is|are|does|do|should|would|could|can|will|any|tell\s+me|explain)\b",
+            RegexOptions.IgnoreCase);
+
+        private static readonly Regex EditVerb = new Regex(
+            @"\b(replace|swap|change|add|remove|delete|drop|make|set|rename|increase|decrease|reduce|extend|shorten|lengthen|update|edit|modify|create|generate|build|put|insert|move|use|turn|convert|double|halve)\b",
+            RegexOptions.IgnoreCase);
+
+        /// <summary>A question about the program (answer it in words) rather than an instruction to edit it.</summary>
+        public static bool IsQuestion(string request)
+        {
+            string text = (request ?? string.Empty).Trim();
+            if (text.Length == 0) return false;
+            bool looksLikeQuestion = text.EndsWith("?", StringComparison.Ordinal) || QuestionStart.IsMatch(text);
+            return looksLikeQuestion && !EditVerb.IsMatch(text);
+        }
+
+        private async Task<AiProgramProposal> AnswerQuestionAsync(
+            string question,
+            ProgramValidationResult baselineResult,
+            WorkoutProgram baseline,
+            ConversationState state,
+            CancellationToken cancellationToken)
+        {
+            List<string> unknown = FindUnknownQuotedNames(question, baseline);
+            string prefix = unknown.Count == 0
+                ? string.Empty
+                : "Note: \"" + unknown[0] + "\" isn't a station in this program (stations: "
+                  + string.Join(", ", baseline.Stations.Select(s => s.Name)) + ")." + Environment.NewLine;
+
+            string system =
+                "You are a helpful coaching assistant inside a gym interval timer app. "
+                + "Answer the coach's question about their workout in plain English, in at most 4 short sentences. "
+                + "Never output a program script or code. "
+                + "This app times each station (WORK and RECOVERY periods in seconds); it does not count reps, "
+                + "so for rep questions estimate how many reps fit in the work period. "
+                + "If the question mentions an exercise that is not one of the stations, say so briefly and still answer helpfully.";
+            string user = "Current program:\n" + baselineResult.Script.Trim() + "\n\nCoach's question: " + question;
+
+            string reply = await _aiService.GenerateTextAsync(new[]
+            {
+                new AiChatMessage(AiChatRole.System, system, DateTimeOffset.Now),
+                new AiChatMessage(AiChatRole.User, user, DateTimeOffset.Now)
+            }, cancellationToken).ConfigureAwait(false);
+
+            string answer = CleanMarkdownFences(reply ?? string.Empty).Trim();
+            bool looksLikeScript = Regex.IsMatch(answer, @"^\s*(PROGRAM|MODE|STATION|REPEAT)\b", RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            if (answer.Length == 0 || looksLikeScript)
+            {
+                answer = "Sorry, I couldn't answer that one.";
+            }
+            else if (answer.Length > 800)
+            {
+                answer = answer.Substring(0, 800).TrimEnd() + "...";
+            }
+
+            string message = prefix + answer + Environment.NewLine + "(Your program has not been changed.)";
+            state.AddAssistant(answer);
+            return UnchangedProposal(question, baselineResult, message);
+        }
+
+        private static List<string> FindUnknownQuotedNames(string request, WorkoutProgram baseline)
+        {
+            return Regex.Matches(request ?? string.Empty, "[\"“”]([^\"“”]{2,80})[\"“”]")
+                .Cast<Match>()
+                .Select(m => m.Groups[1].Value.Trim())
+                .Where(q => q.Length > 0
+                    && !string.Equals(q, baseline.Name, StringComparison.OrdinalIgnoreCase)
+                    && !baseline.Stations.Any(s => (s.Name ?? string.Empty).IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0))
+                .ToList();
+        }
+
         private static bool TryBuildUnknownStationReply(string request, WorkoutProgram baseline, out string reply)
         {
             reply = string.Empty;

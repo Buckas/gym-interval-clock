@@ -1074,6 +1074,56 @@ namespace GymClock.Tests
             Assert.Equal(isSuggestion, AiProgramGenerationCoordinator.IsSuggestionRequest(request));
         }
 
+        [Fact]
+        public async Task Question_AboutUnknownStation_IsAnsweredInWords_AndProgramUnchanged()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "Box Jumps isn't in this workout. In a 40 second work period most people manage 12-20 box jumps."
+            });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "How many reps for \"Box Jumps\"",
+                WholeGroupHiitSequential, new ConversationState(), CancellationToken.None);
+
+            Assert.True(proposal.LeftUnchanged);
+            Assert.Equal(WholeGroupHiitSequential, proposal.Script);
+            Assert.Equal(1, fake.CallCount);
+            Assert.Contains("\"Box Jumps\" isn't a station in this program", proposal.AssistantMessage);
+            Assert.Contains("12-20 box jumps", proposal.AssistantMessage);
+            Assert.Contains("has not been changed", proposal.AssistantMessage);
+            Assert.DoesNotContain("PROGRAM \"", fake.Calls[0][0].Content); // system prompt is not a script-writing prompt
+        }
+
+        [Fact]
+        public async Task Question_WhenModelReturnsScript_GivesPoliteFallback_AndProgramUnchanged()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { WholeGroupHiitSequential });
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake, new ProgramProposalValidator(), new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "How long is this workout?",
+                WholeGroupHiitSequential, new ConversationState(), CancellationToken.None);
+
+            Assert.True(proposal.LeftUnchanged);
+            Assert.Contains("couldn't answer", proposal.AssistantMessage);
+        }
+
+        [Theory]
+        [InlineData("How many reps for \"Box Jumps\"", true)]
+        [InlineData("How long is this workout?", true)]
+        [InlineData("Is this too hard for year 7s?", true)]
+        [InlineData("Can you replace Burpees with Tuck Jumps?", false)]
+        [InlineData("Make the work periods 30 seconds", false)]
+        [InlineData("Replace Burpees with Tuck Jumps", false)]
+        public void Question_IsDistinguishedFromEdit(string request, bool expected)
+        {
+            Assert.Equal(expected, AiProgramGenerationCoordinator.IsQuestion(request));
+        }
+
         private static string ValidSharedScript()
         {
             return "PROGRAM \"Shared\"\nMODE SHARED\nREPEAT 4\n    WORK 30\n    REST 15\nEND\n\nSTATION \"A\"\nCOLOUR #E53935\nWORKNOTE \"Push pace\"\nEND STATION";
