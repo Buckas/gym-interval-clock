@@ -52,6 +52,26 @@ namespace GymClock.AI
                 };
             }
 
+            if (TryBuildDirectStationReplacementRevision(requestBeforeAugmentation, currentValidatedScript, out ProgramValidationResult directReplacementValidation))
+            {
+                state.AddAssistant("Applied direct station replacement using current program structure.");
+                return ToProposal(requestBeforeAugmentation, directReplacementValidation);
+            }
+
+            if (TryBuildStationReplacementClarification(requestBeforeAugmentation, currentValidatedScript, out string replacementClarification))
+            {
+                state.AddAssistant(replacementClarification);
+                return new AiProgramProposal
+                {
+                    UserRequest = requestBeforeAugmentation,
+                    Script = currentValidatedScript ?? string.Empty,
+                    ParsedProgram = null,
+                    Issues = Array.Empty<ProgramValidationIssue>(),
+                    RequiresClarification = true,
+                    AssistantMessage = replacementClarification
+                };
+            }
+
             request = AugmentRevisionRequestWithBaselineConstraints(requestBeforeAugmentation, currentValidatedScript);
 
             if (TryBuildModeClarification(request, currentValidatedScript, out string clarification))
@@ -126,7 +146,8 @@ namespace GymClock.AI
                 }
             }
 
-            if (TryBuildDeterministicTemplateFallback(request, out ProgramValidationResult fallbackValidation))
+            if (string.IsNullOrWhiteSpace(currentValidatedScript)
+                && TryBuildDeterministicTemplateFallback(request, out ProgramValidationResult fallbackValidation))
             {
                 state.AddAssistant("Applied deterministic fallback template after invalid AI retries.");
                 return ToProposal(request, fallbackValidation);
@@ -145,6 +166,51 @@ namespace GymClock.AI
                         "Unable to generate a valid script after automatic retries.")
                 }
             });
+        }
+
+        private bool TryBuildDirectStationReplacementRevision(string request, string currentValidatedScript, out ProgramValidationResult validation)
+        {
+            validation = null;
+
+            if (string.IsNullOrWhiteSpace(request) || string.IsNullOrWhiteSpace(currentValidatedScript)) return false;
+
+            Match m = Regex.Match(
+                request,
+                "replace\\s+station\\s+\"([^\"]+)\"\\s+with\\s+\"([^\"]+)\"",
+                RegexOptions.IgnoreCase);
+            if (!m.Success) return false;
+
+            string oldName = (m.Groups[1].Value ?? string.Empty).Trim();
+            string newName = (m.Groups[2].Value ?? string.Empty).Trim();
+            if (oldName.Length == 0 || newName.Length == 0) return false;
+
+            string[] lines = currentValidatedScript.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            bool replaced = false;
+
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i] ?? string.Empty;
+                string trimmed = line.TrimStart();
+                if (!trimmed.StartsWith("STATION ", StringComparison.OrdinalIgnoreCase)) continue;
+
+                Match station = Regex.Match(trimmed, "^STATION\\s+\"([^\"]+)\"", RegexOptions.IgnoreCase);
+                if (!station.Success) continue;
+
+                string stationName = (station.Groups[1].Value ?? string.Empty).Trim();
+                if (!stationName.Equals(oldName, StringComparison.OrdinalIgnoreCase)) continue;
+
+                int indentLen = line.Length - trimmed.Length;
+                string indent = indentLen > 0 ? line.Substring(0, indentLen) : string.Empty;
+                lines[i] = indent + "STATION \"" + newName.Replace("\"", "'") + "\"";
+                replaced = true;
+                break;
+            }
+
+            if (!replaced) return false;
+
+            string revised = string.Join(Environment.NewLine, lines);
+            validation = ValidateWithAllGuards(request, revised);
+            return validation.IsValid;
         }
 
         private static string BuildRetryGenerationRequest(
@@ -352,6 +418,76 @@ namespace GymClock.AI
             return false;
         }
 
+        private static bool TryBuildStationReplacementClarification(string request, string currentValidatedScript, out string clarification)
+        {
+            clarification = string.Empty;
+
+            string text = (request ?? string.Empty).Trim();
+            if (text.Length == 0) return false;
+            if (string.IsNullOrWhiteSpace(currentValidatedScript)) return false;
+
+            bool looksLikeRevision = LooksLikeRevisionRequest(text)
+                || text.IndexOf("replace", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("different station", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!looksLikeRevision) return false;
+
+            bool suggestionIntent = text.IndexOf("suggest", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("what do you suggest", StringComparison.OrdinalIgnoreCase) >= 0
+                || text.IndexOf("recommend", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (!suggestionIntent) return false;
+
+            if (Regex.IsMatch(text, "\\breplace\\b.+\\bwith\\b", RegexOptions.IgnoreCase)) return false;
+
+            Match quoted = Regex.Match(text, "\"([^\"]+)\"");
+            if (!quoted.Success) return false;
+
+            string target = quoted.Groups[1].Value.Trim();
+            if (target.Length == 0) return false;
+
+            MatchCollection stations = Regex.Matches(
+                currentValidatedScript,
+                "^\\s*STATION\\s+\"([^\"]+)\"",
+                RegexOptions.IgnoreCase | RegexOptions.Multiline);
+            List<string> names = stations.Cast<Match>().Select(m => m.Groups[1].Value.Trim()).Where(x => x.Length > 0).ToList();
+            if (names.Count == 0) return false;
+            if (!names.Any(n => n.Equals(target, StringComparison.OrdinalIgnoreCase)))
+            {
+                clarification =
+                    "I couldn't find station \"" + target + "\" in the current program, so I haven't changed anything." + Environment.NewLine
+                    + "Current stations: " + string.Join(", ", names) + Environment.NewLine
+                    + "Tell me which of these stations to replace (and with what).";
+                return true;
+            }
+
+            string[] candidates =
+            {
+                "Lateral Skater Hops",
+                "Jump Rope Sprints",
+                "Shuttle Runs",
+                "Speed Skaters"
+            };
+
+            List<string> options = candidates
+                .Where(c => !names.Any(n => n.Equals(c, StringComparison.OrdinalIgnoreCase)))
+                .Take(4)
+                .ToList();
+
+            while (options.Count < 4)
+            {
+                options.Add("Alternative Exercise " + (options.Count + 1));
+            }
+
+            clarification =
+                "Before I revise, choose a replacement for \"" + target + "\":" + Environment.NewLine
+                + "1) " + options[0] + Environment.NewLine
+                + "2) " + options[1] + Environment.NewLine
+                + "3) " + options[2] + Environment.NewLine
+                + "4) Custom replacement (type the exact exercise name)" + Environment.NewLine
+                + "Reply with 1-4, or type a replacement exercise name." + Environment.NewLine
+                + "Quick replies: 1, 2, 3, 4";
+            return true;
+        }
+
         private static string BalanceProgramAndStationQuotes(string script)
         {
             string[] lines = (script ?? string.Empty).Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
@@ -546,6 +682,7 @@ namespace GymClock.AI
 
             string req = request ?? string.Empty;
             bool looksLikeRevision = LooksLikeRevisionRequest(req)
+                || req.IndexOf("replace station", StringComparison.OrdinalIgnoreCase) >= 0
                 || req.IndexOf("current program", StringComparison.OrdinalIgnoreCase) >= 0
                 || req.IndexOf("current script", StringComparison.OrdinalIgnoreCase) >= 0
                 || req.IndexOf("existing program", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -780,8 +917,19 @@ namespace GymClock.AI
             }
 
             ProgramValidationResult guarded = ValidateWithAllGuards(req, script);
-            validation = guarded.IsValid ? guarded : structural;
-            return true;
+            if (guarded.IsValid)
+            {
+                validation = guarded;
+                return true;
+            }
+
+            bool revisionRequest = LooksLikeRevisionRequest(req)
+                || req.IndexOf("current program", StringComparison.OrdinalIgnoreCase) >= 0
+                || req.IndexOf("current script", StringComparison.OrdinalIgnoreCase) >= 0
+                || req.IndexOf("existing program", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            validation = revisionRequest ? guarded : structural;
+            return !revisionRequest;
         }
 
         private static ExecutionMode DetectRequestedMode(string request)

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -16,6 +17,7 @@ namespace GymClock
         {
             None,
             AwaitRevisionStationPolicy,
+            AwaitStationReplacement,
             AwaitMode,
             AwaitStructure,
             AwaitDurationTolerance,
@@ -75,6 +77,10 @@ namespace GymClock
         private string _pendingDurationSummary = string.Empty;
         private string _pendingRevisionStationPolicyInstruction = string.Empty;
         private string _pendingRevisionStationPolicySummary = string.Empty;
+        private string _pendingReplacementTarget = string.Empty;
+        private string _pendingReplacementOption1 = string.Empty;
+        private string _pendingReplacementOption2 = string.Empty;
+        private string _pendingReplacementOption3 = string.Empty;
         private List<ProgramValidationIssue> _currentIssues = new List<ProgramValidationIssue>();
         private readonly List<int> _highlightedIssueLines = new List<int>();
 
@@ -617,11 +623,20 @@ namespace GymClock
                     _pendingDurationSummary = string.Empty;
                     _pendingRevisionStationPolicyInstruction = string.Empty;
                     _pendingRevisionStationPolicySummary = string.Empty;
+                    _pendingReplacementTarget = string.Empty;
+                    _pendingReplacementOption1 = string.Empty;
+                    _pendingReplacementOption2 = string.Empty;
+                    _pendingReplacementOption3 = string.Empty;
 
                     string clarificationText = proposal.AssistantMessage?.Trim() ?? string.Empty;
                     if (clarificationText.IndexOf("station-change policy", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         _clarificationStage = ClarificationStage.AwaitRevisionStationPolicy;
+                        AppendConversation("Assistant", clarificationText);
+                    }
+                    else if (TryInitializeStationReplacementClarificationState(clarificationText))
+                    {
+                        _clarificationStage = ClarificationStage.AwaitStationReplacement;
                         AppendConversation("Assistant", clarificationText);
                     }
                     else
@@ -1047,6 +1062,25 @@ namespace GymClock
                     ResetClarificationState();
                     return true;
 
+                case ClarificationStage.AwaitStationReplacement:
+                    if (!TryGetStationReplacementChoice(
+                        text,
+                        _pendingReplacementOption1,
+                        _pendingReplacementOption2,
+                        _pendingReplacementOption3,
+                        out string replacement,
+                        out string replacementPrompt))
+                    {
+                        assistantReply = replacementPrompt;
+                        return true;
+                    }
+
+                    shouldGenerate = true;
+                    requestToGenerate = BuildStationReplacementClarifiedRequest(replacement);
+                    assistantReply = "Generating now with replacement: " + replacement;
+                    ResetClarificationState();
+                    return true;
+
                 case ClarificationStage.AwaitStructure:
                     if (!TryGetStructureChoice(_pendingClarificationMode, text, out string structureInstruction, out string structureSummary))
                     {
@@ -1116,6 +1150,11 @@ namespace GymClock
                     + "4) MODE CIRCUIT - shared rounds repeated across a station list." + Environment.NewLine
                     + "Reply with a number (1-4) or type the mode name."
                 : fallback.Trim();
+
+            if (baseText.IndexOf("Quick replies:", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return baseText;
+            }
 
             return baseText + Environment.NewLine + "Quick replies: 1, 2, 3, 4";
         }
@@ -1287,6 +1326,93 @@ namespace GymClock
             return string.Join(Environment.NewLine, lines);
         }
 
+        private string BuildStationReplacementClarifiedRequest(string replacement)
+        {
+            string context = string.IsNullOrWhiteSpace(_pendingClarificationRequest)
+                ? txtRequest.Text.Trim()
+                : _pendingClarificationRequest.Trim();
+
+            List<string> lines = new List<string>();
+            if (!string.IsNullOrWhiteSpace(context)) lines.Add(context);
+
+            if (!string.IsNullOrWhiteSpace(_pendingReplacementTarget) && !string.IsNullOrWhiteSpace(replacement))
+            {
+                lines.Add("Replace station \"" + _pendingReplacementTarget + "\" with \"" + replacement.Trim() + "\".");
+                lines.Add("Keep the same mode, station count, station order, timings, and all other station details unless explicitly changed above.");
+            }
+
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        private bool TryInitializeStationReplacementClarificationState(string assistantMessage)
+        {
+            string text = assistantMessage ?? string.Empty;
+            if (text.IndexOf("choose a replacement for", StringComparison.OrdinalIgnoreCase) < 0) return false;
+
+            Match target = Regex.Match(text, "choose a replacement for \\\"([^\\\"]+)\\\"", RegexOptions.IgnoreCase);
+            if (!target.Success) return false;
+
+            Match o1 = Regex.Match(text, @"^\s*1\)\s*(.+)$", RegexOptions.Multiline);
+            Match o2 = Regex.Match(text, @"^\s*2\)\s*(.+)$", RegexOptions.Multiline);
+            Match o3 = Regex.Match(text, @"^\s*3\)\s*(.+)$", RegexOptions.Multiline);
+            if (!o1.Success || !o2.Success || !o3.Success) return false;
+
+            _pendingReplacementTarget = target.Groups[1].Value.Trim();
+            _pendingReplacementOption1 = o1.Groups[1].Value.Trim();
+            _pendingReplacementOption2 = o2.Groups[1].Value.Trim();
+            _pendingReplacementOption3 = o3.Groups[1].Value.Trim();
+            return _pendingReplacementTarget.Length > 0;
+        }
+
+        private string BuildStationReplacementQuestion()
+        {
+            return "Before I revise, choose a replacement for \"" + _pendingReplacementTarget + "\":" + Environment.NewLine
+                + "1) " + _pendingReplacementOption1 + Environment.NewLine
+                + "2) " + _pendingReplacementOption2 + Environment.NewLine
+                + "3) " + _pendingReplacementOption3 + Environment.NewLine
+                + "4) Custom replacement (type the exact exercise name)" + Environment.NewLine
+                + "Reply with 1-4, or type a replacement exercise name." + Environment.NewLine
+                + "Quick replies: 1, 2, 3, 4";
+        }
+
+        private bool TryGetStationReplacementChoice(
+            string input,
+            string option1,
+            string option2,
+            string option3,
+            out string replacement,
+            out string prompt)
+        {
+            replacement = string.Empty;
+            prompt = BuildStationReplacementQuestion();
+
+            string text = (input ?? string.Empty).Trim();
+            if (text.Length == 0) return false;
+
+            if (TryGetNumericChoice(text, out int choice))
+            {
+                if (choice == 1) { replacement = option1; return true; }
+                if (choice == 2) { replacement = option2; return true; }
+                if (choice == 3) { replacement = option3; return true; }
+
+                if (choice == 4)
+                {
+                    string tail = Regex.Replace(text, @"^\s*4\s*([\.:\-\)])?\s*", string.Empty).Trim();
+                    if (tail.Length == 0)
+                    {
+                        prompt = "Type the custom replacement exercise name after 4 (for example: 4. Lat Dips).";
+                        return false;
+                    }
+
+                    replacement = tail;
+                    return true;
+                }
+            }
+
+            replacement = text;
+            return true;
+        }
+
         private static bool TryGetRevisionStationPolicyChoice(string input, out string instruction, out string summary)
         {
             instruction = string.Empty;
@@ -1367,6 +1493,10 @@ namespace GymClock
             _pendingDurationSummary = string.Empty;
             _pendingRevisionStationPolicyInstruction = string.Empty;
             _pendingRevisionStationPolicySummary = string.Empty;
+            _pendingReplacementTarget = string.Empty;
+            _pendingReplacementOption1 = string.Empty;
+            _pendingReplacementOption2 = string.Empty;
+            _pendingReplacementOption3 = string.Empty;
         }
 
         private static bool TryGetModeFromChoice(string input, out string mode)

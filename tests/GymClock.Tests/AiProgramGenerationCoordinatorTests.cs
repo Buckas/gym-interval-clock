@@ -162,6 +162,86 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public async Task ExplicitStationReplacement_AppliesDirectly_WithoutAiRewrite()
+        {
+            string baselineScript =
+                "PROGRAM \"Whole Group HIIT\"\n"
+                + "MODE SEQUENTIAL\n\n"
+                + "BETWEEN\n"
+                + "    MOVE 1m \"Move to the next station\"\n"
+                + "END BETWEEN\n\n"
+                + "STATION \"Shuttle Runs\"\n"
+                + "    WORKNOTE \"Go at 80% and keep the pace\"\n"
+                + "    RESTNOTE \"Walk to recover\"\n"
+                + "    REPEAT 3\n"
+                + "        WORK 40s\n"
+                + "        RECOVERY 20s\n"
+                + "    END\n"
+                + "END STATION\n\n"
+                + "STATION \"Skater Bounds\"\n"
+                + "    REPEAT 3\n"
+                + "        WORK 40s\n"
+                + "        RECOVERY 20s\n"
+                + "    END\n"
+                + "END STATION\n\n"
+                + "STATION \"High Knees\"\n"
+                + "    REPEAT 3\n"
+                + "        WORK 40s\n"
+                + "        RECOVERY 20s\n"
+                + "    END\n"
+                + "END STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "PROGRAM \"Wrong Rewrite\"\nMODE SHARED\nREPEAT 1\nWORK 30\nEND\nSTATION \"A\"\nEND STATION"
+            });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a different station to replace \"Skater Bounds\", what do you suggest?\n"
+                + "Replace station \"Skater Bounds\" with \"Lat Dips\".\n"
+                + "Keep the same mode, station count, station order, timings, and all other station details unless explicitly changed above.",
+                baselineScript,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.NotNull(proposal.ParsedProgram);
+            Assert.Equal(ExecutionMode.Sequential, proposal.ParsedProgram.Mode);
+            Assert.Equal(3, proposal.ParsedProgram.Stations.Count);
+            Assert.Equal("Shuttle Runs", proposal.ParsedProgram.Stations[0].Name);
+            Assert.Equal("Lat Dips", proposal.ParsedProgram.Stations[1].Name);
+            Assert.Equal("High Knees", proposal.ParsedProgram.Stations[2].Name);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task StationReplacementSuggestion_WithQuotedStation_RequestsReplacementClarification()
+        {
+            string baselineScript =
+                "STATION \"Bodyweight Squats\"\nREPEAT 3\n    WORK 40\n    RECOVERY 20\nEND\nEND STATION\n\n"
+                + "STATION \"Skipping\"\nREPEAT 3\n    WORK 40\n    RECOVERY 20\nEND\nEND STATION\n\n"
+                + "STATION \"Skater Bounds\"\nREPEAT 3\n    WORK 40\n    RECOVERY 20\nEND\nEND STATION\n\n"
+                + "STATION \"Burpees\"\nREPEAT 3\n    WORK 40\n    RECOVERY 20\nEND\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(Array.Empty<string>());
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a different station to replace \"Skater Bounds\", what do you suggest?",
+                baselineScript,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Contains("choose a replacement", proposal.AssistantMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("\"Skater Bounds\"", proposal.AssistantMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
         public async Task AmbiguousPyramidPrompt_WithBaselineScript_StillRequestsClarification()
         {
             FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
