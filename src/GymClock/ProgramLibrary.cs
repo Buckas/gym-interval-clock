@@ -21,7 +21,7 @@ namespace GymClock
             }
         }
 
-        /// <summary>Sub-folder holding the three built-in sample programs, installed on first run.</summary>
+        /// <summary>Sub-folder holding the built-in sample programs, installed on first run.</summary>
         public static string SamplesFolder
         {
             get { return Path.Combine(RootFolder, "Samples"); }
@@ -50,6 +50,11 @@ namespace GymClock
                 WriteIfMissing(Path.Combine(SamplesFolder, "Whole Group HIIT.program.txt"), WholeGroupHiit);
                 WriteIfMissing(Path.Combine(SamplesFolder, "Team Tabata Blast.program.txt"), TeamTabataBlast);
                 WriteIfMissing(Path.Combine(SamplesFolder, "Mixed Pace Stations.program.txt"), MixedPaceStations);
+
+                // Real sessions run at school ("Mount Everest" cardio/resistance unit).
+                WriteIfMissing(Path.Combine(SamplesFolder, "Everest Session 1 - The Journey Begins.program.txt"), EverestSession1);
+                WriteIfMissing(Path.Combine(SamplesFolder, "Everest Session 2 - Resistance Circuit.program.txt"), EverestSession2);
+                WriteIfMissing(Path.Combine(SamplesFolder, "Everest Session 3 - Cardio Pyramid.program.txt"), EverestSession3);
 
                 // Always rewritten (not WriteIfMissing) - the sample previously
                 // shipped with a broken script (per-station timing under
@@ -480,6 +485,184 @@ REPEAT 1
     WORK 20
     REST 10
 END
+END STATION
+";
+
+        private const string EverestSession1 =
+@"# Everest Session 1 - 4 stations, groups of 5-6, every group rotates every 8 minutes.
+# Each station has its OWN timing at the same time, so this uses Parallel mode with
+# the 8-minute pattern written out once per rotation and a 1-minute move between.
+# Every station lasts exactly 8:00, which keeps all the moves in sync.
+PROGRAM ""Everest Session 1 - The Journey Begins""
+MODE PARALLEL
+
+STATION ""Bike""
+    WORKNOTE ""High intensity""
+    RESTNOTE ""Spin recovery""
+    REPEAT 8
+        WORK 40
+        RECOVERY 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        RECOVERY 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        RECOVERY 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        RECOVERY 20
+    END
+END STATION
+
+STATION ""Treadmill""
+    WORKNOTE ""Run at 80%""
+    RESTNOTE ""Recovery walk""
+    REPEAT 4
+        WORK 60
+        RECOVERY 60
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 4
+        WORK 60
+        RECOVERY 60
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 4
+        WORK 60
+        RECOVERY 60
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 4
+        WORK 60
+        RECOVERY 60
+    END
+END STATION
+
+STATION ""Skipping""
+    WORKNOTE ""Continuous skipping (or high knees)""
+    RESTNOTE ""Rope down""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+END STATION
+
+STATION ""Floor""
+    WORKNOTE ""Mountain climbers / step ups / star jumps / burpees""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+    MOVE 60 ""Rotate to the next station""
+    REPEAT 8
+        WORK 40
+        REST 20
+    END
+END STATION
+";
+
+        private const string EverestSession2 =
+@"# Everest Session 2 - 8 stations, groups rotate. Timed stations are 1 min on / 30 sec off;
+# rep stations (3 x 12-15) do one set in each work period of the same clock.
+PROGRAM ""Everest Session 2 - Resistance Circuit""
+MODE CIRCUIT
+
+REPEAT 3
+    WORK 60
+    REST 30
+END
+
+BETWEEN
+    MOVE 30 ""Rotate to the next station""
+END BETWEEN
+
+STATION ""1. Wall Calf Raises""
+    WORKNOTE ""1 min on / 30 sec off""
+END STATION
+STATION ""2. RDLs""
+    WORKNOTE ""3 x 12-15 reps - one set per work period""
+END STATION
+STATION ""3. Goblet Squats""
+    WORKNOTE ""3 x 12-15 reps - one set per work period""
+END STATION
+STATION ""4. Dead Bugs""
+    WORKNOTE ""1 min on / 30 sec off""
+END STATION
+STATION ""5. Seated Weighted Calf Raises""
+    WORKNOTE ""3 x 12-15 reps - one set per work period""
+END STATION
+STATION ""6. Kettlebell Bird Dogs""
+    WORKNOTE ""3 x 12-15 reps - one set per work period""
+END STATION
+STATION ""7. Wall Sit""
+    WORKNOTE ""1 min on / 30 sec off""
+END STATION
+STATION ""8. Plank or V-Hold""
+    WORKNOTE ""1 min on / 30 sec off""
+END STATION
+";
+
+        private const string EverestSession3 =
+@"# Everest Session 3 - 4 stations, groups rotate. Pyramid 20/30/40/30/20 sec on with
+# 20 sec off, done twice at each station (8:00 per station).
+PROGRAM ""Everest Session 3 - Cardio Pyramid""
+MODE CIRCUIT
+
+REPEAT 2
+    WORK 20
+    REST 20
+    WORK 30
+    REST 20
+    WORK 40
+    REST 20
+    WORK 30
+    REST 20
+    WORK 20
+    REST 20
+END
+
+BETWEEN
+    MOVE 60 ""Rotate to the next station""
+END BETWEEN
+
+STATION ""1. Bike + Elliptical""
+END STATION
+STATION ""2. Treadmill""
+END STATION
+STATION ""3. Skipping Rope""
+END STATION
+STATION ""4. Battle Rope / Plyo Box""
 END STATION
 ";
     }
