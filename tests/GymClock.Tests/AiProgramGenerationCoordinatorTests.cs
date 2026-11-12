@@ -179,6 +179,36 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public async Task RevisionDurationPrompt_WithoutStationPolicy_RequestsStationPolicyClarification()
+        {
+            string baselineScript =
+                "PROGRAM \"Baseline\"\n"
+                + "MODE CIRCUIT\n"
+                + "REPEAT 3\n"
+                + "    WORK 30\n"
+                + "    REST 15\n"
+                + "END\n\n"
+                + "STATION \"A\"\nEND STATION\n\n"
+                + "STATION \"B\"\nEND STATION\n\n"
+                + "STATION \"C\"\nEND STATION\n\n"
+                + "STATION \"D\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(Array.Empty<string>());
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Revise the current program to increase total duration to about 60 minutes without changing mode.",
+                baselineScript,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Contains("station-change policy", proposal.AssistantMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
         public async Task AmbiguousIntervalPrompt_ReturnsClarificationQuestion_WithoutCallingAi()
         {
             FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
@@ -400,6 +430,56 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public async Task CircuitRevision_MissingRepeatEnd_AndStrayEndBeforeStationEnd_AreNormalized()
+        {
+            string malformedRevision =
+                "PROGRAM \"30 Minute Cardio & Resistance Pyramid\"\n"
+                + "MODE CIRCUIT\n\n"
+                + "REPEAT 5\n"
+                + "    WORK 60\n"
+                + "    REST 30\n"
+                + "    WORK 90\n"
+                + "    REST 30\n"
+                + "    WORK 120\n"
+                + "    REST 30\n"
+                + "    WORK 90\n"
+                + "    REST 30\n"
+                + "    WORK 60\n"
+                + "    REST 30\n\n"
+                + "STATION \"Cardio: Jumping Jacks\"\n"
+                + "    COLOUR #FF80FF\n"
+                + "END STATION\n\n"
+                + "STATION \"Resistance: Push Ups\"\n"
+                + "END STATION\n\n"
+                + "STATION \"Cardio: High Knees\"\n"
+                + "END\n"
+                + "END STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { malformedRevision });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(
+                fake,
+                validator,
+                new AiAssistantOptions { MaximumAutomaticRepairAttempts = 0, MaximumGenerationAttempts = 1 });
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Revise the current program to increase total duration to about 60 minutes without changing mode.",
+                "PROGRAM \"Baseline\"\nMODE CIRCUIT\nREPEAT 1\n    WORK 30\n    REST 15\nEND\n\nSTATION \"A\"\nEND STATION",
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.DoesNotContain(
+                proposal.Issues,
+                i => i.Message.IndexOf("Program has no executable timed content", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.DoesNotContain(
+                proposal.Issues,
+                i => i.Message.IndexOf("Unclosed REPEAT block", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.Contains("REPEAT", proposal.Script, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("END", proposal.Script, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("END\nEND STATION", proposal.Script, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
         public async Task RequestedDurationMismatch_TriggersRepairAttempt()
         {
             string tooShort =
@@ -580,6 +660,76 @@ namespace GymClock.Tests
             Assert.Equal("Station 1", program.Stations[0].Name);
             Assert.Equal("Station 2", program.Stations[1].Name);
             Assert.Equal("Station 4", program.Stations[3].Name);
+        }
+
+        [Fact]
+        public async Task Revision_WithoutChangingMode_PreservesBaselineModeAndStationCount()
+        {
+            string baselineScript =
+                "PROGRAM \"30 Minute Cardio & Resistance Pyramid\"\n"
+                + "MODE CIRCUIT\n\n"
+                + "REPEAT 5\n"
+                + "    WORK 60\n"
+                + "    REST 30\n"
+                + "    WORK 90\n"
+                + "    REST 30\n"
+                + "    WORK 120\n"
+                + "    REST 30\n"
+                + "    WORK 90\n"
+                + "    REST 30\n"
+                + "    WORK 60\n"
+                + "    REST 30\n"
+                + "END\n\n"
+                + "STATION \"Cardio: Jumping Jacks\"\nEND STATION\n\n"
+                + "STATION \"Resistance: Push Ups\"\nEND STATION\n\n"
+                + "STATION \"Cardio: High Knees\"\nEND STATION\n\n"
+                + "STATION \"Resistance: Bodyweight Squats\"\nEND STATION\n\n"
+                + "STATION \"Cardio: Mountain Climbers\"\nEND STATION\n\n"
+                + "STATION \"Resistance: Lunges\"\nEND STATION";
+
+            string aiRevisionThatDropsStations =
+                "PROGRAM \"30 Minute Cardio & Resistance Pyramid\"\n"
+                + "MODE CIRCUIT\n\n"
+                + "REPEAT 5\n"
+                + "    WORK 90\n"
+                + "    REST 30\n"
+                + "    WORK 120\n"
+                + "    REST 30\n"
+                + "    WORK 90\n"
+                + "    REST 30\n"
+                + "    WORK 180\n"
+                + "    REST 30\n"
+                + "    WORK 120\n"
+                + "    REST 30\n"
+                + "    WORK 90\n"
+                + "    REST 30\n"
+                + "    WORK 60\n"
+                + "    REST 30\n"
+                + "END\n\n"
+                + "STATION \"Cardio: Jumping Jacks\"\nEND STATION\n\n"
+                + "STATION \"Resistance: Push Ups\"\nEND STATION\n\n"
+                + "STATION \"Cardio: High Knees\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { aiRevisionThatDropsStations });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions
+            {
+                MaximumAutomaticRepairAttempts = 0,
+                MaximumGenerationAttempts = 1
+            };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Revise the current program to increase total duration to about 60 minutes without changing mode.\n"
+                + "Preserve station count and station details unchanged.",
+                baselineScript,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.NotNull(proposal.ParsedProgram);
+            Assert.Equal(ExecutionMode.Circuit, proposal.ParsedProgram.Mode);
+            Assert.Equal(6, proposal.ParsedProgram.Stations.Count);
         }
 
         private static string ValidSharedScript()
