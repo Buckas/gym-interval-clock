@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
+using GymClock.AI;
 
 namespace GymClock
 {
@@ -40,7 +45,13 @@ namespace GymClock
         private WorkoutProgram _program;
         private RepeatGroup _groupContext;      // non-null while drilled into a repeat group's own blocks
         private object _lastOutlineTag;
-        private readonly Timer _scriptSyncTimer = new Timer { Interval = 600 };
+        private readonly System.Windows.Forms.Timer _scriptSyncTimer = new System.Windows.Forms.Timer { Interval = 600 };
+        private string _undoAiPreviousScript;
+        private LocalAiSetupStatus _aiWarmupStatus = new LocalAiSetupStatus
+        {
+            Stage = LocalAiSetupStage.NotStarted,
+            Message = "Local AI warmup not started"
+        };
 
         /// <summary>
         /// Design-time constructor. The designer needs a parameterless one, and it must
@@ -53,6 +64,7 @@ namespace GymClock
         public ProgramEditorForm()
         {
             InitializeComponent();
+            Icon = AppIconProvider.GetIcon();
         }
 
         public ProgramEditorForm(TimerSettings settings)
@@ -62,6 +74,10 @@ namespace GymClock
             Result = settings.Clone();
 
             _scriptSyncTimer.Tick += ScriptSyncTimer_Tick;
+            AiAssistantRuntime.EnsureInitialized();
+            AiAssistantRuntime.WarmupStatusChanged += UpdateAiWarmupStatus;
+            UpdateAiWarmupStatus(AiAssistantRuntime.Service?.LastSetupStatus ?? _aiWarmupStatus);
+            _ = AiAssistantRuntime.StartWarmupIfNeeded();
 
             _pathLabel.Text = "Settings file (editable in Notepad):" + Environment.NewLine + TimerSettings.FilePath;
 
@@ -208,6 +224,166 @@ namespace GymClock
             }
         }
 
+        private async void AiAssistant_Click(object sender, EventArgs e)
+        {
+            if (AiAssistantRuntime.Service == null || AiAssistantRuntime.Coordinator == null)
+            {
+                MessageBox.Show(this,
+                    "Local AI service is unavailable.",
+                    "AI Assistant",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+                return;
+            }
+
+            string baselineScript = ProgramScriptFormat.ToScript(_program);
+            string baselineHash = ScriptHashGuard.ComputeHash(baselineScript);
+
+            using (ProgramAssistantForm dialog = new ProgramAssistantForm(
+                AiAssistantRuntime.Coordinator,
+                AiAssistantRuntime.Validator,
+                AiAssistantRuntime.Options,
+                AiAssistantRuntime.Service,
+                baselineScript))
+            {
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                string proposedScript = dialog.AppliedScript;
+                if (string.IsNullOrWhiteSpace(proposedScript)) return;
+
+                ProgramValidationResult validation = AiAssistantRuntime.Validator.Validate(proposedScript);
+                if (!validation.IsValid)
+                {
+                    MessageBox.Show(this,
+                        "The proposal is not valid and cannot be applied.",
+                        "AI Assistant",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
+                string currentScript = ProgramScriptFormat.ToScript(_program);
+                string currentHash = ScriptHashGuard.ComputeHash(currentScript);
+                if (!string.Equals(currentHash, baselineHash, StringComparison.Ordinal))
+                {
+                    DialogResult staleResult = MessageBox.Show(this,
+                        "The program in the editor changed while the AI Assistant was open."
+                        + Environment.NewLine + Environment.NewLine
+                        + "Yes = Replace Anyway"
+                        + Environment.NewLine
+                        + "No = Regenerate Against Latest Program"
+                        + Environment.NewLine
+                        + "Cancel = Cancel",
+                        "AI Assistant",
+                        MessageBoxButtons.YesNoCancel,
+                        MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button3);
+
+                    if (staleResult == DialogResult.Cancel) return;
+
+                    if (staleResult == DialogResult.No)
+                    {
+                        using (ProgramAssistantForm regenerate = new ProgramAssistantForm(
+                            AiAssistantRuntime.Coordinator,
+                            AiAssistantRuntime.Validator,
+                            AiAssistantRuntime.Options,
+                            AiAssistantRuntime.Service,
+                            currentScript))
+                        {
+                            if (regenerate.ShowDialog(this) != DialogResult.OK) return;
+                            proposedScript = regenerate.AppliedScript;
+                            if (string.IsNullOrWhiteSpace(proposedScript)) return;
+
+                            validation = AiAssistantRuntime.Validator.Validate(proposedScript);
+                            if (!validation.IsValid)
+                            {
+                                MessageBox.Show(this,
+                                    "The regenerated proposal is not valid and cannot be applied.",
+                                    "AI Assistant",
+                                    MessageBoxButtons.OK,
+                                    MessageBoxIcon.Warning);
+                                return;
+                            }
+                        }
+                    }
+                }
+
+                _undoAiPreviousScript = ProgramScriptFormat.ToScript(_program);
+
+                WorkoutProgram parsed = ProgramScriptFormat.Parse(proposedScript);
+                ApplyProgram(parsed);
+                _sourceBuilt.Checked = true;
+                _undoAiButton.Enabled = true;
+                _saveStatusLabel.Text = "AI proposal applied to editor. Save to keep it.";
+            }
+        }
+
+        private void UpdateAiWarmupStatus(LocalAiSetupStatus status)
+        {
+            if (IsDisposed) return;
+
+            if (InvokeRequired)
+            {
+                try
+                {
+                    BeginInvoke(new Action<LocalAiSetupStatus>(UpdateAiWarmupStatus), status);
+                }
+                catch
+                {
+                }
+
+                return;
+            }
+
+            LocalAiSetupStatus s = status ?? new LocalAiSetupStatus
+            {
+                Stage = LocalAiSetupStage.NotStarted,
+                Message = "Local AI warmup not started"
+            };
+
+            _aiWarmupStatus = s;
+
+            string text;
+            Color color;
+
+            if (s.IsReady)
+            {
+                text = "AI status: ready";
+                color = Color.FromArgb(15, 138, 70);
+            }
+            else if (s.IsFailure)
+            {
+                text = "AI status: setup failed (open assistant for retry)";
+                color = Color.DarkRed;
+            }
+            else if (s.Stage == LocalAiSetupStage.DownloadingModel && s.ProgressPercent.HasValue)
+            {
+                text = "AI status: downloading model... " + s.ProgressPercent.Value.ToString("0.0", CultureInfo.InvariantCulture) + "%";
+                color = Color.DimGray;
+            }
+            else
+            {
+                text = "AI status: " + (string.IsNullOrWhiteSpace(s.Message) ? "warming up..." : s.Message);
+                color = Color.DimGray;
+            }
+
+            _aiWarmupStatusLabel.Text = text;
+            _aiWarmupStatusLabel.ForeColor = color;
+            _aiAssistantButton.Enabled = true;
+        }
+
+        private void UndoAiChange_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_undoAiPreviousScript)) return;
+
+            WorkoutProgram parsed = ProgramScriptFormat.Parse(_undoAiPreviousScript);
+            ApplyProgram(parsed);
+            _sourceBuilt.Checked = true;
+            _saveStatusLabel.Text = "AI change undone.";
+            _undoAiPreviousScript = null;
+            _undoAiButton.Enabled = false;
+        }
+
         // ============================================================ built program header
 
         private void ProgramName_TextChanged(object sender, EventArgs e)
@@ -254,10 +430,10 @@ namespace GymClock
             }
         }
 
-        /// <summary>Lets MainForm's "B" shortcut jump straight to the wizard once this window is up, rather than duplicating its logic.</summary>
-        public void LaunchQuickWizard()
+        /// <summary>Lets MainForm's shortcut jump straight into the AI assistant once this window is up.</summary>
+        public void LaunchAiAssistant()
         {
-            QuickWizard_Click(this, EventArgs.Empty);
+            AiAssistant_Click(this, EventArgs.Empty);
         }
 
         private void QuickWizard_Click(object sender, EventArgs e)
@@ -979,6 +1155,8 @@ namespace GymClock
 
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
+            AiAssistantRuntime.WarmupStatusChanged -= UpdateAiWarmupStatus;
+
             _scriptSyncTimer.Dispose();
             base.OnFormClosed(e);
         }
@@ -992,5 +1170,6 @@ namespace GymClock
                 Close();
             }
         }
+
     }
 }

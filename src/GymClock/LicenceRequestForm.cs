@@ -27,6 +27,7 @@ namespace GymClock
         public LicenceRequestForm()
         {
             InitializeComponent();
+            Icon = AppIconProvider.GetIcon();
         }
 
         public LicenceRequestForm(LicenceStatus status)

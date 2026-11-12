@@ -25,6 +25,7 @@ namespace GymClock
         public LicenceDialog()
         {
             InitializeComponent();
+            Icon = AppIconProvider.GetIcon();
         }
 
         public LicenceDialog(LicenceStatus status, bool blocking)

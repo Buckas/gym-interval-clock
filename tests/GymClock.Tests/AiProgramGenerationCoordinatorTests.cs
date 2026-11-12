@@ -1,0 +1,643 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using GymClock.AI;
+using Xunit;
+
+namespace GymClock.Tests
+{
+    public class AiProgramGenerationCoordinatorTests
+    {
+        [Fact]
+        public async Task ValidFirstGeneration_ReturnsValidProposal_WithoutRepair()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a short shared class",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(
+                proposal.IsValid,
+                proposal.Script + " || " + string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.Single(fake.Calls);
+        }
+
+        [Fact]
+        public async Task InvalidThenValidRepair_AttemptsOneRepair_AndReturnsValid()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "PROGRAM \"Broken\"\nMODE SHARED\nWORK -10",
+                ValidSharedScript()
+            });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Fix this",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.Equal(2, fake.Calls.Count);
+
+            // Checkpoint 8: exactly one repair attempt means exactly two total calls.
+            Assert.Equal(2, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task InvalidThenInvalidRepair_StopsAfterOneRepair_AndReturnsInvalid()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "PROGRAM \"Broken\"\nMODE SHARED\nWORK -10",
+                "PROGRAM \"Still Broken\"\nMODE SHARED\nPAUSE 10"
+            });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Try repair",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.False(proposal.IsValid);
+            Assert.Equal(2, fake.Calls.Count);
+            Assert.Equal(2, fake.CallCount);
+            Assert.Contains(proposal.Issues, i => i.Severity == ValidationSeverity.Error);
+        }
+
+        [Fact]
+        public async Task MaximumAutomaticRepairAttempts_Zero_DoesNotAttemptRepair()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "PROGRAM \"Broken\"\nMODE SHARED\nWORK -10",
+                ValidSharedScript() // would be valid if a repair call happened
+            });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 0 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Try repair",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.False(proposal.IsValid);
+            Assert.Equal(1, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task MaximumAutomaticRepairAttempts_One_DoesNotCallThirdTime()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[]
+            {
+                "PROGRAM \"Broken\"\nMODE SHARED\nWORK -10",
+                "PROGRAM \"Still Broken\"\nMODE SHARED\nPAUSE 10",
+                ValidSharedScript() // should never be consumed in Checkpoint 8 flow
+            });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Try repair",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.False(proposal.IsValid);
+            Assert.Equal(2, fake.CallCount);
+            Assert.Equal(1, fake.RemainingResponses);
+        }
+
+        [Fact]
+        public async Task MarkdownFenceCleanup_RemovesFencesBeforeValidation()
+        {
+            string fenced = "```\n" + ValidSharedScript() + "\n```";
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { fenced });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Generate",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.DoesNotContain("```", proposal.Script);
+        }
+
+        [Fact]
+        public async Task AmbiguousPyramidPrompt_ReturnsClarificationQuestion_WithoutCallingAi()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a pyramid program with cardio and resistance for 30 minutes.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Contains("Reply with a number", proposal.AssistantMessage);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task AmbiguousPyramidPrompt_WithBaselineScript_StillRequestsClarification()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "I want a pyramid program with cardio and resistance for 30 minutes.",
+                ValidSharedScript(),
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task AmbiguousIntervalPrompt_ReturnsClarificationQuestion_WithoutCallingAi()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a 30-minute interval workout with cardio and strength blocks.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task GenericProgramPrompt_WithoutStructure_ReturnsClarificationQuestion()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Build a 30-minute cardio and resistance program for my class.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.RequiresClarification);
+            Assert.Equal(0, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task CircuitPrompt_WithStationHint_DoesNotClarify()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidEightStationCircuitScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a circuit with 8 stations and 4 rounds.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.False(proposal.RequiresClarification);
+            Assert.True(proposal.IsValid);
+            Assert.Equal(1, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task RequestedStationCountMismatch_TriggersRepairAttempt()
+        {
+            string wrongStationCount =
+                "PROGRAM \"Wrong Count\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 10\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - Jumping Jacks\"\nEND STATION\n"
+                + "STATION \"Resistance - Squats\"\nEND STATION\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            string correctedStationCount =
+                wrongStationCount + "\n\nSTATION \"Cardio - Mountain Climbers\"\nEND STATION\n"
+                + "STATION \"Resistance - Lunges\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { wrongStationCount, correctedStationCount });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED class with 6 stations and cardio plus resistance exercises.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(2, fake.CallCount);
+            Assert.Equal(6, proposal.ParsedProgram.Stations.Count);
+        }
+
+        [Fact]
+        public async Task PyramidRequirement_MissingDistinctWorkDurations_TriggersRepairAttempt()
+        {
+            string notPyramid =
+                "PROGRAM \"Flat\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 12\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - Jumping Jacks\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            string pyramid =
+                "PROGRAM \"Pyramid\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 1\n"
+                + "    WORK 30\n"
+                + "    REST 15\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "    WORK 60\n"
+                + "    REST 15\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "    WORK 30\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Squats\"\nEND STATION\n"
+                + "STATION \"Cardio - Jump Rope\"\nEND STATION\n"
+                + "STATION \"Resistance - Lunges\"\nEND STATION\n"
+                + "STATION \"Cardio - Mountain Climbers\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION\n"
+                + "STATION \"Cardio - Burpees\"\nEND STATION\n"
+                + "STATION \"Resistance - Plank Holds\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { notPyramid, pyramid });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED cardio and resistance pyramid program.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(2, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task CircuitStrictPyramid_MalformedAiOutput_FallsBackToValidTemplate()
+        {
+            string malformed =
+                "PROGRAM \"30 Minute Pyramid Workout\"\n"
+                + "MODE CIRCUIT\n"
+                + "REPEAT 5\n"
+                + "STATION\n"
+                + "STATION \"Cardio: Jumping Jacks\"\n"
+                + "WORK 60\n"
+                + "END STATION\n"
+                + "STATION\n"
+                + "STATION \"Resistance: Pushups\"\n"
+                + "END STATION\n"
+                + "STATION\n"
+                + "STATION \"Cardio: High Knees\"\n"
+                + "END STATION\n"
+                + "END";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { malformed });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions
+            {
+                MaximumAutomaticRepairAttempts = 0,
+                MaximumGenerationAttempts = 1
+            };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "i want a pyramid program with a combination of cardio and resistance training. we have 30 minutes to complete this.\n"
+                + "Use MODE CIRCUIT.\n"
+                + "Use 6 stations and 5 rounds.\n"
+                + "Keep total duration very close to the requested time.\n"
+                + "Include explicit cardio and resistance exercises in station names and/or notes.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid, string.Join(" | ", proposal.Issues.Select(i => i.Message)));
+            Assert.Contains("MODE CIRCUIT", proposal.Script, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(6, proposal.ParsedProgram.Stations.Count);
+
+            int durationSeconds = proposal.ParsedProgram.BuildRuntimeSequence().Sum(x => Math.Max(0, x.Block.Seconds));
+            Assert.InRange(durationSeconds, 25 * 60, 35 * 60);
+
+            string[] stationNames = proposal.ParsedProgram.Stations.Select(s => s.Name ?? string.Empty).ToArray();
+            Assert.Contains(stationNames, n => n.IndexOf("Cardio", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.Contains(stationNames, n => n.IndexOf("Resistance", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        [Fact]
+        public async Task CommonMalformedScriptLines_AreNormalized_BeforeValidation()
+        {
+            string malformed =
+                "PROGRAM 30 Minute Cardio & Resistance Pyramid\n"
+                + "MODE SHARED\n\n"
+                + "WORK 60\n"
+                + "REST 30\n\n"
+                + "STATION Jumping Jacks\n"
+                + "COLOUR\n"
+                + "END STATION\n\n"
+                + "STATION Push Ups\n"
+                + "END STATION\n\n"
+                + "STATION \"Mountain Climbers\n"
+                + "END STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { malformed });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a shared cardio and resistance class.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.DoesNotContain("\nCOLOUR\n", proposal.Script, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("STATION \"Jumping Jacks\"", proposal.Script);
+            Assert.Contains("STATION \"Mountain Climbers\"", proposal.Script);
+        }
+
+        [Fact]
+        public async Task RequestedDurationMismatch_TriggersRepairAttempt()
+        {
+            string tooShort =
+                "PROGRAM \"Short\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 1\n"
+                + "    WORK 30\n"
+                + "    REST 15\n"
+                + "END\n"
+                + "STATION \"Cardio - Jumping Jacks\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            string thirtyMinutes =
+                "PROGRAM \"30 Minute Mix\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 24\n"
+                + "    WORK 45\n"
+                + "    REST 30\n"
+                + "END\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Squats\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { tooShort, thirtyMinutes });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED 30 minute cardio and resistance program.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(2, fake.CallCount);
+            Assert.Contains("REPEAT 24", proposal.Script);
+        }
+
+        [Fact]
+        public async Task DurationWithinFiveMinutes_DoesNotForceRepair()
+        {
+            string twentySixMinutes =
+                "PROGRAM \"26 Minute Mix\"\n"
+                + "MODE SHARED\n"
+                + "REPEAT 13\n"
+                + "    WORK 60\n"
+                + "    REST 60\n"
+                + "END\n"
+                + "STATION \"Cardio - High Knees\"\nEND STATION\n"
+                + "STATION \"Resistance - Push Ups\"\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { twentySixMinutes, ValidSharedScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiAssistantOptions options = new AiAssistantOptions { MaximumAutomaticRepairAttempts = 1 };
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, options);
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Create a MODE SHARED 30 minute cardio and resistance program.",
+                string.Empty,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.Equal(1, fake.CallCount);
+        }
+
+        [Fact]
+        public async Task Cancellation_ThrowsCancellationException()
+        {
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidSharedScript() }, delayMs: 300);
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            using CancellationTokenSource cts = new CancellationTokenSource(50);
+
+            Exception ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            {
+                await coordinator.GenerateAsync("Generate", string.Empty, new ConversationState(), cts.Token);
+            });
+
+            Assert.True(ex is TaskCanceledException || ex is OperationCanceledException);
+        }
+
+        [Fact]
+        public async Task Checkpoint7_RotatingCircuitPrompt_ReturnsValidProposal_WithoutApplyingToEditor()
+        {
+            string baselineScript = "PROGRAM \"Baseline\"\nMODE SHARED\nWORK 30\nREST 15";
+            string prompt =
+                "Create an eight-station rotating circuit for 24 students in groups of three. "
+                + "Use four rounds, 45 seconds work, 15 seconds rest and 20 seconds to move clockwise. "
+                + "Give each station a different colour.";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { ValidEightStationCircuitScript() });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+            ConversationState conversation = new ConversationState();
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                prompt,
+                baselineScript,
+                conversation,
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.NotNull(proposal.ParsedProgram);
+            Assert.Equal(ExecutionMode.Circuit, proposal.ParsedProgram.Mode);
+            Assert.Equal(8, proposal.ParsedProgram.Stations.Count);
+
+            int distinctColours = proposal.ParsedProgram.Stations
+                .Select(s => s.Colour)
+                .Where(c => !string.IsNullOrWhiteSpace(c))
+                .Distinct(System.StringComparer.OrdinalIgnoreCase)
+                .Count();
+            Assert.Equal(8, distinctColours);
+
+            // Generation must not mutate any editor state; explicit Apply is separate.
+            Assert.Equal("PROGRAM \"Baseline\"\nMODE SHARED\nWORK 30\nREST 15", baselineScript);
+        }
+
+        [Fact]
+        public async Task Checkpoint9_ConversationalRevision_AppliesRequestedChanges_AndPreservesOthers()
+        {
+            string baselineScript =
+                "PROGRAM \"Rotating Group Circuit\"\n"
+                + "MODE CIRCUIT\n\n"
+                + "REPEAT 4\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "END\n\n"
+                + "BETWEEN\n"
+                + "    MOVE 20 \"Move clockwise to the next station\"\n"
+                + "END BETWEEN\n\n"
+                + "STATION \"Station 1\"\nCOLOUR #E53935\nEND STATION\n\n"
+                + "STATION \"Station 2\"\nCOLOUR #FB8C00\nEND STATION\n\n"
+                + "STATION \"Station 3\"\nCOLOUR #FDD835\nEND STATION\n\n"
+                + "STATION \"Station 4\"\nCOLOUR #43A047\nEND STATION";
+
+            string revisedScript =
+                "PROGRAM \"Rotating Group Circuit\"\n"
+                + "MODE CIRCUIT\n\n"
+                + "REPEAT 4\n"
+                + "    WORK 40\n"
+                + "    REST 15\n"
+                + "END\n\n"
+                + "BETWEEN\n"
+                + "    MOVE 20 \"Move clockwise to the next station\"\n"
+                + "END BETWEEN\n\n"
+                + "STATION \"Station 1\"\nCOLOUR #E53935\nEND STATION\n\n"
+                + "STATION \"Station 2\"\nCOLOUR #FB8C00\nEND STATION\n\n"
+                + "STATION \"Skipping\"\nCOLOUR #FDD835\nEND STATION\n\n"
+                + "STATION \"Station 4\"\nCOLOUR #43A047\nEND STATION";
+
+            FakeAiProgramService fake = new FakeAiProgramService(new[] { revisedScript });
+            ProgramProposalValidator validator = new ProgramProposalValidator();
+            AiProgramGenerationCoordinator coordinator = new AiProgramGenerationCoordinator(fake, validator, new AiAssistantOptions());
+
+            AiProgramProposal proposal = await coordinator.GenerateAsync(
+                "Change the work periods to 40 seconds and replace station 3 with skipping. Keep everything else the same.",
+                baselineScript,
+                new ConversationState(),
+                CancellationToken.None);
+
+            Assert.True(proposal.IsValid);
+            Assert.NotNull(proposal.ParsedProgram);
+
+            WorkoutProgram program = proposal.ParsedProgram;
+
+            // Requested changes
+            var sharedBlocks = program.SharedTimeline.Resolve();
+            Assert.Contains(sharedBlocks, b => b.Block.Type == BlockType.Work && b.Block.Seconds == 40);
+            Assert.Equal("Skipping", program.Stations[2].Name);
+
+            // Unchanged properties
+            Assert.Equal(ExecutionMode.Circuit, program.Mode);
+            Assert.Equal(4, program.Stations.Count);
+            Assert.Contains(sharedBlocks, b => b.Block.Type == BlockType.Rest && b.Block.Seconds == 15);
+            Assert.Contains(program.BetweenStationsTimeline.Resolve(), b => b.Block.Type == BlockType.Move && b.Block.Seconds == 20);
+            Assert.Equal("Station 1", program.Stations[0].Name);
+            Assert.Equal("Station 2", program.Stations[1].Name);
+            Assert.Equal("Station 4", program.Stations[3].Name);
+        }
+
+        private static string ValidSharedScript()
+        {
+            return "PROGRAM \"Shared\"\nMODE SHARED\nREPEAT 4\n    WORK 30\n    REST 15\nEND\n\nSTATION \"A\"\nCOLOUR #E53935\nWORKNOTE \"Push pace\"\nEND STATION";
+        }
+
+        private static string ValidEightStationCircuitScript()
+        {
+            return
+                "PROGRAM \"Rotating Group Circuit\"\n"
+                + "MODE CIRCUIT\n\n"
+                + "REPEAT 4\n"
+                + "    WORK 45\n"
+                + "    REST 15\n"
+                + "END\n\n"
+                + "BETWEEN\n"
+                + "    MOVE 20 \"Move clockwise to the next station\"\n"
+                + "END BETWEEN\n\n"
+                + "STATION \"Station 1\"\nCOLOUR #E53935\nEND STATION\n\n"
+                + "STATION \"Station 2\"\nCOLOUR #FB8C00\nEND STATION\n\n"
+                + "STATION \"Station 3\"\nCOLOUR #FDD835\nEND STATION\n\n"
+                + "STATION \"Station 4\"\nCOLOUR #43A047\nEND STATION\n\n"
+                + "STATION \"Station 5\"\nCOLOUR #1E88E5\nEND STATION\n\n"
+                + "STATION \"Station 6\"\nCOLOUR #3949AB\nEND STATION\n\n"
+                + "STATION \"Station 7\"\nCOLOUR #8E24AA\nEND STATION\n\n"
+                + "STATION \"Station 8\"\nCOLOUR #D81B60\nEND STATION";
+        }
+
+        private sealed class FakeAiProgramService : IAiProgramService
+        {
+            private readonly Queue<string> _responses;
+            private readonly int _delayMs;
+
+            public List<IReadOnlyList<AiChatMessage>> Calls { get; } = new List<IReadOnlyList<AiChatMessage>>();
+            public int CallCount { get { return Calls.Count; } }
+            public int RemainingResponses { get { return _responses.Count; } }
+
+            public FakeAiProgramService(IEnumerable<string> responses, int delayMs = 0)
+            {
+                _responses = new Queue<string>(responses ?? Array.Empty<string>());
+                _delayMs = delayMs;
+            }
+
+            public async Task<string> GenerateTextAsync(IReadOnlyList<AiChatMessage> messages, CancellationToken cancellationToken = default)
+            {
+                Calls.Add(messages == null ? Array.Empty<AiChatMessage>() : messages.ToArray());
+
+                if (_delayMs > 0)
+                {
+                    await Task.Delay(_delayMs, cancellationToken);
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (_responses.Count == 0) return string.Empty;
+                return _responses.Dequeue();
+            }
+        }
+    }
+}

@@ -6,6 +6,7 @@ using System.Drawing.Drawing2D;
 using System.Drawing.Text;
 using System.Globalization;
 using System.Windows.Forms;
+using GymClock.AI;
 
 namespace GymClock
 {
@@ -84,7 +85,8 @@ namespace GymClock
         {
             _settings = TimerSettings.Load();
 
-            Text = "Gym Interval Clock";
+            Text = "Gym Interval Clock Version 3.0";
+            Icon = AppIconProvider.GetIcon();
             BackColor = Color.Black;
             ClientSize = new Size(1280, 720);
             MinimumSize = new Size(520, 340);
@@ -136,6 +138,7 @@ namespace GymClock
             base.OnShown(e);
             SetFullScreen(true);
             _ticker.Start();
+            _ = AiAssistantRuntime.StartWarmupIfNeeded();
             StartBackgroundChecks(false);
             OfferRenewalIfDue();
         }
@@ -553,15 +556,14 @@ namespace GymClock
         }
 
         /// <summary>
-        /// The single combined window for general settings and building a
-        /// program. "B" jumps straight into its Quick Start Wizard for the
-        /// fastest path to a basic program; "S" just opens it at rest.
+        /// The single combined window for general settings and program editing.
+        /// "B" jumps straight into the AI Assistant; "S" opens the editor at rest.
         /// </summary>
         private void ShowProgramEditor(bool launchWizard)
         {
             using (ProgramEditorForm dialog = new ProgramEditorForm(_settings))
             {
-                if (launchWizard) dialog.Shown += delegate { dialog.LaunchQuickWizard(); };
+                if (launchWizard) dialog.Shown += delegate { dialog.LaunchAiAssistant(); };
 
                 if (dialog.ShowDialog(this) == DialogResult.OK)
                 {
@@ -831,7 +833,7 @@ namespace GymClock
                     ShowProgramEditor(false);
                     break;
 
-                case Keys.B:
+                case Keys.A:
                     ShowProgramEditor(true);
                     break;
 
@@ -1797,7 +1799,7 @@ namespace GymClock
         private string HintText()
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("SPACE start/pause  -  R reset  -  B build a program  -  S settings  -  ");
+            sb.Append("SPACE start/pause  -  R reset  -  A open AI assistant  -  S settings  -  ");
 
             if (_program.Mode == ExecutionMode.Parallel)
             {

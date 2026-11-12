@@ -35,7 +35,7 @@ namespace GymClock
     /// </summary>
     public static class ProgramScriptFormat
     {
-        private static readonly Regex DurationToken = new Regex(@"^(\d+)(m|s)?$", RegexOptions.IgnoreCase);
+        private static readonly Regex DurationToken = new Regex(@"^(\d+)(m|s|min|mins|minute|minutes|sec|secs|second|seconds)?$", RegexOptions.IgnoreCase);
 
         /// <summary>
         /// Parses the script grammar. Unrecognised or malformed lines are skipped
@@ -376,7 +376,9 @@ namespace GymClock
                 if (!int.TryParse(m.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out value)) continue;
 
                 string unit = m.Groups[2].Success ? m.Groups[2].Value.ToLowerInvariant() : string.Empty;
-                seconds += unit == "m" ? value * 60 : value;
+                seconds += (unit == "m" || unit == "min" || unit == "mins" || unit == "minute" || unit == "minutes")
+                    ? value * 60
+                    : value;
                 any = true;
             }
 
