@@ -1194,6 +1194,7 @@ namespace GymClock
 
             Color background;
             string word;
+            string note = string.Empty;
             string countdown = string.Empty;
             double fraction = 0;
 
@@ -1208,6 +1209,7 @@ namespace GymClock
                 Color baseColour = _settings.ColourFor(block.Type, block.Colour);
                 background = ApplyPulse(baseColour, position.RemainingSeconds, _phaseClock.IsRunning);
                 word = block.Word;
+                note = TileNoteFor(index, block);
                 countdown = FormatSeconds(position.RemainingSeconds);
                 fraction = block.Seconds > 0 ? position.RemainingSeconds / block.Seconds : 0;
                 if (fraction < 0) fraction = 0;
@@ -1241,13 +1243,22 @@ namespace GymClock
 
             // Word (WORK/RECOVERY/... or DONE), upper-middle.
             DrawFitted(g, word, _labelFamily, tile.Height * 0.10f, FontStyle.Bold, InkSoft,
-                new RectangleF(tile.X + pad, tile.Y + (tile.Height * 0.22f), tile.Width - (pad * 2), tile.Height * 0.14f));
+                new RectangleF(tile.X + pad, tile.Y + (tile.Height * 0.20f), tile.Width - (pad * 2), tile.Height * 0.12f));
+
+            // The station's coaching note for this phase (WORKNOTE / RESTNOTE / move message).
+            bool hasNote = !string.IsNullOrEmpty(note);
+            if (hasNote)
+            {
+                DrawCentredWrapped(g, note, tile.Height * 0.060f, FontStyle.Regular, Ink,
+                    new RectangleF(tile.X + pad, tile.Y + (tile.Height * 0.32f), tile.Width - (pad * 2), tile.Height * 0.15f));
+            }
 
             if (!string.IsNullOrEmpty(countdown))
             {
-                // The countdown number, the bulk of the tile.
-                DrawFitted(g, countdown, _numberFamily, tile.Height * 0.36f, _numberStyle, Ink,
-                    new RectangleF(tile.X + pad, tile.Y + (tile.Height * 0.36f), tile.Width - (pad * 2), tile.Height * 0.46f));
+                // The countdown number, the bulk of the tile (a little smaller when there is a note above it).
+                float numberTop = hasNote ? 0.47f : 0.36f;
+                DrawFitted(g, countdown, _numberFamily, tile.Height * (hasNote ? 0.30f : 0.36f), _numberStyle, Ink,
+                    new RectangleF(tile.X + pad, tile.Y + (tile.Height * numberTop), tile.Width - (pad * 2), tile.Height * (0.84f - numberTop)));
 
                 // Progress bar, bottom of the tile.
                 float barHeight = Math.Max(3f, tile.Height * 0.035f);
@@ -1450,6 +1461,42 @@ namespace GymClock
         /// overflows/overlaps its neighbours, and a short one still gets to use
         /// the full size offered.
         /// </summary>
+        /// <summary>The note to show on a Parallel tile: the station's work/rest note, or the block's own message (e.g. the move).</summary>
+        private string TileNoteFor(int stationIndex, Block block)
+        {
+            StationDef station = stationIndex >= 0 && stationIndex < _program.Stations.Count ? _program.Stations[stationIndex] : null;
+            if (!string.IsNullOrEmpty(block.Label)) return block.Label;
+            if (station == null) return string.Empty;
+
+            switch (block.Type)
+            {
+                case BlockType.Work: return station.WorkInstruction ?? string.Empty;
+                case BlockType.Rest:
+                case BlockType.Recovery: return station.RestInstruction ?? string.Empty;
+                default: return string.Empty;
+            }
+        }
+
+        /// <summary>Centred text that wraps onto a second line (shrinking only if needed) - used for tile notes.</summary>
+        private void DrawCentredWrapped(Graphics g, string text, float pixelSize, FontStyle style, Color colour, RectangleF bounds)
+        {
+            if (string.IsNullOrEmpty(text) || bounds.Width < 4 || bounds.Height < 4) return;
+
+            using (StringFormat format = new StringFormat())
+            {
+                format.Alignment = StringAlignment.Center;
+                format.LineAlignment = StringAlignment.Center;
+                format.Trimming = StringTrimming.EllipsisWord;
+                format.FormatFlags = StringFormatFlags.LineLimit;
+
+                Font font = FitFont(g, text, _labelFamily, style, pixelSize, bounds, format);
+                using (SolidBrush brush = new SolidBrush(colour))
+                {
+                    g.DrawString(text, font, brush, bounds, format);
+                }
+            }
+        }
+
         private void DrawTableCell(Graphics g, string text, float pixelSize, FontStyle style, Color colour, RectangleF bounds)
         {
             if (string.IsNullOrEmpty(text) || bounds.Width < 4 || bounds.Height < 4) return;
@@ -1552,9 +1599,8 @@ namespace GymClock
 
             if (_program.Mode == ExecutionMode.Parallel)
             {
-                int count = _parallelStations.Count;
-                text = _program.Name + "   -   Parallel (" + count + (count == 1 ? " station" : " stations") + ")";
-                if (_parallelPlan != null && _parallelPlan.Rotations > 1) text += ", " + _parallelPlan.Rotations + " rotations";
+                // Just the name: the stations are the tiles, and the rotation count has its own header line.
+                text = _program.Name;
             }
             else if (_program.Mode == ExecutionMode.Sequential && _program.Stations.Count > 0)
             {

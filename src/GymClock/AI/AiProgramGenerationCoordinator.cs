@@ -376,6 +376,32 @@ namespace GymClock.AI
             return cue != null && cue.Length <= 120 ? cue : null;
         }
 
+        /// <summary>Asks the local AI for exercise names for a new program (one per line); used by the guided builder.</summary>
+        public async Task<IReadOnlyList<string>> SuggestExerciseNamesAsync(string request, int count, CancellationToken cancellationToken)
+        {
+            string reply = await _aiService.GenerateTextAsync(new[]
+            {
+                new AiChatMessage(AiChatRole.System,
+                    "You are a fitness coach planning a school group fitness session. Suggest exactly " + count
+                    + " different exercises that suit timed stations. Reply with exactly " + count
+                    + " lines, one exercise name per line (1 to 4 words). No numbering, no other text.",
+                    DateTimeOffset.Now),
+                new AiChatMessage(AiChatRole.User, "Session request: " + (request ?? string.Empty), DateTimeOffset.Now)
+            }, cancellationToken).ConfigureAwait(false);
+
+            List<string> names = new List<string>();
+            foreach (string raw in CleanMarkdownFences(reply ?? string.Empty).Replace("\r", string.Empty).Split('\n'))
+            {
+                string line = Regex.Replace(raw.Trim(), @"^(\d+[.)]|[-*\u2022])\s*", string.Empty).Replace("**", string.Empty);
+                line = line.Split(new[] { '|', ':', '(' }, 2)[0].Trim().Trim('"', '.');
+                int words = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Length;
+                if (line.Length < 2 || line.Length > 40 || words > 5) continue;
+                if (!names.Contains(line, StringComparer.OrdinalIgnoreCase)) names.Add(line);
+                if (names.Count == count) break;
+            }
+            return names;
+        }
+
         private static readonly Regex SuggestionIntent = new Regex(
             @"\b(suggest|suggests|suggestion|suggestions|recommend|recommendation|recommendations|ideas?|options|alternatives|thoughts"
             + @"|what\s+(could|should|would|can|else|do\s+you)|which\s+(exercise|one|station)|do\s+you\s+have|any\s+(good\s+)?(ideas|thoughts|options))\b",

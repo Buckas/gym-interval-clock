@@ -52,6 +52,10 @@ namespace GymClock
         private readonly Button btnValidate = new Button();
         private readonly Button btnApply = new Button();
         private readonly Button btnCopyScript = new Button();
+        private readonly Button btnSaveAs = new Button();
+
+        /// <summary>Active step-by-step "create a new program" conversation, or null.</summary>
+        private GuidedProgramBuilder _builder;
         private readonly Label lblPrivacy = new Label();
         private readonly Panel pnlSetup = new Panel();
         private readonly Label lblSetup = new Label();
@@ -317,7 +321,9 @@ namespace GymClock
             AddRow(right, NewHeading("Proposed Script"));
             AddRow(right, rtbProposedScript, SizeType.Percent, 100);
             AddRow(right, lblValidationStatus);
-            AddRow(right, NewButtonRow(btnValidate, btnApply, btnCopyScript));
+            btnSaveAs.Text = "Save As...";
+            btnSaveAs.Click += (s, e) => SaveProposalAs();
+            AddRow(right, NewButtonRow(btnValidate, btnApply, btnCopyScript, btnSaveAs));
             AddRow(right, lblValidationHelp);
             AddRow(right, lblProgramSummary);
 
@@ -562,7 +568,7 @@ namespace GymClock
             btnSetup.Enabled = showManualSetupActions && uiState.EnableSetup;
             btnRetry.Enabled = showManualSetupActions && uiState.EnableRetry;
             btnDetails.Enabled = showManualSetupActions && uiState.EnableDetails;
-            btnSend.Enabled = !_isBusy && _localAiReady;
+            btnSend.Enabled = !_isBusy;
 
             bool setupInProgress = !_localAiReady && !s.IsFailure
                 && (s.Stage == LocalAiSetupStage.CheckingCompatibility
@@ -673,6 +679,9 @@ namespace GymClock
         private async Task GenerateAsync()
         {
             if (_isBusy) return;
+
+            if (await TryHandleGuidedBuilderAsync().ConfigureAwait(true)) return;
+
             if (!_localAiReady)
             {
                 MessageBox.Show(this,
@@ -747,8 +756,11 @@ namespace GymClock
                     }
                     else
                     {
-                        _clarificationStage = ClarificationStage.AwaitMode;
-                        AppendConversation("Assistant", BuildModeQuestion(proposal.AssistantMessage));
+                        // A new program with no clear structure: ask the guided questions and build it
+                        // in code (always valid) instead of letting the small model write the whole script.
+                        ResetClarificationState();
+                        _builder = new GuidedProgramBuilder(userInput, SuggestStationNamesAsync);
+                        AppendConversation("Assistant", _builder.Start());
                     }
                     return;
                 }
@@ -894,8 +906,127 @@ namespace GymClock
             txtRequest.Focus();
         }
 
+        /// <summary>
+        /// "Create a new program" requests are answered by the guided builder: the app asks
+        /// the questions and writes the script itself, so the result always validates. Runs
+        /// before the local-AI checks because only exercise suggestions use the AI.
+        /// </summary>
+        private async Task<bool> TryHandleGuidedBuilderAsync()
+        {
+            string userInput = txtRequest.Text.Trim();
+            if (userInput.Length == 0) return false;
+
+            bool builderActive = _builder != null && _builder.CurrentStep != GuidedProgramBuilder.Step.Done;
+            if (!builderActive)
+            {
+                if (_clarificationStage != ClarificationStage.None || _awaitingModeClarification) return false;
+                bool hasLoadedProgram = !string.IsNullOrWhiteSpace(rtbProposedScript.Text) || !string.IsNullOrWhiteSpace(_baselineScript);
+                if (!GuidedProgramBuilder.IsCreationRequest(userInput, hasLoadedProgram)) return false;
+
+                _builder = new GuidedProgramBuilder(userInput, _localAiReady ? SuggestStationNamesAsync : (Func<string, int, CancellationToken, Task<IReadOnlyList<string>>>)null);
+                txtRequest.Clear();
+                AppendConversation("User", userInput);
+                AppendConversation("Assistant", _builder.Start());
+                return true;
+            }
+
+            txtRequest.Clear();
+            AppendConversation("User", userInput);
+
+            _isGenerating = true;
+            SetBusy(true);
+            _requestCts?.Dispose();
+            _requestCts = new CancellationTokenSource();
+            try
+            {
+                string reply = await _builder.AnswerAsync(userInput, _requestCts.Token).ConfigureAwait(true);
+                if (_isClosing || IsDisposed) return true;
+
+                if (_builder.CurrentStep == GuidedProgramBuilder.Step.Done && !string.IsNullOrEmpty(_builder.Script))
+                {
+                    ProgramValidationResult validation = _validator.Validate(_builder.Script);
+                    AiProgramProposal proposal = new AiProgramProposal
+                    {
+                        UserRequest = userInput,
+                        Script = validation.Script,
+                        ParsedProgram = validation.ParsedProgram,
+                        Issues = validation.Issues
+                    };
+                    _session.SetGeneratedProposal(proposal);
+                    SetProposalText(proposal.Script);
+                    RenderValidation(proposal.Issues, proposal.ParsedProgram,
+                        proposal.IsValid ? ProposalValidationState.Valid : ProposalValidationState.Invalid);
+                }
+
+                AppendConversation("Assistant", reply);
+            }
+            catch (OperationCanceledException)
+            {
+                if (!_isClosing && !IsDisposed) AppendConversation("Assistant", "Cancelled. Reply to carry on, or start a New Chat.");
+            }
+            finally
+            {
+                _isGenerating = false;
+                SetBusy(false);
+            }
+            return true;
+        }
+
+        /// <summary>Exercise ideas for the guided builder from the local AI (one name per line).</summary>
+        private async Task<IReadOnlyList<string>> SuggestStationNamesAsync(string request, int count, CancellationToken cancellationToken)
+        {
+            using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60)))
+            using (CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token))
+            {
+                try
+                {
+                    return await _coordinator.SuggestExerciseNamesAsync(request, count, linked.Token).ConfigureAwait(true);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return Array.Empty<string>(); // too slow - the builder falls back to its own list
+                }
+            }
+        }
+
+        /// <summary>Saves the proposed script as a .program.txt file (default: the app's Programs folder).</summary>
+        private void SaveProposalAs()
+        {
+            string script = rtbProposedScript.Text;
+            if (string.IsNullOrWhiteSpace(script))
+            {
+                MessageBox.Show(this, "There is no script to save yet.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            WorkoutProgram parsed = ProgramScriptFormat.Parse(script);
+            string name = string.IsNullOrWhiteSpace(parsed.Name) ? "Program" : parsed.Name;
+            foreach (char c in System.IO.Path.GetInvalidFileNameChars()) name = name.Replace(c, '-');
+
+            using (SaveFileDialog dialog = new SaveFileDialog())
+            {
+                dialog.Title = "Save program";
+                dialog.Filter = "Gym Clock program (*.program.txt)|*.program.txt|Text file (*.txt)|*.txt";
+                dialog.FileName = name + ".program.txt";
+                try { dialog.InitialDirectory = ProgramLibrary.RootFolder; } catch { }
+                if (dialog.ShowDialog(this) != DialogResult.OK) return;
+
+                try
+                {
+                    System.IO.File.WriteAllText(dialog.FileName, script);
+                    AppendConversation("Assistant", "Saved to " + dialog.FileName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, "Could not save the file:" + Environment.NewLine + ex.Message, Text,
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
+
         private void NewConversation()
         {
+            _builder = null;
             _conversation.Clear();
             _session.Clear();
             ResetClarificationState();
