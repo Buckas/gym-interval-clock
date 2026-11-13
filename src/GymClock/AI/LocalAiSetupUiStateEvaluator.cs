@@ -74,7 +74,7 @@ namespace GymClock.AI
                     + Environment.NewLine
                     + "An internet connection may be required for the initial runtime/model download."
                     + Environment.NewLine
-                    + "No cloud AI service will be used by Gym Interval Clock Version 3.0."
+                    + "No cloud AI service will be used by Gym Interval Clock."
             };
         }
     }
