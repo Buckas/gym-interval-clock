@@ -26,6 +26,7 @@ namespace GymClock
         {
             InitializeComponent();
             Icon = AppIconProvider.GetIcon();
+            Text = "About " + Licensing.ProductName + " Version " + AppVersion.Display;
         }
 
         public LicenceDialog(LicenceStatus status, bool blocking)
@@ -34,7 +35,7 @@ namespace GymClock
             _status = status;
             _blocking = blocking;
 
-            _title.Text = Licensing.ProductName + "  v" + ShortProductVersion();
+            _title.Text = Licensing.ProductName + "  v" + AppVersion.Full;
             _copyrightLabel.Text = Licensing.Copyright;
             _machineBox.Text = Licensing.MachineId();
             _siteLink.Text = OnlineServices.BaseUrl;
@@ -44,26 +45,13 @@ namespace GymClock
                 + Environment.NewLine + "Enquiries: " + Licensing.ContactDetails;
 
             // Blocking mode: no way past this except a licence or quitting.
-            Text = blocking ? "Licence required" : "About " + Licensing.ProductName;
+            Text = blocking ? "Licence required" : "About " + Licensing.ProductName + " Version " + AppVersion.Display;
             ShowInTaskbar = blocking;
             StartPosition = blocking ? FormStartPosition.CenterScreen : FormStartPosition.CenterParent;
             _closeButton.Text = blocking ? "Exit" : "Close";
             _closeButton.DialogResult = blocking ? DialogResult.Cancel : DialogResult.OK;
 
             UpdateStatusText();
-        }
-
-        /// <summary>
-        /// Application.ProductVersion includes the SourceRevisionId (a full git
-        /// commit hash) appended after a '+', e.g. "2.0.0+abcdef1234...". That's
-        /// too wide for the title label and not meaningful to a user, so only
-        /// the plain "major.minor.patch" part is shown here.
-        /// </summary>
-        private static string ShortProductVersion()
-        {
-            string version = Application.ProductVersion ?? string.Empty;
-            int plus = version.IndexOf('+');
-            return plus >= 0 ? version.Substring(0, plus) : version;
         }
 
         private void UpdateStatusText()

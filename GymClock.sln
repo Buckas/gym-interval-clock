@@ -11,6 +11,16 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "GymClock.Tests", "tests\Gym
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{6ECBC853-9E06-4185-905B-BA705A81684D}"
+	ProjectSection(SolutionItems) = preProject
+		docs\plans\linked-displays.md = docs\plans\linked-displays.md
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "data", "data", "{4DF1394F-AF79-429D-87F3-B47D062A03D1}"
+	ProjectSection(SolutionItems) = preProject
+		data\exercises.json = data\exercises.json
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
