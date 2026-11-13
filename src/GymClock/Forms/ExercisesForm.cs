@@ -9,13 +9,21 @@ using GymClock.AI;
 namespace GymClock
 {
     /// <summary>
-    /// Manage the exercise library used for AI suggestions: the gym's equipment, add / edit /
-    /// hide exercises, and download library updates. Every change is saved to the teacher's own
-    /// file (my-exercises.json); library updates never touch it.
+    /// Manage the exercise library used for AI suggestions: the gym's equipment (including
+    /// equipment the teacher adds), add / edit / hide exercises, and download library updates.
+    /// Every change is saved to the teacher's own file (my-exercises.json); library updates never touch it.
     /// </summary>
     public sealed class ExercisesForm : Form
     {
-        private static readonly (ExerciseKit Kit, string Label)[] KitChoices =
+        /// <summary>One piece of equipment: built in (key = enum name) or added by the teacher (key = id).</summary>
+        private sealed class EquipmentOption
+        {
+            public string Key;
+            public string Label;
+            public bool Custom;
+        }
+
+        private static readonly (ExerciseKit Kit, string Label)[] BuiltInKit =
         {
             (ExerciseKit.Dumbbell, "Dumbbells"),
             (ExerciseKit.Kettlebell, "Kettlebells"),
@@ -45,8 +53,14 @@ namespace GymClock
             (ExerciseTag.LowImpact, "Low impact"),
         };
 
-        private readonly Dictionary<ExerciseKit, CheckBox> _gymKit = new Dictionary<ExerciseKit, CheckBox>();
+        private const int GridColumns = 6;
+
         private readonly CheckBox _allEquipment = new CheckBox { Text = "Don't filter - suggest any equipment", AutoSize = true };
+        private readonly TableLayoutPanel _gymGrid = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = GridColumns };
+        private readonly Dictionary<string, CheckBox> _gymKit = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
+        private readonly Button _addEquipment = new Button { Text = "Add equipment..." };
+        private readonly Button _removeEquipment = new Button { Text = "Remove equipment..." };
+
         private readonly TextBox _search = new TextBox { Dock = DockStyle.Fill };
         private readonly CheckBox _showHidden = new CheckBox { Text = "Show hidden", AutoSize = true, Anchor = AnchorStyles.Left };
         private readonly ListView _list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false };
@@ -54,7 +68,8 @@ namespace GymClock
         private readonly TextBox _name = new TextBox { Dock = DockStyle.Fill };
         private readonly TextBox _cue = new TextBox { Dock = DockStyle.Fill, Multiline = true, Height = 54 };
         private readonly Dictionary<ExerciseTag, CheckBox> _tags = new Dictionary<ExerciseTag, CheckBox>();
-        private readonly Dictionary<ExerciseKit, CheckBox> _kit = new Dictionary<ExerciseKit, CheckBox>();
+        private readonly FlowLayoutPanel _kitEdit = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
+        private readonly Dictionary<string, CheckBox> _kit = new Dictionary<string, CheckBox>(StringComparer.OrdinalIgnoreCase);
         private readonly CheckBox _wall = new CheckBox { Text = "Wall", AutoSize = true };
         private readonly CheckBox _floor = new CheckBox { Text = "Done on the floor / a mat", AutoSize = true };
         private readonly Label _origin = new Label { AutoSize = true, ForeColor = Color.DimGray };
@@ -83,11 +98,143 @@ namespace GymClock
             MinimumSize = new Size(Math.Min(work.Width, 860), Math.Min(work.Height, 600));
             ShowInTaskbar = false;
 
+            // The Program & Settings window is TopMost when "keep window on top" is on - without
+            // this, the library would open behind it.
+            TopMost = true;
+
+            _user = ExerciseCatalog.LoadUserDocument();
             BuildLayout();
-            LoadUser();
+            RebuildEquipment();
             RefreshList(null);
             RefreshStatus();
             ShowExercise(null);
+        }
+
+        // ------------------------------------------------------------------ equipment
+
+        private List<EquipmentOption> EquipmentOptions()
+        {
+            List<EquipmentOption> options = BuiltInKit
+                .Select(k => new EquipmentOption { Key = ExerciseCatalog.KitToNames(k.Kit)[0], Label = k.Label })
+                .ToList();
+            options.AddRange((_user.CustomEquipment ?? new List<CustomEquipment>())
+                .Where(c => !string.IsNullOrWhiteSpace(c?.Id) && !string.IsNullOrWhiteSpace(c.Name))
+                .OrderBy(c => c.Name)
+                .Select(c => new EquipmentOption { Key = c.Id, Label = c.Name, Custom = true }));
+            return options;
+        }
+
+        private string EquipmentLabel(string key)
+        {
+            EquipmentOption option = EquipmentOptions().FirstOrDefault(o => string.Equals(o.Key, key, StringComparison.OrdinalIgnoreCase));
+            if (option != null) return option.Label;
+            return string.Equals(key, "wall", StringComparison.OrdinalIgnoreCase) ? "Wall" : key;
+        }
+
+        /// <summary>(Re)creates the equipment tick-boxes in the gym grid and the exercise editor.</summary>
+        private void RebuildEquipment()
+        {
+            _loading = true;
+            List<EquipmentOption> options = EquipmentOptions();
+            HashSet<string> owned = _user.Equipment == null ? null : new HashSet<string>(_user.Equipment, StringComparer.OrdinalIgnoreCase);
+
+            _gymGrid.SuspendLayout();
+            _gymGrid.Controls.Clear();
+            _gymKit.Clear();
+            _gymGrid.Controls.Add(_allEquipment);
+            _gymGrid.SetColumnSpan(_allEquipment, 2);
+            _allEquipment.Checked = owned == null;
+            foreach (EquipmentOption option in options)
+            {
+                CheckBox box = new CheckBox
+                {
+                    Text = option.Label,
+                    AutoSize = true,
+                    Margin = new Padding(3, 3, 12, 3),
+                    Checked = owned == null || owned.Contains(option.Key),
+                    Enabled = owned != null,
+                    ForeColor = option.Custom ? Color.SteelBlue : SystemColors.ControlText
+                };
+                box.CheckedChanged += (s, e) => { if (!_loading) SaveEquipment(); };
+                _gymKit[option.Key] = box;
+                _gymGrid.Controls.Add(box);
+            }
+            _gymGrid.ResumeLayout();
+            _removeEquipment.Enabled = options.Any(o => o.Custom);
+
+            // Exercise editor: keep what is ticked for the exercise being edited.
+            HashSet<string> ticked = new HashSet<string>(_kit.Where(p => p.Value.Checked).Select(p => p.Key), StringComparer.OrdinalIgnoreCase);
+            _kitEdit.SuspendLayout();
+            _kitEdit.Controls.Clear();
+            _kit.Clear();
+            _kitEdit.Controls.Add(new Label { Text = "(none ticked = bodyweight)", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(3, 6, 8, 3) });
+            foreach (EquipmentOption option in options)
+            {
+                CheckBox box = new CheckBox
+                {
+                    Text = option.Label,
+                    AutoSize = true,
+                    Checked = ticked.Contains(option.Key),
+                    ForeColor = option.Custom ? Color.SteelBlue : SystemColors.ControlText
+                };
+                _kit[option.Key] = box;
+                _kitEdit.Controls.Add(box);
+            }
+            _kitEdit.Controls.Add(_wall);
+            _kitEdit.ResumeLayout();
+            _loading = false;
+        }
+
+        private void SaveEquipment()
+        {
+            foreach (CheckBox b in _gymKit.Values) b.Enabled = !_allEquipment.Checked;
+            _user.Equipment = _allEquipment.Checked ? null : _gymKit.Where(p => p.Value.Checked).Select(p => p.Key).ToList();
+            SaveUser();
+        }
+
+        private void AddEquipment()
+        {
+            string name = Prompt("Add equipment", "Name of the equipment (e.g. Sled, Agility ladder, Spin bikes):");
+            if (string.IsNullOrWhiteSpace(name)) return;
+            name = name.Trim();
+
+            if (EquipmentOptions().Any(o => string.Equals(o.Label, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                MessageBox.Show(this, "\"" + name + "\" is already in the list.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            string id = ExerciseCatalog.NewEquipmentId(name);
+            while (EquipmentOptions().Any(o => string.Equals(o.Key, id, StringComparison.OrdinalIgnoreCase))) id += "-2";
+
+            _user.CustomEquipment.Add(new CustomEquipment { Id = id, Name = name });
+            if (_user.Equipment != null) _user.Equipment.Add(id);   // you're adding it because the gym has it
+            SaveUser();
+            RebuildEquipment();
+            MessageBox.Show(this, "\"" + name + "\" added. Tick it under \"Equipment needed\" on any exercise that uses it, "
+                + "or create new exercises for it.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void RemoveEquipment()
+        {
+            List<CustomEquipment> custom = _user.CustomEquipment ?? new List<CustomEquipment>();
+            if (custom.Count == 0) return;
+
+            CustomEquipment item = Choose("Remove equipment", "Which equipment do you want to remove?", custom);
+            if (item == null) return;
+
+            int used = _user.Exercises.Count(x => (x.Equipment ?? new List<string>()).Any(k => string.Equals(k, item.Id, StringComparison.OrdinalIgnoreCase)));
+            string warning = used == 0 ? string.Empty
+                : Environment.NewLine + used + (used == 1 ? " of your exercises uses it" : " of your exercises use it") + " - it will be taken off them.";
+            if (MessageBox.Show(this, "Remove \"" + item.Name + "\"?" + warning, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+
+            custom.RemoveAll(c => string.Equals(c.Id, item.Id, StringComparison.OrdinalIgnoreCase));
+            _user.Equipment?.RemoveAll(k => string.Equals(k, item.Id, StringComparison.OrdinalIgnoreCase));
+            foreach (ExerciseRecord r in _user.Exercises) r.Equipment?.RemoveAll(k => string.Equals(k, item.Id, StringComparison.OrdinalIgnoreCase));
+            SaveUser();
+            RebuildEquipment();
+            RefreshList(_editingId);
+            ShowExercise(_editingId);
         }
 
         // ------------------------------------------------------------------ layout
@@ -103,31 +250,24 @@ namespace GymClock
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 Padding = new Padding(8)
             };
-            // A fixed grid (a wrapping flow panel inside a group box doesn't grow to show its second line).
-            const int gridColumns = 7;
-            TableLayoutPanel kitFlow = new TableLayoutPanel
+            for (int c = 0; c < GridColumns; c++) _gymGrid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / GridColumns));
+            _allEquipment.CheckedChanged += (s, e) => { if (!_loading) SaveEquipment(); };
+
+            foreach (Button b in new[] { _addEquipment, _removeEquipment })
             {
-                Dock = DockStyle.Fill,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                ColumnCount = gridColumns
-            };
-            for (int c = 0; c < gridColumns; c++) kitFlow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / gridColumns));
-            kitFlow.Controls.Add(_allEquipment);
-            kitFlow.SetColumnSpan(_allEquipment, 2);
-            foreach (var (kit, label) in KitChoices)
-            {
-                CheckBox box = new CheckBox { Text = label, AutoSize = true, Margin = new Padding(3, 3, 12, 3) };
-                box.CheckedChanged += (s, e) => { if (!_loading) SaveEquipment(); };
-                _gymKit[kit] = box;
-                kitFlow.Controls.Add(box);
+                b.AutoSize = true;
+                b.Padding = new Padding(8, 2, 8, 2);
             }
-            _allEquipment.CheckedChanged += (s, e) =>
-            {
-                foreach (CheckBox b in _gymKit.Values) b.Enabled = !_allEquipment.Checked;
-                if (!_loading) SaveEquipment();
-            };
-            gym.Controls.Add(kitFlow);
+            _addEquipment.Click += (s, e) => AddEquipment();
+            _removeEquipment.Click += (s, e) => RemoveEquipment();
+            FlowLayoutPanel equipmentButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
+            equipmentButtons.Controls.AddRange(new Control[] { _addEquipment, _removeEquipment });
+
+            TableLayoutPanel gymStack = Stack();
+            gymStack.Dock = DockStyle.Fill;
+            AddRow(gymStack, _gymGrid);
+            AddRow(gymStack, equipmentButtons);
+            gym.Controls.Add(gymStack);
 
             // Left: search + list
             TableLayoutPanel searchRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true };
@@ -150,6 +290,7 @@ namespace GymClock
             };
 
             TableLayoutPanel left = Stack();
+            left.AutoSize = false;
             left.Dock = DockStyle.Fill;
             AddRow(left, searchRow);
             AddRow(left, _list, SizeType.Percent, 100);
@@ -162,15 +303,6 @@ namespace GymClock
                 _tags[tag] = box;
                 tagFlow.Controls.Add(box);
             }
-            FlowLayoutPanel kitEdit = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
-            kitEdit.Controls.Add(new Label { Text = "(none ticked = bodyweight)", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(3, 6, 8, 3) });
-            foreach (var (kit, label) in KitChoices)
-            {
-                CheckBox box = new CheckBox { Text = label, AutoSize = true };
-                _kit[kit] = box;
-                kitEdit.Controls.Add(box);
-            }
-            kitEdit.Controls.Add(_wall);
 
             foreach (Button b in new[] { _new, _save, _hide, _revert, _delete })
             {
@@ -186,6 +318,7 @@ namespace GymClock
             buttons.Controls.AddRange(new Control[] { _new, _save, _hide, _revert, _delete });
 
             TableLayoutPanel right = Stack();
+            right.AutoSize = false;
             right.Dock = DockStyle.Fill;
             AddRow(right, _origin);
             AddRow(right, Heading("Name"));
@@ -195,7 +328,7 @@ namespace GymClock
             AddRow(right, Heading("Type"));
             AddRow(right, tagFlow);
             AddRow(right, Heading("Equipment needed"));
-            AddRow(right, kitEdit);
+            AddRow(right, _kitEdit);
             AddRow(right, _floor);
             AddRow(right, buttons);
 
@@ -218,7 +351,6 @@ namespace GymClock
             bottom.Controls.Add(_status, 0, 0);
             bottom.Controls.Add(_checkUpdates, 1, 0);
             bottom.Controls.Add(close, 2, 0);
-            AcceptButton = null;
             CancelButton = close;
 
             TableLayoutPanel root = Stack();
@@ -253,43 +385,22 @@ namespace GymClock
 
         // ------------------------------------------------------------------ data
 
-        private void LoadUser()
-        {
-            _loading = true;
-            _user = ExerciseCatalog.LoadUserDocument();
-            ExerciseKit? owned = _user.Equipment == null ? (ExerciseKit?)null : ExerciseCatalog.ParseKit(_user.Equipment);
-            _allEquipment.Checked = owned == null;
-            foreach (var pair in _gymKit)
-            {
-                pair.Value.Checked = owned == null || (owned.Value & pair.Key) != 0;
-                pair.Value.Enabled = owned != null;
-            }
-            _loading = false;
-        }
-
         private void SaveUser()
         {
             ExerciseCatalog.SaveUserDocument(_user);
             RefreshStatus();
         }
 
-        private void SaveEquipment()
-        {
-            if (_allEquipment.Checked)
-            {
-                _user.Equipment = null;
-            }
-            else
-            {
-                ExerciseKit owned = _gymKit.Where(p => p.Value.Checked).Aggregate(ExerciseKit.None, (k, p) => k | p.Key);
-                _user.Equipment = ExerciseCatalog.KitToNames(owned);
-            }
-            SaveUser();
-        }
-
         private CatalogEntry Find(string id)
         {
             return id == null ? null : ExerciseCatalog.Current.Entries.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private string EquipmentText(ExerciseRecord r)
+        {
+            List<string> keys = (r.Equipment ?? new List<string>()).ToList();
+            if (keys.Count == 0) return "Bodyweight";
+            return string.Join(", ", keys.Select(EquipmentLabel));
         }
 
         private void RefreshList(string selectId)
@@ -301,9 +412,7 @@ namespace GymClock
             {
                 if (entry.Hidden && !_showHidden.Checked) continue;
                 string types = string.Join(", ", TagChoices.Where(t => (entry.Exercise.Tags & t.Tag) != 0).Select(t => t.Label));
-                string kit = entry.Exercise.Kit == ExerciseKit.None ? "Bodyweight"
-                    : string.Join(", ", KitChoices.Where(k => (entry.Exercise.Kit & k.Kit) != 0).Select(k => k.Label)
-                        .Concat((entry.Exercise.Kit & ExerciseKit.Wall) != 0 ? new[] { "Wall" } : Array.Empty<string>()));
+                string kit = EquipmentText(entry.Record);
                 string match = entry.Record.Name + " " + types + " " + kit + " " + entry.Record.Cue;
                 if (filter.Length > 0 && match.IndexOf(filter, StringComparison.OrdinalIgnoreCase) < 0) continue;
 
@@ -334,12 +443,13 @@ namespace GymClock
             _editingId = entry?.Id;
             ExerciseRecord r = entry?.Record ?? new ExerciseRecord();
             Exercise e = entry?.Exercise ?? new Exercise(string.Empty, string.Empty, ExerciseTag.None);
+            HashSet<string> needs = new HashSet<string>(r.Equipment ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
 
             _name.Text = r.Name;
             _cue.Text = r.Cue;
             foreach (var pair in _tags) pair.Value.Checked = (e.Tags & pair.Key) != 0;
-            foreach (var pair in _kit) pair.Value.Checked = (e.Kit & pair.Key) != 0;
-            _wall.Checked = (e.Kit & ExerciseKit.Wall) != 0;
+            foreach (var pair in _kit) pair.Value.Checked = needs.Contains(pair.Key);
+            _wall.Checked = needs.Contains("wall");
             _floor.Checked = e.Floor;
 
             _origin.Text = entry == null ? "New exercise - fill in the details and Save."
@@ -363,8 +473,8 @@ namespace GymClock
             }
 
             ExerciseTag tags = _tags.Where(p => p.Value.Checked).Aggregate(ExerciseTag.None, (t, p) => t | p.Key);
-            ExerciseKit kit = _kit.Where(p => p.Value.Checked).Aggregate(ExerciseKit.None, (k, p) => k | p.Key);
-            if (_wall.Checked) kit |= ExerciseKit.Wall;
+            List<string> equipment = _kit.Where(p => p.Value.Checked).Select(p => p.Key).ToList();
+            if (_wall.Checked) equipment.Add("wall");
 
             string id = _editingId ?? ExerciseCatalog.NewCustomId(name);
             ExerciseRecord record = new ExerciseRecord
@@ -373,7 +483,7 @@ namespace GymClock
                 Name = name,
                 Cue = _cue.Text.Trim(),
                 Tags = ExerciseCatalog.TagsToNames(tags),
-                Equipment = ExerciseCatalog.KitToNames(kit),
+                Equipment = equipment,
                 Floor = _floor.Checked
             };
 
@@ -437,7 +547,7 @@ namespace GymClock
                 {
                     case LibraryUpdateResult.Updated:
                         message = "Library updated to version " + ExerciseCatalog.Current.LibraryVersion
-                            + ". Your own exercises, edits, hidden list and equipment were kept.";
+                            + ". Your own exercises, edits, equipment and hidden list were kept.";
                         break;
                     case LibraryUpdateResult.AlreadyUpToDate:
                         message = "You already have the latest library (version " + ExerciseCatalog.Current.LibraryVersion + ").";
@@ -459,6 +569,69 @@ namespace GymClock
             {
                 if (!IsDisposed) _checkUpdates.Enabled = true;
             }
+        }
+
+        // ------------------------------------------------------------------ small dialogs
+
+        private string Prompt(string title, string message)
+        {
+            using (Form dialog = SmallDialog(title, out TableLayoutPanel body, out Button ok))
+            {
+                TextBox input = new TextBox { Dock = DockStyle.Fill, Width = 360 };
+                AddRow(body, new Label { Text = message, AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
+                AddRow(body, input);
+                AddRow(body, DialogButtons(dialog, ok));
+                dialog.AcceptButton = ok;
+                return dialog.ShowDialog(this) == DialogResult.OK ? input.Text : null;
+            }
+        }
+
+        private CustomEquipment Choose(string title, string message, List<CustomEquipment> items)
+        {
+            using (Form dialog = SmallDialog(title, out TableLayoutPanel body, out Button ok))
+            {
+                ComboBox combo = new ComboBox { Dock = DockStyle.Fill, Width = 360, DropDownStyle = ComboBoxStyle.DropDownList, DisplayMember = "Name" };
+                foreach (CustomEquipment item in items.OrderBy(i => i.Name)) combo.Items.Add(item);
+                combo.SelectedIndex = 0;
+                AddRow(body, new Label { Text = message, AutoSize = true, Margin = new Padding(0, 0, 0, 6) });
+                AddRow(body, combo);
+                AddRow(body, DialogButtons(dialog, ok));
+                dialog.AcceptButton = ok;
+                return dialog.ShowDialog(this) == DialogResult.OK ? combo.SelectedItem as CustomEquipment : null;
+            }
+        }
+
+        private Form SmallDialog(string title, out TableLayoutPanel body, out Button ok)
+        {
+            Form dialog = new Form
+            {
+                Text = title,
+                Font = Font,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                StartPosition = FormStartPosition.CenterParent,
+                MinimizeBox = false,
+                MaximizeBox = false,
+                ShowInTaskbar = false,
+                TopMost = true,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                Padding = new Padding(12)
+            };
+            body = Stack();
+            body.Dock = DockStyle.Fill;
+            dialog.Controls.Add(body);
+            ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true, Padding = new Padding(12, 2, 12, 2) };
+            return dialog;
+        }
+
+        private static FlowLayoutPanel DialogButtons(Form dialog, Button ok)
+        {
+            Button cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, Padding = new Padding(8, 2, 8, 2) };
+            dialog.CancelButton = cancel;
+            FlowLayoutPanel row = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, Margin = new Padding(0, 10, 0, 0) };
+            row.Controls.Add(cancel);
+            row.Controls.Add(ok);
+            return row;
         }
     }
 }

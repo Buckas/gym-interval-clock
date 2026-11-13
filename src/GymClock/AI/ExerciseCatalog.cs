@@ -54,6 +54,16 @@ namespace GymClock.AI
 
         [JsonPropertyName("hidden")] public List<string> Hidden { get; set; } = new List<string>();
         [JsonPropertyName("exercises")] public List<ExerciseRecord> Exercises { get; set; } = new List<ExerciseRecord>();
+
+        /// <summary>Equipment the teacher has added, on top of the built-in list.</summary>
+        [JsonPropertyName("customEquipment")] public List<CustomEquipment> CustomEquipment { get; set; } = new List<CustomEquipment>();
+    }
+
+    /// <summary>Equipment the teacher has added (e.g. "Sled", "Agility ladder").</summary>
+    public sealed class CustomEquipment
+    {
+        [JsonPropertyName("id")] public string Id { get; set; } = string.Empty;
+        [JsonPropertyName("name")] public string Name { get; set; } = string.Empty;
     }
 
     public enum ExerciseOrigin { Library, Edited, Custom }
@@ -77,6 +87,12 @@ namespace GymClock.AI
 
         /// <summary>Equipment the gym has (null = not set, everything allowed).</summary>
         public ExerciseKit? OwnedKit { get; set; }
+
+        /// <summary>Teacher-added equipment the gym has (ids); only meaningful when OwnedKit is set.</summary>
+        public HashSet<string> OwnedOther { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Equipment the teacher has added (for the Exercises window and for reading requests).</summary>
+        public List<CustomEquipment> CustomEquipment { get; set; } = new List<CustomEquipment>();
 
         public IReadOnlyList<Exercise> Visible
         {
@@ -217,7 +233,10 @@ namespace GymClock.AI
                 LibraryVersion = library.Version,
                 LibraryIsDownloaded = useDownloaded,
                 LibraryUpdated = library.Updated ?? string.Empty,
-                OwnedKit = user.Equipment == null ? (ExerciseKit?)null : ParseKit(user.Equipment)
+                OwnedKit = user.Equipment == null ? (ExerciseKit?)null : ParseKit(user.Equipment),
+                OwnedOther = new HashSet<string>(OtherEquipment(user.Equipment), StringComparer.OrdinalIgnoreCase),
+                CustomEquipment = (user.CustomEquipment ?? new List<CustomEquipment>())
+                    .Where(c => !string.IsNullOrWhiteSpace(c?.Id) && !string.IsNullOrWhiteSpace(c.Name)).ToList()
             };
 
             HashSet<string> libraryIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -268,6 +287,13 @@ namespace GymClock.AI
             Directory.CreateDirectory(Folder);
             WriteAtomically(UserFilePath, JsonSerializer.Serialize(user, Json));
             Reload();
+        }
+
+        /// <summary>An id for teacher-added equipment, e.g. "Agility ladder" -> "my-agility-ladder".</summary>
+        public static string NewEquipmentId(string name)
+        {
+            string slug = System.Text.RegularExpressions.Regex.Replace((name ?? "equipment").ToLowerInvariant(), "[^a-z0-9]+", "-").Trim('-');
+            return "my-" + (slug.Length == 0 ? "equipment" : slug);
         }
 
         public static string NewCustomId(string name)
@@ -365,7 +391,17 @@ namespace GymClock.AI
             {
                 if (TagNames.TryGetValue((t ?? string.Empty).Trim().ToLowerInvariant(), out ExerciseTag tag)) tags |= tag;
             }
-            return new Exercise(r.Name, r.Cue ?? string.Empty, tags, ParseKit(r.Equipment), r.Floor, r.Id);
+            return new Exercise(r.Name, r.Cue ?? string.Empty, tags, ParseKit(r.Equipment), r.Floor, r.Id, OtherEquipment(r.Equipment));
+        }
+
+        /// <summary>Equipment names that aren't built in - i.e. teacher-added equipment ids.</summary>
+        public static List<string> OtherEquipment(IEnumerable<string> names)
+        {
+            return (names ?? Enumerable.Empty<string>())
+                .Select(n => (n ?? string.Empty).Trim().ToLowerInvariant())
+                .Where(n => n.Length > 0 && !KitNames.ContainsKey(n))
+                .Distinct()
+                .ToList();
         }
 
         public static ExerciseKit ParseKit(IEnumerable<string> names)

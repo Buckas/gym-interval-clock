@@ -53,9 +53,20 @@ namespace GymClock.AI
         public bool Floor { get; }      // done on the floor / a mat
         public string Id { get; }
 
-        public Exercise(string name, string cue, ExerciseTag tags, ExerciseKit kit = ExerciseKit.None, bool floor = false, string id = null)
+        /// <summary>Teacher-added equipment this exercise needs (ids), on top of <see cref="Kit"/>.</summary>
+        public IReadOnlyCollection<string> OtherKit { get; }
+
+        /// <summary>True when the exercise needs any equipment at all (a wall doesn't count).</summary>
+        public bool NeedsEquipment
+        {
+            get { return (Kit & ~ExerciseKit.Wall) != ExerciseKit.None || OtherKit.Count > 0; }
+        }
+
+        public Exercise(string name, string cue, ExerciseTag tags, ExerciseKit kit = ExerciseKit.None, bool floor = false, string id = null,
+            IEnumerable<string> otherKit = null)
         {
             Name = name; Cue = cue; Tags = tags; Kit = kit; Floor = floor; Id = id ?? name;
+            OtherKit = new HashSet<string>(otherKit ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         }
     }
 
@@ -68,6 +79,8 @@ namespace GymClock.AI
         public bool LowImpact;
         public bool NoEquipment;
         public ExerciseKit AnyOfKit;        // specific equipment asked for (OR)
+        public HashSet<string> AnyOfOtherKit = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // teacher-added equipment asked for
+        public List<string> OtherKitNames = new List<string>();                                       // ...and their names, for the reply
         public bool FloorOnly;
         public bool WantsDifferent;         // "more", "other", "different"
     }
@@ -109,6 +122,11 @@ namespace GymClock.AI
         }
 
         public static ExerciseQuery Parse(string request)
+        {
+            return Parse(request, ExerciseCatalog.Current.CustomEquipment);
+        }
+
+        public static ExerciseQuery Parse(string request, IEnumerable<CustomEquipment> customEquipment)
         {
             string text = (request ?? string.Empty).ToLowerInvariant();
             ExerciseQuery q = new ExerciseQuery();
@@ -156,6 +174,19 @@ namespace GymClock.AI
                 if (Regex.IsMatch(text, @"\b(machines?|bikes?|treadmills?|rowers?|rowing|elliptical|ergs?)\b")) q.AnyOfKit |= ExerciseKit.CardioMachine;
                 if (Regex.IsMatch(text, @"\b(trx|suspension)\b")) q.AnyOfKit |= ExerciseKit.Suspension;
                 if (Regex.IsMatch(text, @"\bcones?\b")) q.AnyOfKit |= ExerciseKit.Cones;
+
+                // Equipment the teacher added ("sled", "agility ladder"), singular or plural.
+                foreach (CustomEquipment item in customEquipment ?? Enumerable.Empty<CustomEquipment>())
+                {
+                    string name = (item.Name ?? string.Empty).Trim().ToLowerInvariant();
+                    if (name.Length < 2) continue;
+                    string stem = name.EndsWith("s", StringComparison.Ordinal) ? name.Substring(0, name.Length - 1) : name;
+                    if (Regex.IsMatch(text, @"\b" + Regex.Escape(stem) + @"(s|es)?\b"))
+                    {
+                        q.AnyOfOtherKit.Add(item.Id);
+                        q.OtherKitNames.Add(item.Name.Trim());
+                    }
+                }
             }
             return q;
         }
@@ -164,19 +195,25 @@ namespace GymClock.AI
 
         public static List<Exercise> Find(ExerciseQuery q)
         {
-            ExerciseKit? owned = ExerciseCatalog.Current.OwnedKit;
-            return All.Where(e => Matches(e, q, relaxed: false, owned)).ToList();
+            CatalogSnapshot c = ExerciseCatalog.Current;
+            return All.Where(e => Matches(e, q, relaxed: false, c.OwnedKit, c.OwnedOther)).ToList();
         }
 
-        private static bool Matches(Exercise e, ExerciseQuery q, bool relaxed, ExerciseKit? owned)
+        private static bool Matches(Exercise e, ExerciseQuery q, bool relaxed, ExerciseKit? owned, ICollection<string> ownedOther)
         {
-            // Only suggest equipment the gym has (set in the Exercises window) - unless it was asked for by name.
-            ExerciseKit needs = e.Kit & ~ExerciseKit.Wall;
-            if (owned.HasValue && needs != ExerciseKit.None && (needs & q.AnyOfKit) == ExerciseKit.None
-                && (needs & owned.Value) == ExerciseKit.None) return false;
+            bool askedForThis = (e.Kit & q.AnyOfKit) != ExerciseKit.None || e.OtherKit.Any(k => q.AnyOfOtherKit.Contains(k));
 
-            if (q.NoEquipment && (e.Kit & ~ExerciseKit.Wall) != ExerciseKit.None) return false;
-            if (q.AnyOfKit != ExerciseKit.None && (e.Kit & q.AnyOfKit) == ExerciseKit.None) return false;
+            // Only suggest equipment the gym has (set in the Exercises window) - unless it was asked for by name.
+            if (owned.HasValue && !askedForThis)
+            {
+                ExerciseKit needs = e.Kit & ~ExerciseKit.Wall;
+                if (needs != ExerciseKit.None && (needs & owned.Value) == ExerciseKit.None) return false;
+                if (e.OtherKit.Count > 0 && !e.OtherKit.Any(k => ownedOther != null && ownedOther.Contains(k))) return false;
+            }
+
+            if (q.NoEquipment && e.NeedsEquipment) return false;
+            bool askedForEquipment = q.AnyOfKit != ExerciseKit.None || q.AnyOfOtherKit.Count > 0;
+            if (askedForEquipment && !askedForThis) return false;
             if (q.AnyOfTypes != ExerciseTag.None && (e.Tags & q.AnyOfTypes) == ExerciseTag.None) return false;
             if (!relaxed)
             {
@@ -191,20 +228,20 @@ namespace GymClock.AI
         public static List<Exercise> Pick(ExerciseQuery q, IEnumerable<string> recentlySuggested, Random random, out bool relaxed)
         {
             CatalogSnapshot catalog = ExerciseCatalog.Current;
-            return Pick(q, recentlySuggested, random, catalog.Visible, catalog.OwnedKit, out relaxed);
+            return Pick(q, recentlySuggested, random, catalog.Visible, catalog.OwnedKit, out relaxed, catalog.OwnedOther);
         }
 
         public static List<Exercise> Pick(ExerciseQuery q, IEnumerable<string> recentlySuggested, Random random,
-            IReadOnlyList<Exercise> exercises, ExerciseKit? owned, out bool relaxed)
+            IReadOnlyList<Exercise> exercises, ExerciseKit? owned, out bool relaxed, ICollection<string> ownedOther = null)
         {
             HashSet<string> recent = new HashSet<string>(recentlySuggested ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
             relaxed = false;
 
-            List<Exercise> pool = exercises.Where(e => Matches(e, q, false, owned)).ToList();
+            List<Exercise> pool = exercises.Where(e => Matches(e, q, false, owned, ownedOther)).ToList();
             if (pool.Count < q.Count)
             {
                 // Not enough exact matches: keep the must-haves (equipment, type) and loosen the rest.
-                List<Exercise> extra = exercises.Where(e => Matches(e, q, true, owned) && !pool.Contains(e)).ToList();
+                List<Exercise> extra = exercises.Where(e => Matches(e, q, true, owned, ownedOther) && !pool.Contains(e)).ToList();
                 if (extra.Count > 0) relaxed = true;
                 pool.AddRange(extra.OrderBy(_ => random.Next()));
             }
@@ -286,7 +323,13 @@ namespace GymClock.AI
             text = (text.Length > 0 ? text + " " : string.Empty) + "exercises";
 
             if (q.NoEquipment) text += " with no equipment";
-            else if (q.AnyOfKit != ExerciseKit.None) text += " using " + KitWords(q.AnyOfKit);
+            else if (q.AnyOfKit != ExerciseKit.None || q.OtherKitNames.Count > 0)
+            {
+                List<string> kit = new List<string>();
+                if (q.AnyOfKit != ExerciseKit.None) kit.Add(KitWords(q.AnyOfKit));
+                kit.AddRange(q.OtherKitNames.Select(n => "a " + n.ToLowerInvariant()));
+                text += " using " + string.Join(" or ", kit);
+            }
             return text;
         }
 

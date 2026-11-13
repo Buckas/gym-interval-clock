@@ -103,9 +103,10 @@ namespace GymClock.Tests
         [Fact]
         public void ApplyingADownload_NeverTouchesTheTeachersFile()
         {
-            UserExerciseDocument user = new UserExerciseDocument { Equipment = new List<string> { "dumbbell" } };
+            UserExerciseDocument user = new UserExerciseDocument { Equipment = new List<string> { "dumbbell", "my-sled" } };
             user.Exercises.Add(Rec("push-ups", "Push Ups (knees ok)", "teacher's cue", "strength"));
             user.Hidden.Add("burpees");
+            user.CustomEquipment.Add(new CustomEquipment { Id = "my-sled", Name = "Sled" });
             ExerciseCatalog.SaveUserDocument(user);
             byte[] before = File.ReadAllBytes(ExerciseCatalog.UserFilePath);
 
@@ -125,6 +126,53 @@ namespace GymClock.Tests
             Assert.Equal(LibraryUpdateResult.AlreadyUpToDate, ExerciseCatalog.ApplyDownloadedLibrary(newer));
             Assert.Equal(LibraryUpdateResult.Invalid, ExerciseCatalog.ApplyDownloadedLibrary("<html>404</html>"));
             Assert.Equal(before, File.ReadAllBytes(ExerciseCatalog.UserFilePath));
+        }
+
+        private static void SaveSledGym(bool gymHasSled)
+        {
+            UserExerciseDocument user = new UserExerciseDocument
+            {
+                Equipment = gymHasSled ? new List<string> { "dumbbell", "my-sled" } : new List<string> { "dumbbell" }
+            };
+            user.CustomEquipment.Add(new CustomEquipment { Id = "my-sled", Name = "Sled" });
+            ExerciseRecord push = Rec("my-sled-push", "Sled Push", "Drive low through the legs", "strength", "lower", "cardio");
+            push.Equipment.Add("my-sled");
+            user.Exercises.Add(push);
+            ExerciseRecord pull = Rec("my-sled-pull", "Sled Rope Pull", "Hand over hand, stay low", "strength", "upper");
+            pull.Equipment.Add("my-sled");
+            user.Exercises.Add(pull);
+            ExerciseCatalog.SaveUserDocument(user);
+        }
+
+        [Fact]
+        public void AddedEquipment_IsUnderstoodInRequests()
+        {
+            SaveSledGym(gymHasSled: true);
+
+            ExerciseQuery q = ExerciseLibrary.Parse("give me 2 sled exercises");
+            Assert.Contains("my-sled", q.AnyOfOtherKit);
+            var picks = ExerciseLibrary.Pick(q, null, new Random(1), out _);
+            Assert.Equal(new[] { "Sled Pull", "Sled Push" }.Length, picks.Count);
+            Assert.All(picks, e => Assert.Contains("my-sled", e.OtherKit));
+
+            string reply = ExerciseLibrary.Answer("2 exercises using sleds", new ConversationState(), new Random(2));
+            Assert.Contains("using a sled", reply);
+            Assert.Contains("Sled", reply);
+        }
+
+        [Fact]
+        public void AddedEquipment_FollowsTheGymFilter_AndNoEquipmentRequests()
+        {
+            SaveSledGym(gymHasSled: false);
+            var strength = ExerciseLibrary.Pick(ExerciseLibrary.Parse("give me 12 resistance exercises"), null, new Random(3), out _);
+            Assert.DoesNotContain(strength, e => e.OtherKit.Count > 0);                         // gym hasn't got one
+
+            Assert.NotEmpty(ExerciseLibrary.Pick(ExerciseLibrary.Parse("2 sled exercises"), null, new Random(3), out _)
+                .Where(e => e.OtherKit.Contains("my-sled")));                                    // ...unless asked for by name
+
+            SaveSledGym(gymHasSled: true);
+            var bodyweight = ExerciseLibrary.Pick(ExerciseLibrary.Parse("12 strength exercises with no equipment"), null, new Random(4), out _);
+            Assert.DoesNotContain(bodyweight, e => e.NeedsEquipment);
         }
 
         [Fact]
