@@ -51,10 +51,11 @@ namespace GymClock.AI
         public ExerciseTag Tags { get; }
         public ExerciseKit Kit { get; }
         public bool Floor { get; }      // done on the floor / a mat
+        public string Id { get; }
 
-        public Exercise(string name, string cue, ExerciseTag tags, ExerciseKit kit = ExerciseKit.None, bool floor = false)
+        public Exercise(string name, string cue, ExerciseTag tags, ExerciseKit kit = ExerciseKit.None, bool floor = false, string id = null)
         {
-            Name = name; Cue = cue; Tags = tags; Kit = kit; Floor = floor;
+            Name = name; Cue = cue; Tags = tags; Kit = kit; Floor = floor; Id = id ?? name;
         }
     }
 
@@ -72,141 +73,20 @@ namespace GymClock.AI
     }
 
     /// <summary>
-    /// A built-in, curated set of school-gym exercises with coaching cues, searchable by type,
-    /// body area, equipment and floor/no-floor. Answers "I need 5 resistance exercises with basic
+    /// Searches the exercise catalog (shared library + the teacher's own changes) by type, body
+    /// area, equipment and floor/no-floor. Answers "I need 5 resistance exercises with basic
     /// weights" style requests instantly and reliably - no AI needed, nothing invented.
     /// </summary>
     public static class ExerciseLibrary
     {
-        private const ExerciseTag C = ExerciseTag.Cardio, S = ExerciseTag.Strength, Co = ExerciseTag.Core,
-            P = ExerciseTag.Plyometric, M = ExerciseTag.Mobility, U = ExerciseTag.Upper, L = ExerciseTag.Lower,
-            F = ExerciseTag.FullBody, Lo = ExerciseTag.LowImpact;
-
-        public static readonly IReadOnlyList<Exercise> All = new List<Exercise>
+        /// <summary>
+        /// The exercises available for suggestions: the shared library (data/exercises.json, or a newer
+        /// downloaded copy) plus the teacher's own edits and exercises, minus hidden ones.
+        /// </summary>
+        public static IReadOnlyList<Exercise> All
         {
-            // ---- bodyweight cardio / plyometric
-            new Exercise("Jumping Jacks", "Land softly, arms fully overhead", C | F),
-            new Exercise("Star Jumps", "Explode up into a star shape, land with soft knees", C | P | F),
-            new Exercise("High Knees", "Drive knees to hip height, quick feet", C | L),
-            new Exercise("Butt Kicks", "Heels to glutes, stay light on your toes", C | L | Lo),
-            new Exercise("Mountain Climbers", "Hips level with shoulders, drive knees to chest", C | Co | F, floor: true),
-            new Exercise("Burpees", "Chest to floor, jump and clap overhead", C | P | F, floor: true),
-            new Exercise("Squat Jumps", "Sit back into the squat, explode up, land softly", P | L | C),
-            new Exercise("Tuck Jumps", "Drive knees to chest, land quietly", P | L | C),
-            new Exercise("Skater Hops", "Bound side to side, land on one leg and hold balance", C | P | L),
-            new Exercise("Lateral Shuffles", "Stay low, don't cross your feet", C | L | Lo),
-            new Exercise("Shuttle Runs", "Touch the line, turn fast, accelerate out", C | L),
-            new Exercise("Fast Feet", "Quick small steps on the balls of your feet", C | L | Lo),
-            new Exercise("Bear Crawl", "Knees just off the floor, opposite hand and foot", C | Co | F, floor: true),
-            new Exercise("Inchworms", "Walk hands out to plank, walk feet back in", M | Co | F, floor: true),
-            new Exercise("Plank Jacks", "Hold a strong plank, jump feet in and out", C | Co, floor: true),
-            new Exercise("Seal Jacks", "Clap arms wide then together, keep a steady rhythm", C | U | Lo),
-            new Exercise("Marching on the Spot", "Lift knees high, swing the arms", C | Lo | L),
-            new Exercise("Step Jacks", "Step one foot out at a time, arms overhead", C | Lo | F),
-            new Exercise("Broad Jumps", "Swing arms, jump forward, stick the landing", P | L),
-            new Exercise("Lunge Jumps", "Switch legs in the air, back knee just off the floor", P | L | C),
-            new Exercise("Sprint on the Spot", "Pump the arms, fast feet, stay tall", C | L),
-            new Exercise("Shadow Boxing", "Light feet, fast punches, keep guard up", C | U | Lo),
-
-            // ---- bodyweight strength / core
-            new Exercise("Push Ups", "Body in a straight line, chest to the floor", S | U | Co, floor: true),
-            new Exercise("Knee Push Ups", "Straight line from knees to shoulders", S | U | Lo, floor: true),
-            new Exercise("Wide Push Ups", "Hands wider than shoulders, elbows out", S | U, floor: true),
-            new Exercise("Tricep Dips (on floor)", "Fingers to heels, lower slowly, push up", S | U, floor: true),
-            new Exercise("Bodyweight Squats", "Chest up, knees over toes, sit back", S | L | Lo),
-            new Exercise("Sumo Squats", "Wide stance, toes out, sit straight down", S | L | Lo),
-            new Exercise("Lunges", "Long step, back knee just above the floor", S | L),
-            new Exercise("Reverse Lunges", "Step back, front knee stays over the ankle", S | L | Lo),
-            new Exercise("Side Lunges", "Sit into one hip, other leg straight", S | L | Lo),
-            new Exercise("Glute Bridges", "Squeeze glutes at the top, ribs down", S | L | Lo, floor: true),
-            new Exercise("Single-Leg Glute Bridges", "Hips level, push through the heel", S | L, floor: true),
-            new Exercise("Calf Raises", "Rise high onto your toes, lower slowly", S | L | Lo),
-            new Exercise("Wall Sit", "Thighs parallel to the floor, back flat on the wall", S | L | Lo, ExerciseKit.Wall),
-            new Exercise("Plank", "Elbows under shoulders, squeeze glutes and abs", Co | Lo, floor: true),
-            new Exercise("Side Plank", "Hips high, body in one line", Co | Lo, floor: true),
-            new Exercise("Plank Shoulder Taps", "Keep hips still while you tap", Co | U, floor: true),
-            new Exercise("Dead Bugs", "Lower back pressed into the floor, move slowly", Co | Lo, floor: true),
-            new Exercise("Bird Dogs", "Reach long, keep hips level", Co | Lo | M, floor: true),
-            new Exercise("Crunches", "Lift shoulders, chin off the chest", Co | Lo, floor: true),
-            new Exercise("Bicycle Crunches", "Elbow towards opposite knee, slow and controlled", Co, floor: true),
-            new Exercise("Russian Twists", "Lean back slightly, rotate from the ribs", Co, floor: true),
-            new Exercise("Leg Raises", "Lower back down, lower legs slowly", Co, floor: true),
-            new Exercise("Flutter Kicks", "Small fast kicks, lower back pressed down", Co, floor: true),
-            new Exercise("V-Hold", "Balance on your sit bones, chest up", Co, floor: true),
-            new Exercise("Superman Hold", "Lift arms and legs, look at the floor", Co | Lo, floor: true),
-            new Exercise("Hollow Hold", "Lower back glued to the floor, arms by ears", Co, floor: true),
-            new Exercise("Sit-Ups", "Feet anchored, roll up with control", Co, floor: true),
-            new Exercise("Bear Hold", "Knees an inch off the floor, back flat", Co | Lo, floor: true),
-
-            // ---- mobility / warm-up / cool-down
-            new Exercise("World's Greatest Stretch", "Lunge, elbow to instep, rotate and reach", M | F | Lo, floor: true),
-            new Exercise("Cat-Cow", "Move slowly through the whole spine", M | Co | Lo, floor: true),
-            new Exercise("Arm Circles", "Small to big circles, both directions", M | U | Lo),
-            new Exercise("Leg Swings", "Hold a wall, swing front to back then side to side", M | L | Lo, ExerciseKit.Wall),
-            new Exercise("Hip Openers", "Big slow knee circles, stay tall", M | L | Lo),
-            new Exercise("Hamstring Walkouts", "Soft knees, walk hands down and back", M | L | Lo, floor: true),
-            new Exercise("Child's Pose", "Sit back to heels, breathe slowly", M | Lo, floor: true),
-
-            // ---- dumbbells (basic weights)
-            new Exercise("Goblet Squats", "Hold the weight at your chest, elbows inside knees", S | L, ExerciseKit.Dumbbell | ExerciseKit.Kettlebell),
-            new Exercise("Dumbbell Romanian Deadlifts", "Soft knees, push hips back, flat back", S | L, ExerciseKit.Dumbbell),
-            new Exercise("Dumbbell Shoulder Press", "Ribs down, press straight overhead", S | U, ExerciseKit.Dumbbell),
-            new Exercise("Dumbbell Bent-Over Rows", "Flat back, pull elbows to your hips", S | U, ExerciseKit.Dumbbell),
-            new Exercise("Dumbbell Bicep Curls", "Elbows tucked in, no swinging", S | U | Lo, ExerciseKit.Dumbbell),
-            new Exercise("Dumbbell Floor Press", "Elbows at 45 degrees, press up together", S | U, ExerciseKit.Dumbbell, floor: true),
-            new Exercise("Dumbbell Reverse Lunges", "Weights by your sides, stay tall", S | L, ExerciseKit.Dumbbell),
-            new Exercise("Dumbbell Step-Ups", "Whole foot on the step, drive through the heel", S | L, ExerciseKit.Dumbbell | ExerciseKit.StepOrBench),
-            new Exercise("Dumbbell Thrusters", "Squat down, drive up and press overhead in one move", S | F | C, ExerciseKit.Dumbbell),
-            new Exercise("Renegade Rows", "Wide feet, row without twisting the hips", S | U | Co, ExerciseKit.Dumbbell, floor: true),
-            new Exercise("Dumbbell Lateral Raises", "Slight bend in the elbows, lift to shoulder height", S | U | Lo, ExerciseKit.Dumbbell),
-            new Exercise("Weighted Calf Raises", "Pause at the top, lower slowly", S | L | Lo, ExerciseKit.Dumbbell),
-            new Exercise("Farmer's Carry", "Stand tall, shoulders back, walk slowly", S | Co | F, ExerciseKit.Dumbbell | ExerciseKit.Kettlebell),
-            new Exercise("Weighted Glute Bridges", "Weight on the hips, squeeze at the top", S | L, ExerciseKit.Dumbbell | ExerciseKit.WeightPlate, floor: true),
-            new Exercise("Dumbbell Russian Twists", "Hold one weight, rotate from the ribs", Co | S, ExerciseKit.Dumbbell | ExerciseKit.WeightPlate | ExerciseKit.MedicineBall, floor: true),
-
-            // ---- kettlebells
-            new Exercise("Kettlebell Swings", "Hinge at the hips, snap them forward, arms relaxed", S | C | F, ExerciseKit.Kettlebell),
-            new Exercise("Kettlebell Deadlifts", "Bell between the feet, flat back, stand tall", S | L, ExerciseKit.Kettlebell),
-            new Exercise("Kettlebell Halos", "Circle the bell close around your head", S | U | M, ExerciseKit.Kettlebell),
-            new Exercise("Kettlebell Bird Dogs", "Drag the bell under your body without twisting", Co | S, ExerciseKit.Kettlebell, floor: true),
-
-            // ---- weight plates
-            new Exercise("Plate Front Raises", "Arms straight, lift to eye level", S | U | Lo, ExerciseKit.WeightPlate),
-            new Exercise("Plate Overhead Lunges", "Plate locked out overhead, core tight", S | L | Co, ExerciseKit.WeightPlate),
-
-            // ---- resistance bands
-            new Exercise("Band Pull-Aparts", "Arms straight, squeeze shoulder blades together", S | U | Lo, ExerciseKit.Band),
-            new Exercise("Banded Squats", "Band above the knees, push knees out", S | L | Lo, ExerciseKit.Band),
-            new Exercise("Band Rows", "Band around a post, pull elbows back", S | U | Lo, ExerciseKit.Band),
-            new Exercise("Banded Lateral Walks", "Stay low, keep tension in the band", S | L | Lo, ExerciseKit.Band),
-            new Exercise("Band Chest Press", "Band behind your back, press forward", S | U | Lo, ExerciseKit.Band),
-
-            // ---- medicine ball / slam ball
-            new Exercise("Medicine Ball Slams", "Reach tall, slam hard, catch on the bounce", P | F | C, ExerciseKit.MedicineBall | ExerciseKit.SlamBall),
-            new Exercise("Wall Balls", "Squat deep, throw to the target, catch and repeat", P | F | C, ExerciseKit.MedicineBall | ExerciseKit.Wall),
-            new Exercise("Medicine Ball Chest Pass (wall)", "Explosive push, catch with soft hands", P | U, ExerciseKit.MedicineBall | ExerciseKit.Wall),
-
-            // ---- step / bench / box
-            new Exercise("Step-Ups", "Whole foot on the step, swap lead legs", S | L | C, ExerciseKit.StepOrBench),
-            new Exercise("Bench Dips", "Shoulders down, elbows point back", S | U, ExerciseKit.StepOrBench),
-            new Exercise("Incline Push Ups", "Hands on the bench, body in a straight line", S | U | Lo, ExerciseKit.StepOrBench),
-            new Exercise("Bulgarian Split Squats", "Back foot on the bench, drop the back knee", S | L, ExerciseKit.StepOrBench),
-            new Exercise("Box Jumps", "Swing arms, land softly, step down", P | L | C, ExerciseKit.Box),
-
-            // ---- other equipment
-            new Exercise("Skipping", "Small jumps, turn the rope from the wrists", C | Lo, ExerciseKit.SkippingRope),
-            new Exercise("Double Unders", "Jump a little higher, fast wrists", C | P, ExerciseKit.SkippingRope),
-            new Exercise("Battle Rope Waves", "Athletic stance, fast alternating arms", C | U | Co, ExerciseKit.BattleRope),
-            new Exercise("Battle Rope Slams", "Lift both arms high, slam together", C | P | U, ExerciseKit.BattleRope),
-            new Exercise("Exercise Bike Intervals", "High cadence on work, easy spin on rest", C | L | Lo, ExerciseKit.CardioMachine),
-            new Exercise("Treadmill Run", "Run at about 80% effort, walk to recover", C | L, ExerciseKit.CardioMachine),
-            new Exercise("Rowing Machine", "Legs, body, arms - then arms, body, legs", C | F | Lo, ExerciseKit.CardioMachine),
-            new Exercise("Elliptical Trainer", "Stand tall, push and pull with the arms", C | F | Lo, ExerciseKit.CardioMachine),
-            new Exercise("TRX Rows", "Body straight, pull chest to hands", S | U | Lo, ExerciseKit.Suspension),
-            new Exercise("TRX Squats", "Hold the handles, sit back deep", S | L | Lo, ExerciseKit.Suspension),
-            new Exercise("Cone Sprints", "Sprint to the cone, back-pedal to the start", C | L, ExerciseKit.Cones),
-            new Exercise("Agility Weave", "Weave through the cones, low centre of gravity", C | L, ExerciseKit.Cones),
-        };
+            get { return ExerciseCatalog.Current.Visible; }
+        }
 
         // ------------------------------------------------------------------ intent + parsing
 
@@ -284,11 +164,17 @@ namespace GymClock.AI
 
         public static List<Exercise> Find(ExerciseQuery q)
         {
-            return All.Where(e => Matches(e, q, relaxed: false)).ToList();
+            ExerciseKit? owned = ExerciseCatalog.Current.OwnedKit;
+            return All.Where(e => Matches(e, q, relaxed: false, owned)).ToList();
         }
 
-        private static bool Matches(Exercise e, ExerciseQuery q, bool relaxed)
+        private static bool Matches(Exercise e, ExerciseQuery q, bool relaxed, ExerciseKit? owned)
         {
+            // Only suggest equipment the gym has (set in the Exercises window) - unless it was asked for by name.
+            ExerciseKit needs = e.Kit & ~ExerciseKit.Wall;
+            if (owned.HasValue && needs != ExerciseKit.None && (needs & q.AnyOfKit) == ExerciseKit.None
+                && (needs & owned.Value) == ExerciseKit.None) return false;
+
             if (q.NoEquipment && (e.Kit & ~ExerciseKit.Wall) != ExerciseKit.None) return false;
             if (q.AnyOfKit != ExerciseKit.None && (e.Kit & q.AnyOfKit) == ExerciseKit.None) return false;
             if (q.AnyOfTypes != ExerciseTag.None && (e.Tags & q.AnyOfTypes) == ExerciseTag.None) return false;
@@ -304,14 +190,21 @@ namespace GymClock.AI
         /// <summary>Picks a varied set, avoiding anything just suggested when the teacher asks for more/different.</summary>
         public static List<Exercise> Pick(ExerciseQuery q, IEnumerable<string> recentlySuggested, Random random, out bool relaxed)
         {
+            CatalogSnapshot catalog = ExerciseCatalog.Current;
+            return Pick(q, recentlySuggested, random, catalog.Visible, catalog.OwnedKit, out relaxed);
+        }
+
+        public static List<Exercise> Pick(ExerciseQuery q, IEnumerable<string> recentlySuggested, Random random,
+            IReadOnlyList<Exercise> exercises, ExerciseKit? owned, out bool relaxed)
+        {
             HashSet<string> recent = new HashSet<string>(recentlySuggested ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase);
             relaxed = false;
 
-            List<Exercise> pool = All.Where(e => Matches(e, q, false)).ToList();
+            List<Exercise> pool = exercises.Where(e => Matches(e, q, false, owned)).ToList();
             if (pool.Count < q.Count)
             {
                 // Not enough exact matches: keep the must-haves (equipment, type) and loosen the rest.
-                List<Exercise> extra = All.Where(e => Matches(e, q, true) && !pool.Contains(e)).ToList();
+                List<Exercise> extra = exercises.Where(e => Matches(e, q, true, owned) && !pool.Contains(e)).ToList();
                 if (extra.Count > 0) relaxed = true;
                 pool.AddRange(extra.OrderBy(_ => random.Next()));
             }

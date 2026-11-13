@@ -6,8 +6,20 @@ using Xunit;
 
 namespace GymClock.Tests
 {
-    public class ExerciseLibraryTests
+    [Collection("ExerciseCatalog")]
+    public class ExerciseLibraryTests : IDisposable
     {
+        private readonly string _folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "gymclock-lib-" + Guid.NewGuid().ToString("N"));
+
+        // Use only the built-in library - never the teacher's real AppData files.
+        public ExerciseLibraryTests() { ExerciseCatalog.UseFolderForTesting(_folder); }
+
+        public void Dispose()
+        {
+            ExerciseCatalog.UseFolderForTesting(null);
+            try { System.IO.Directory.Delete(_folder, true); } catch { }
+        }
+
         [Theory]
         [InlineData("I need 5 examples of resistance exercises to use with basic weights", true)]
         [InlineData("I need 4 floor based exercises to do without any equipment", true)]

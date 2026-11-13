@@ -65,6 +65,19 @@ namespace GymClock
         {
             InitializeComponent();
             Icon = AppIconProvider.GetIcon();
+
+            // Exercise library (suggestions for the AI assistant): add / edit / hide, gym equipment, library updates.
+            Button exercisesButton = new Button
+            {
+                Text = "Exercises...",
+                Location = new Point(_exportButton.Right + 6, _exportButton.Top),
+                Size = new Size(110, _exportButton.Height)
+            };
+            exercisesButton.Click += (s, e) =>
+            {
+                using (ExercisesForm form = new ExercisesForm()) form.ShowDialog(this);
+            };
+            _builtPanel.Controls.Add(exercisesButton);
         }
 
         public ProgramEditorForm(TimerSettings settings)

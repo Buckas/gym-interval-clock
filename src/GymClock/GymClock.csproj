@@ -34,6 +34,11 @@
     <PackageReference Include="OpenAI" Version="2.15.0" />
   </ItemGroup>
 
+  <!-- The exercise library ships inside the exe; newer versions are downloaded from the same file on GitHub. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\data\exercises.json" LogicalName="GymClock.exercises.json" />
+  </ItemGroup>
+
   <!--
     Publish settings live in Properties\PublishProfiles\win-x64.pubxml so that
     F5 debugging stays fast. In Visual Studio: right-click the project > Publish.

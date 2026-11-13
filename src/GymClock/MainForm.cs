@@ -685,6 +685,14 @@ namespace GymClock
                 }
                 catch { }
 
+                // Newer exercise library (at most once a day). Only the app-owned library copy is
+                // replaced - the teacher's own exercises, edits, hidden list and equipment are untouched.
+                try
+                {
+                    await GymClock.AI.ExerciseCatalog.CheckForUpdateAsync(force);
+                }
+                catch { }
+
                 if (update != null && update.IsNewerThanThis) _update = update;
 
                 if (IsDisposed || !IsHandleCreated) return;
