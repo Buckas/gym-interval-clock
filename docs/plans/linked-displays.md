@@ -144,12 +144,15 @@ The first time the app runs as leader, Windows asks to allow it through the fire
 | Program edited on the leader mid-session | New `PROGRAM` + hash; followers swap at the next `STATE` with the new hash |
 | Sounds out of step between rooms | Sound off on followers by default |
 
-## 9. Questions to settle before starting
+## 9. Decisions (answered by Chris, 13 Nov 2026)
 
-1. Is a **phone hotspot or travel router** in the gym acceptable, or must it run on school Wi-Fi?
-2. Should a follower ever be able to **pause** the session, e.g. a second teacher? (v1: no.)
-3. Which **display roles** are most useful in your gym: mirror, a range of stations, or a big rotation clock?
-4. Do you want **follower sound** at all (e.g. a speaker at the far end)?
+1. **Network:** use the school Wi-Fi first, with a phone hotspot as the fallback when the school network blocks the link. The link screen should say which network it is using and suggest the hotspot if the leader can't be found.
+2. **Control:** followers are **display only**. A follower can never start, pause, skip or change the session; all control stays on the main (leader) PC.
+3. **Display role:** this depends on the program running on the leader.
+   - If the leader shows **one clock** (Shared, Circuit, Sequential), the follower mirrors it automatically.
+   - If the leader shows **several timers** (Parallel), the follower chooses which stations to show, e.g. the leader shows stations 1-2 and the follower shows 3-4. Until a range is chosen it shows all stations.
+   - The follower decides this when a program loads, so a follower left running needs no changes between sessions.
+4. **Sound:** each follower has its own **sound on/off** setting, set on the follower PC (default off). When it is on, the follower plays the same cues as the leader, at the leader's times.
 
 ## 10. Rough effort
 
