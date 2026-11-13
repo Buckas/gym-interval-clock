@@ -78,7 +78,7 @@ namespace GymClock.AI
                 StationDef station = program.Stations[i];
                 Exercise known = ExerciseLibrary.FindByName(station.Name);
 
-                string work = known?.Cue;
+                SplitCue(known?.Cue, out string work, out string restPart);
                 if (string.IsNullOrWhiteSpace(work) && aiCue != null)
                 {
                     try { work = await aiCue(station.Name, cancellationToken).ConfigureAwait(false); }
@@ -86,13 +86,18 @@ namespace GymClock.AI
                     catch { work = null; }
                 }
                 if (string.IsNullOrWhiteSpace(work)) work = GenericWorkTip(station.Name);
+                else
+                {
+                    SplitCue(work, out work, out string aiRest);
+                    if (!string.IsNullOrEmpty(aiRest)) restPart = aiRest;
+                }
 
                 tips.Add(new StationTip
                 {
                     StationIndex = i,
                     StationName = station.Name,
                     Work = Tidy(work),
-                    Rest = RestTip(known, station.Name, i)
+                    Rest = string.IsNullOrEmpty(restPart) ? RestTip(known, station.Name, i) : restPart
                 });
             }
             return tips;
@@ -114,6 +119,44 @@ namespace GymClock.AI
                 if (name.Length > 2 && text.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0 && !named.Contains(i)) named.Add(i);
             }
             return named.Count > 0 ? named.OrderBy(i => i).ToList() : Enumerable.Range(0, program.Stations.Count).ToList();
+        }
+
+        /// <summary>
+        /// Splits a cue that covers both halves into the work part and the rest part:
+        /// "High cadence on work, easy spin on rest" -> "High cadence" / "Easy spin";
+        /// "Run at about 80% effort, walk to recover" -> "Run at about 80% effort" / "Walk to recover".
+        /// A cue with no rest part comes back whole, with rest = null.
+        /// </summary>
+        public static void SplitCue(string cue, out string work, out string rest)
+        {
+            work = null;
+            rest = null;
+            string text = (cue ?? string.Empty).Trim();
+            if (text.Length == 0) return;
+
+            List<string> workParts = new List<string>();
+            List<string> restParts = new List<string>();
+            foreach (string part in Regex.Split(text, @"\s*(?:,|;|\s-\s|\bthen\b)\s*"))
+            {
+                string p = part.Trim();
+                if (p.Length == 0) continue;
+                if (Regex.IsMatch(p, @"\b(on\s+(the\s+)?rest|to\s+recover|in\s+(the\s+)?rest|during\s+(the\s+)?rest|recovery|between\s+(rounds|sets))\b", RegexOptions.IgnoreCase))
+                    restParts.Add(Regex.Replace(p, @"\s+(on|in|during)\s+(the\s+)?rest$", string.Empty, RegexOptions.IgnoreCase));
+                else
+                    workParts.Add(Regex.Replace(p, @"\s+(on|in|during)\s+(the\s+)?work$", string.Empty, RegexOptions.IgnoreCase));
+            }
+
+            if (restParts.Count == 0 || workParts.Count == 0) { work = Tidy(text); return; }
+            work = Tidy(string.Join(", ", workParts));
+            rest = Tidy(string.Join(", ", restParts));
+        }
+
+        /// <summary>A work note and a rest note for a station from the exercise library (work = null if it's not in the library).</summary>
+        public static void ForStation(string stationName, int index, out string work, out string rest)
+        {
+            Exercise known = ExerciseLibrary.FindByName(stationName);
+            SplitCue(known?.Cue, out work, out string restPart);
+            rest = string.IsNullOrEmpty(restPart) ? RestTip(known, stationName, index) : restPart;
         }
 
         private static string GenericWorkTip(string name)
@@ -141,7 +184,7 @@ namespace GymClock.AI
             return options[index % options.Length];
         }
 
-        private static string Tidy(string tip)
+        public static string Tidy(string tip)
         {
             string t = Regex.Replace((tip ?? string.Empty).Trim().Trim('"', '.', ' '), @"\s+", " ");
             return t.Length == 0 ? t : char.ToUpperInvariant(t[0]) + t.Substring(1);

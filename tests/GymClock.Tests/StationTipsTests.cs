@@ -89,12 +89,13 @@ END STATION
             List<StationTip> tips = await StationTips.SuggestAsync(Load(), "tips for each station", null, CancellationToken.None);
 
             Assert.Equal(4, tips.Count);
-            Assert.Equal("High cadence on work, easy spin on rest", tips[0].Work);
+            Assert.Equal("High cadence", tips[0].Work);
             Assert.Equal("Whole foot on the step, swap lead legs", tips[1].Work);
-            Assert.Equal("Run at about 80% effort, walk to recover", tips[2].Work);
+            Assert.Equal("Run at about 80% effort", tips[2].Work);
+            Assert.Equal("Walk to recover", tips[2].Rest);
             Assert.Equal("Small jumps, turn the rope from the wrists", tips[3].Work);
             Assert.All(tips, t => Assert.False(string.IsNullOrWhiteSpace(t.Rest)));
-            Assert.Equal("Easy pace - let your breathing settle", tips[0].Rest);
+            Assert.Equal("Easy spin", tips[0].Rest);
             Assert.Contains("Rope down", tips[3].Rest);
         }
 
@@ -126,10 +127,22 @@ END STATION
             string script = ProgramScriptFormat.ToScript(p);
             ProgramValidationResult r = new ProgramProposalValidator().Validate(script);
             Assert.True(r.IsValid);
-            Assert.Equal("High cadence on work, easy spin on rest", r.ParsedProgram.Stations[0].WorkInstruction);
+            Assert.Equal("High cadence", r.ParsedProgram.Stations[0].WorkInstruction);
             Assert.Equal("Timing: 4x", r.ParsedProgram.Stations[1].WorkInstruction); // not picked
-            Assert.Equal("Easy pace - let your breathing settle", r.ParsedProgram.Stations[2].RestInstruction);
+            Assert.Equal("Walk to recover", r.ParsedProgram.Stations[2].RestInstruction);
             Assert.Equal(4 * 60, r.ParsedProgram.SharedTimeline.Resolve().Sum(b => b.Block.Seconds));
+        }
+
+        [Theory]
+        [InlineData("High cadence on work, easy spin on rest", "High cadence", "Easy spin")]
+        [InlineData("Run at about 80% effort, walk to recover", "Run at about 80% effort", "Walk to recover")]
+        [InlineData("Land softly, arms fully overhead", "Land softly, arms fully overhead", null)]
+        [InlineData("Drive hard - shake out the legs during the rest", "Drive hard", "Shake out the legs")]
+        public void SplitCue_SeparatesWorkAndRest(string cue, string work, string rest)
+        {
+            StationTips.SplitCue(cue, out string w, out string r);
+            Assert.Equal(work, w);
+            Assert.Equal(rest, r);
         }
 
         [Theory]

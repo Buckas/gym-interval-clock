@@ -208,7 +208,9 @@ namespace GymClock.Tests
             {
                 Exercise e = ExerciseLibrary.All.Single(x => x.Name == s.Name);
                 Assert.True((e.Tags & ExerciseTag.Cardio) != 0, s.Name);
-                Assert.Equal(e.Cue, s.WorkInstruction);
+                StationTips.SplitCue(e.Cue, out string work, out string rest);
+                Assert.Equal(work, s.WorkInstruction);
+                Assert.False(string.IsNullOrWhiteSpace(s.RestInstruction), s.Name + " has no rest note");
             }
         }
 
@@ -252,10 +254,16 @@ namespace GymClock.Tests
             await b.AnswerAsync("change stations to be:\n1. Spin bike\n2. box step ups\n3. treadmill\n4. skipping");
             WorkoutProgram p = await RunAsync2(b, "y");
 
-            Assert.Equal("High cadence on work, easy spin on rest", p.Stations[0].WorkInstruction);
+            // Work and rest notes kept apart (the 13 Nov chat had "easy spin on rest" in the work note).
+            Assert.Equal("High cadence", p.Stations[0].WorkInstruction);
+            Assert.Equal("Easy spin", p.Stations[0].RestInstruction);
             Assert.Equal("Whole foot on the step, swap lead legs", p.Stations[1].WorkInstruction);
-            Assert.Equal("Run at about 80% effort, walk to recover", p.Stations[2].WorkInstruction);
+            Assert.False(string.IsNullOrWhiteSpace(p.Stations[1].RestInstruction));
+            Assert.Equal("Run at about 80% effort", p.Stations[2].WorkInstruction);
+            Assert.Equal("Walk to recover", p.Stations[2].RestInstruction);
             Assert.Equal("Small jumps, turn the rope from the wrists", p.Stations[3].WorkInstruction);
+            Assert.Contains("Rope down", p.Stations[3].RestInstruction);
+            Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(b.Script, "RESTNOTE").Count);
             Assert.DoesNotContain("Timing:", b.Script);
             Assert.DoesNotContain("RESTNOTE \"Reps\"", b.Script);
         }
@@ -274,10 +282,12 @@ namespace GymClock.Tests
             string summary = await b.AnswerAsync("Test");
 
             Assert.Equal(new[] { "Sled push" }, asked.ToArray()); // Skipping came from the library
-            Assert.Contains("Tip: Push the sled with straight arms", summary);
+            Assert.Contains("Work: Push the sled with straight arms", summary);
+            Assert.Contains("Rest: ", summary);
 
             string updated = await b.AnswerAsync("tip for 2: Keep the elbows tucked in");
-            Assert.Contains("Tip: Keep the elbows tucked in", updated);
+            Assert.Contains("Work: Keep the elbows tucked in", updated);
+            Assert.Contains("Rest: Walk it off", await b.AnswerAsync("rest tip for 2: Walk it off"));
             await b.AnswerAsync("tip for sled push: Low hips, drive the legs");
             WorkoutProgram p = await RunAsync2(b, "y");
             Assert.Equal("Low hips, drive the legs", p.Stations[0].WorkInstruction);

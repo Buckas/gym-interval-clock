@@ -56,6 +56,7 @@ namespace GymClock.AI
             public string WorkNote;
             public string RestNote;
             public string Cue;          // coaching tip shown during work (library, AI, or the teacher's own)
+            public string RestCue;      // shown during rest (library/AI split, a fitting default, or the teacher's own)
         }
 
         public GuidedProgramBuilder(string originalRequest,
@@ -195,19 +196,21 @@ namespace GymClock.AI
             // Coaching tips: "tip for Bike: stay seated", "tip 2: ...", "no tips".
             if (Regex.IsMatch(text, @"^(no|remove|clear|without)\s+(the\s+)?(tips?|cues?|notes?)$", RegexOptions.IgnoreCase))
             {
-                foreach (StationPlan st in _stations) { st.Cue = null; st.WorkNote = null; }
+                foreach (StationPlan st in _stations) { st.Cue = null; st.WorkNote = null; st.RestCue = null; st.RestNote = null; }
                 _sharedWorkNote = null;
+                _sharedRestNote = null;
                 return "Tips removed." + Environment.NewLine + Environment.NewLine + Question(Step.Confirm);
             }
-            Match tip = Regex.Match(text, @"^(?:change\s+(?:the\s+)?)?(?:tip|cue|note|coaching(?:\s+tip)?)s?\s+(?:for\s+|at\s+)?(?:station\s+)?(.+?)\s*(?::|=|\bto\b|\s-\s)\s*(.+)$",
+            Match tip = Regex.Match(text, @"^(?:change\s+(?:the\s+)?)?(work\s+|rest\s+)?(?:tip|cue|note|coaching(?:\s+tip)?)s?\s+(?:for\s+|at\s+)?(?:station\s+)?(.+?)\s*(?::|=|\bto\b|\s-\s)\s*(.+)$",
                 RegexOptions.IgnoreCase | RegexOptions.Singleline);
             if (tip.Success)
             {
-                StationPlan target = FindStation(tip.Groups[1].Value);
-                if (target == null) return "I couldn't find a station called \"" + tip.Groups[1].Value.Trim() + "\". The stations are: "
+                StationPlan target = FindStation(tip.Groups[2].Value);
+                if (target == null) return "I couldn't find a station called \"" + tip.Groups[2].Value.Trim() + "\". The stations are: "
                     + string.Join(", ", _stations.Select((st, i) => (i + 1) + ") " + st.Name)) + ".";
-                target.Cue = tip.Groups[2].Value.Trim().Trim('"');
-                target.WorkNote = null;
+                string words = tip.Groups[3].Value.Trim().Trim('"');
+                if (tip.Groups[1].Value.Trim().Equals("rest", StringComparison.OrdinalIgnoreCase)) { target.RestCue = words; target.RestNote = null; }
+                else { target.Cue = words; target.WorkNote = null; }
                 return "Tip updated." + Environment.NewLine + Environment.NewLine + Question(Step.Confirm);
             }
 
@@ -372,7 +375,7 @@ namespace GymClock.AI
                 case Step.Confirm:
                     return Summary() + Environment.NewLine + Environment.NewLine
                         + "Reply Y to create it, or say what to change: mode, stations, timing, move, name or tips."
-                        + Environment.NewLine + "  e.g.  timing 40/20 x 6    or    tip for 2: drive through the heel";
+                        + Environment.NewLine + "  e.g.  timing 40/20 x 6    tip for 2: drive through the heel    rest tip for 2: walk it off";
             }
             return string.Empty;
         }
@@ -449,17 +452,23 @@ namespace GymClock.AI
         /// </summary>
         private async Task FillCuesAsync(CancellationToken cancellationToken)
         {
-            foreach (StationPlan station in _stations)
+            for (int i = 0; i < _stations.Count; i++)
             {
+                StationPlan station = _stations[i];
                 if (!string.IsNullOrWhiteSpace(station.Cue)) continue;
-                Exercise known = ExerciseLibrary.FindByName(station.Name);
-                if (known != null && !string.IsNullOrWhiteSpace(known.Cue)) { station.Cue = known.Cue; continue; }
+
+                // Work and rest kept apart: "easy spin on rest" belongs on the rest screen.
+                StationTips.ForStation(station.Name, i, out string work, out string rest);
+                if (string.IsNullOrWhiteSpace(station.RestCue)) station.RestCue = rest;
+                if (!string.IsNullOrWhiteSpace(work)) { station.Cue = work; continue; }
 
                 if (_suggestCue == null) continue;
                 try
                 {
                     string cue = await _suggestCue(station.Name, cancellationToken).ConfigureAwait(false);
-                    if (!string.IsNullOrWhiteSpace(cue)) station.Cue = cue.Trim();
+                    StationTips.SplitCue(cue, out string aiWork, out string aiRest);
+                    if (!string.IsNullOrWhiteSpace(aiWork)) station.Cue = aiWork;
+                    if (!string.IsNullOrWhiteSpace(aiRest)) station.RestCue = aiRest;
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch { /* no tip for this one - the teacher can add it */ }
@@ -800,7 +809,7 @@ namespace GymClock.AI
                     Name = plan.Name,
                     Source = TimingSource.Custom,
                     WorkInstruction = JoinNotes(timingNote, plan.Cue),
-                    RestInstruction = plan.RestNote ?? (perStation && plan.Timing == null ? _sharedRestNote : null) ?? string.Empty
+                    RestInstruction = JoinNotes(plan.RestNote ?? (perStation && plan.Timing == null ? _sharedRestNote : null), plan.RestCue)
                 };
                 if (perStation)
                 {
@@ -829,7 +838,7 @@ namespace GymClock.AI
                     {
                         StationDef s = program.Stations[i];
                         s.WorkInstruction = JoinNotes(_sharedWorkNote, _stations[i].Cue);
-                        if (string.IsNullOrEmpty(s.RestInstruction)) s.RestInstruction = _sharedRestNote ?? string.Empty;
+                        s.RestInstruction = JoinNotes(_sharedRestNote, _stations[i].RestCue);
                     }
                 }
             }
@@ -900,8 +909,10 @@ namespace GymClock.AI
 
         private static string TipText(StationDef station)
         {
-            return string.IsNullOrWhiteSpace(station.WorkInstruction) ? string.Empty
-                : Environment.NewLine + "       Tip: " + station.WorkInstruction;
+            string text = string.Empty;
+            if (!string.IsNullOrWhiteSpace(station.WorkInstruction)) text += Environment.NewLine + "       Work: " + station.WorkInstruction;
+            if (!string.IsNullOrWhiteSpace(station.RestInstruction)) text += Environment.NewLine + "       Rest: " + station.RestInstruction;
+            return text;
         }
 
         private static string Describe(Timeline t)
