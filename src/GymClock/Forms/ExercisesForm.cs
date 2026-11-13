@@ -119,9 +119,10 @@ namespace GymClock
                 .ToList();
             options.AddRange((_user.CustomEquipment ?? new List<CustomEquipment>())
                 .Where(c => !string.IsNullOrWhiteSpace(c?.Id) && !string.IsNullOrWhiteSpace(c.Name))
-                .OrderBy(c => c.Name)
                 .Select(c => new EquipmentOption { Key = c.Id, Label = c.Name, Custom = true }));
-            return options;
+
+            // Alphabetical, with the teacher's own equipment mixed in among the built-in items.
+            return options.OrderBy(o => o.Label, StringComparer.CurrentCultureIgnoreCase).ToList();
         }
 
         private string EquipmentLabel(string key)
@@ -168,8 +169,16 @@ namespace GymClock
             _kitEdit.Controls.Clear();
             _kit.Clear();
             _kitEdit.Controls.Add(new Label { Text = "(none ticked = bodyweight)", AutoSize = true, ForeColor = Color.DimGray, Margin = new Padding(3, 6, 8, 3) });
+            bool wallAdded = false;
             foreach (EquipmentOption option in options)
             {
+                // "Wall" takes its alphabetical place too.
+                if (!wallAdded && StringComparer.CurrentCultureIgnoreCase.Compare(option.Label, _wall.Text) > 0)
+                {
+                    _kitEdit.Controls.Add(_wall);
+                    wallAdded = true;
+                }
+
                 CheckBox box = new CheckBox
                 {
                     Text = option.Label,
@@ -180,7 +189,7 @@ namespace GymClock
                 _kit[option.Key] = box;
                 _kitEdit.Controls.Add(box);
             }
-            _kitEdit.Controls.Add(_wall);
+            if (!wallAdded) _kitEdit.Controls.Add(_wall);
             _kitEdit.ResumeLayout();
             _loading = false;
         }
@@ -400,7 +409,7 @@ namespace GymClock
         {
             List<string> keys = (r.Equipment ?? new List<string>()).ToList();
             if (keys.Count == 0) return "Bodyweight";
-            return string.Join(", ", keys.Select(EquipmentLabel));
+            return string.Join(", ", keys.Select(EquipmentLabel).OrderBy(l => l, StringComparer.CurrentCultureIgnoreCase));
         }
 
         private void RefreshList(string selectId)
