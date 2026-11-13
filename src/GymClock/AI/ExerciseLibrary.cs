@@ -266,6 +266,81 @@ namespace GymClock.AI
             return chosen;
         }
 
+        // ------------------------------------------------------------------ lookup by name
+
+        // Words that don't identify an exercise on their own ("Exercise Bike Intervals" is the bike,
+        // "Step-Ups" is the step), so a teacher's "Spin bike" or "box step ups" still finds them.
+        private static readonly HashSet<string> WeakWords = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "exercise", "interval", "machine", "trainer", "run", "running", "on", "the", "of", "with", "and",
+            "a", "up", "station", "spot", "set", "hold", "work", "drill"
+        };
+
+        private static readonly HashSet<string> GenericActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "push", "pull", "press", "jump", "raise", "row", "lunge", "squat", "curl", "lift", "throw", "carry", "crawl", "dip", "swing", "slam"
+        };
+
+        private static List<string> NameTokens(string name, bool strongOnly)
+        {
+            List<string> tokens = new List<string>();
+            foreach (string raw in Regex.Split((name ?? string.Empty).ToLowerInvariant(), @"[^a-z0-9]+"))
+            {
+                if (raw.Length == 0) continue;
+                string t = raw.Length > 3 && raw.EndsWith("s", StringComparison.Ordinal) && !raw.EndsWith("ss", StringComparison.Ordinal)
+                    ? raw.Substring(0, raw.Length - 1) : raw;
+                if (t == "ups") t = "up";
+                if (strongOnly && WeakWords.Contains(t)) continue;
+                tokens.Add(t);
+            }
+            return tokens;
+        }
+
+        /// <summary>
+        /// The library exercise a station name refers to ("box step ups" -> Step-Ups, "Spin bike" ->
+        /// Exercise Bike Intervals), or null when nothing is a safe match. Used for coaching cues.
+        /// </summary>
+        public static Exercise FindByName(string stationName)
+        {
+            return FindByName(stationName, All);
+        }
+
+        public static Exercise FindByName(string stationName, IReadOnlyList<Exercise> exercises)
+        {
+            string wanted = string.Join(" ", NameTokens(stationName, false));
+            if (wanted.Length == 0 || exercises == null) return null;
+
+            Exercise exact = exercises.FirstOrDefault(e => string.Join(" ", NameTokens(e.Name, false)) == wanted);
+            if (exact != null) return exact;
+
+            HashSet<string> station = new HashSet<string>(NameTokens(stationName, true));
+            if (station.Count == 0) return null;
+
+            Exercise best = null;
+            int bestScore = int.MinValue;
+            foreach (Exercise e in exercises)
+            {
+                List<string> mine = NameTokens(e.Name, true).Distinct().ToList();
+                if (mine.Count == 0) continue;
+                int overlap = mine.Count(station.Contains);
+                if (overlap == 0) continue;
+
+                // Safe only when the exercise's own key words are all there ("bike" in "Spin bike"), or the
+                // station's words are all in a short exercise name - not "pull ups" -> "Band Pull-Aparts".
+                bool coversExercise = overlap == mine.Count;
+
+                // A name that is only an action ("Push Ups", "Lunges") must not claim "Sled push" or "Walking lunge
+                // with plate" - for those every word the teacher wrote has to be part of the exercise's name.
+                if (coversExercise && mine.All(GenericActions.Contains) && station.Any(t => !mine.Contains(t))) coversExercise = false;
+                bool coversStation = overlap == station.Count && overlap * 2 >= mine.Count + 1;
+                if (!coversExercise && !coversStation) continue;
+
+                int score = overlap * 10 - (mine.Count - overlap) * 3 - Math.Max(0, station.Count - overlap);
+                if (score > bestScore) { best = e; bestScore = score; }
+            }
+            return best;
+        }
+
         // ------------------------------------------------------------------ answer
 
         /// <summary>Builds the chat reply and remembers the names (for "more" and for "use these" as stations).</summary>

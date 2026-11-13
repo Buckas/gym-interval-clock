@@ -358,7 +358,8 @@ namespace GymClock.AI
             };
         }
 
-        private async Task<string> SuggestCueAsync(string exercise, CancellationToken cancellationToken)
+        /// <summary>One short coaching cue for an exercise from the local AI (also used by the guided builder).</summary>
+        public async Task<string> SuggestCueAsync(string exercise, CancellationToken cancellationToken)
         {
             string reply = await _aiService.GenerateTextAsync(new[]
             {

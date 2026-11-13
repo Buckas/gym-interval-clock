@@ -56,6 +56,10 @@ namespace GymClock
 
         /// <summary>Active step-by-step "create a new program" conversation, or null.</summary>
         private GuidedProgramBuilder _builder;
+
+        /// <summary>Work/rest notes just shown for the loaded program, waiting for APPLY.</summary>
+        private List<StationTip> _pendingTips;
+        private string _pendingTipsScript;
         private readonly Label lblPrivacy = new Label();
         private readonly Panel pnlSetup = new Panel();
         private readonly Label lblSetup = new Label();
@@ -759,7 +763,7 @@ namespace GymClock
                         // A new program with no clear structure: ask the guided questions and build it
                         // in code (always valid) instead of letting the small model write the whole script.
                         ResetClarificationState();
-                        _builder = new GuidedProgramBuilder(userInput, SuggestStationNamesAsync, _conversation.LastExerciseIdeas);
+                        _builder = new GuidedProgramBuilder(userInput, SuggestStationNamesAsync, _conversation.LastExerciseIdeas, SuggestStationCueAsync);
                         AppendConversation("Assistant", _builder.Start());
                     }
                     return;
@@ -921,6 +925,10 @@ namespace GymClock
             {
                 if (_clarificationStage != ClarificationStage.None || _awaitingModeClarification) return false;
 
+                // Work/rest notes for the stations of the loaded program - before exercise ideas, so
+                // "tips for each station, give me examples" isn't answered with random new exercises.
+                if (await TryHandleStationTipsAsync(userInput).ConfigureAwait(true)) return true;
+
                 // "I need 5 resistance exercises with basic weights" - answered from the built-in library.
                 if (ExerciseLibrary.IsIdeasRequest(userInput))
                 {
@@ -934,7 +942,8 @@ namespace GymClock
                 if (!GuidedProgramBuilder.IsCreationRequest(userInput, hasLoadedProgram)) return false;
 
                 _builder = new GuidedProgramBuilder(userInput, _localAiReady ? SuggestStationNamesAsync : (Func<string, int, CancellationToken, Task<IReadOnlyList<string>>>)null,
-                    _conversation.LastExerciseIdeas);
+                    _conversation.LastExerciseIdeas,
+                    _localAiReady ? SuggestStationCueAsync : (Func<string, CancellationToken, Task<string>>)null);
                 txtRequest.Clear();
                 AppendConversation("User", userInput);
                 AppendConversation("Assistant", _builder.Start());
@@ -983,6 +992,102 @@ namespace GymClock
             return true;
         }
 
+        /// <summary>
+        /// "Give me coaching tips for each station": work and rest notes for the loaded program,
+        /// shown first and written in on APPLY (or straight away for "add notes to the stations").
+        /// </summary>
+        private async Task<bool> TryHandleStationTipsAsync(string userInput)
+        {
+            // APPLY / "apply 1, 3" right after tips were shown.
+            if (_pendingTips != null)
+            {
+                List<StationTip> pending = _pendingTips;
+                string pendingScript = _pendingTipsScript;
+                _pendingTips = null;
+                _pendingTipsScript = null;
+
+                ProgramValidationResult pendingProgram = _validator.Validate(pendingScript ?? string.Empty);
+                IReadOnlyList<int> picks = pendingProgram.IsValid
+                    ? StationTips.ParseApplyReply(userInput, pendingProgram.ParsedProgram.Stations.Count) : null;
+                if (picks != null)
+                {
+                    txtRequest.Clear();
+                    AppendConversation("User", userInput);
+                    ApplyStationTips(userInput, pendingProgram.ParsedProgram, pending, picks);
+                    return true;
+                }
+            }
+
+            if (!StationTips.IsTipsRequest(userInput) || _conversation.PendingSuggestion != null) return false;
+            if (GuidedProgramBuilder.IsCreationRequest(userInput, hasLoadedProgram: true)) return false;
+
+            string script = GetContextScriptForGeneration();
+            ProgramValidationResult current = _validator.Validate(script ?? string.Empty);
+            if (!current.IsValid || current.ParsedProgram.Stations.Count == 0) return false;
+            if (AiProgramGenerationCoordinator.TryDetectStationSwap(userInput, current.ParsedProgram, out _, out _)) return false;
+
+            txtRequest.Clear();
+            AppendConversation("User", userInput);
+
+            _isGenerating = true;
+            SetBusy(true);
+            _requestCts?.Dispose();
+            _requestCts = new CancellationTokenSource();
+            try
+            {
+                List<StationTip> tips = await StationTips.SuggestAsync(current.ParsedProgram, userInput,
+                    _localAiReady ? SuggestStationCueAsync : (Func<string, CancellationToken, Task<string>>)null,
+                    _requestCts.Token).ConfigureAwait(true);
+                if (_isClosing || IsDisposed) return true;
+
+                if (StationTips.WantsThemApplied(userInput))
+                {
+                    ApplyStationTips(userInput, current.ParsedProgram, tips, null);
+                }
+                else
+                {
+                    _pendingTips = tips;
+                    _pendingTipsScript = current.Script;
+                    AppendConversation("Assistant", StationTips.Describe(tips, applied: false));
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                if (!_isClosing && !IsDisposed) AppendConversation("Assistant", "Cancelled. Nothing has been changed.");
+            }
+            finally
+            {
+                _isGenerating = false;
+                SetBusy(false);
+            }
+            return true;
+        }
+
+        private void ApplyStationTips(string userInput, WorkoutProgram program, List<StationTip> tips, IReadOnlyList<int> picks)
+        {
+            StationTips.Apply(program, tips, picks);
+            ProgramValidationResult validation = _validator.Validate(ProgramScriptFormat.ToScript(program));
+            if (!validation.IsValid)
+            {
+                AppendConversation("Assistant", "I couldn't add those notes safely, so your program is unchanged.");
+                return;
+            }
+
+            AiProgramProposal proposal = new AiProgramProposal
+            {
+                UserRequest = userInput,
+                Script = validation.Script,
+                ParsedProgram = validation.ParsedProgram,
+                Issues = validation.Issues
+            };
+            _session.SetGeneratedProposal(proposal);
+            SetProposalText(proposal.Script);
+            RenderValidation(proposal.Issues, proposal.ParsedProgram, ProposalValidationState.Valid);
+
+            List<StationTip> applied = picks == null ? tips : tips.Where(t => picks.Contains(t.StationIndex)).ToList();
+            AppendConversation("Assistant", StationTips.Describe(applied, applied: true));
+        }
+
         /// <summary>Exercise ideas for the guided builder from the local AI (one name per line).</summary>
         private async Task<IReadOnlyList<string>> SuggestStationNamesAsync(string request, int count, CancellationToken cancellationToken)
         {
@@ -996,6 +1101,23 @@ namespace GymClock
                 catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
                 {
                     return Array.Empty<string>(); // too slow - the builder falls back to its own list
+                }
+            }
+        }
+
+        /// <summary>A coaching tip from the local AI for a station the exercise library doesn't know (null if too slow).</summary>
+        private async Task<string> SuggestStationCueAsync(string exercise, CancellationToken cancellationToken)
+        {
+            using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
+            using (CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token))
+            {
+                try
+                {
+                    return await _coordinator.SuggestCueAsync(exercise, linked.Token).ConfigureAwait(true);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    return null;
                 }
             }
         }
@@ -1038,6 +1160,8 @@ namespace GymClock
         private void NewConversation()
         {
             _builder = null;
+            _pendingTips = null;
+            _pendingTipsScript = null;
             _conversation.Clear();
             _session.Clear();
             ResetClarificationState();

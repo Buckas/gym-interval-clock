@@ -26,6 +26,12 @@ namespace GymClock.AI
         /// <summary>Optional exercise-name suggester (e.g. the local AI): (request, count) -> names.</summary>
         private readonly Func<string, int, CancellationToken, Task<IReadOnlyList<string>>> _suggestNames;
 
+        /// <summary>Optional coaching-cue writer (e.g. the local AI) for stations the exercise library doesn't know.</summary>
+        private readonly Func<string, CancellationToken, Task<string>> _suggestCue;
+
+        /// <summary>True once the summary has been shown: an answered question goes straight back to it.</summary>
+        private bool _editing;
+
         private readonly string _originalRequest;
 
         /// <summary>Exercises just suggested in the chat, usable as the stations ("use these").</summary>
@@ -49,14 +55,17 @@ namespace GymClock.AI
             public Timeline Timing;     // null = use the shared timing
             public string WorkNote;
             public string RestNote;
+            public string Cue;          // coaching tip shown during work (library, AI, or the teacher's own)
         }
 
         public GuidedProgramBuilder(string originalRequest,
             Func<string, int, CancellationToken, Task<IReadOnlyList<string>>> suggestNames = null,
-            IReadOnlyList<string> recentIdeas = null)
+            IReadOnlyList<string> recentIdeas = null,
+            Func<string, CancellationToken, Task<string>> suggestCue = null)
         {
             _originalRequest = (originalRequest ?? string.Empty).Trim();
             _suggestNames = suggestNames;
+            _suggestCue = suggestCue;
             _recentIdeas = recentIdeas ?? Array.Empty<string>();
 
             // Pick up anything the first message already settled.
@@ -111,6 +120,12 @@ namespace GymClock.AI
                     ExecutionMode? mode = ModeFromChoice(text);
                     if (!mode.HasValue) return "Please reply with 1, 2, 3 or 4." + Environment.NewLine + Environment.NewLine + Question(Step.Mode);
                     _mode = mode;
+                    if (_editing && _stations.Count > 0)
+                    {
+                        // Changing the mode keeps the stations; per-station timing only exists in Sequential/Parallel.
+                        if (_sharedTiming == null && _stations.Any(st => st.Timing == null)) return Advance(Step.Timing);
+                        return Advance(Next(Step.Confirm));
+                    }
                     return Advance(Step.Stations);
                 }
 
@@ -120,15 +135,16 @@ namespace GymClock.AI
                     if (error != null) return error + Environment.NewLine + Environment.NewLine + Question(Step.Stations);
 
                     // Every station already came with its own timing (e.g. a pasted whiteboard) - no need to ask again.
-                    bool allTimed = _stations.Count > 0 && _stations.All(s => s.Timing != null);
-                    return Advance(allTimed ? NextAfterTiming() : Step.Timing);
+                    bool timed = _stations.Count > 0 && _stations.All(s => s.Timing != null);
+                    if (_editing && _sharedTiming != null) timed = true;
+                    return Advance(timed ? Next(NextAfterTiming()) : Step.Timing);
                 }
 
                 case Step.Timing:
                 {
                     string error = ReadTiming(text);
                     if (error != null) return error + Environment.NewLine + Environment.NewLine + Question(Step.Timing);
-                    return Advance(NextAfterTiming());
+                    return Advance(Next(NextAfterTiming()));
                 }
 
                 case Step.Move:
@@ -136,7 +152,7 @@ namespace GymClock.AI
                     int? seconds = ParseMove(text);
                     if (!seconds.HasValue) return "I didn't catch a time - reply like 30, 1 min, or 0 for no move." + Environment.NewLine + Environment.NewLine + Question(Step.Move);
                     _moveSeconds = seconds.Value;
-                    return Advance(_name == null ? Step.Name : Step.Confirm);
+                    return Advance(Next(_name == null ? Step.Name : Step.Confirm));
                 }
 
                 case Step.Name:
@@ -158,22 +174,135 @@ namespace GymClock.AI
                             + "or Save As to keep a copy as a file.";
                     }
 
-                    if (Regex.IsMatch(text, @"\bstations?\b", RegexOptions.IgnoreCase)) { _stations.Clear(); _sharedTiming = null; return Advance(Step.Stations); }
-                    if (Regex.IsMatch(text, @"\b(timing|times?|pattern)\b", RegexOptions.IgnoreCase)) { ClearTiming(); return Advance(Step.Timing); }
-                    if (Regex.IsMatch(text, @"\bmove\b", RegexOptions.IgnoreCase)) return Advance(Step.Move);
-                    if (Regex.IsMatch(text, @"\bname\b", RegexOptions.IgnoreCase)) return Advance(Step.Name);
-                    if (Regex.IsMatch(text, @"\bmode\b", RegexOptions.IgnoreCase) || Regex.IsMatch(text, @"^(n|no|restart)$", RegexOptions.IgnoreCase))
-                    {
-                        _mode = null; _stations.Clear(); ClearTiming(); _moveSeconds = null;
-                        return Advance(Step.Mode);
-                    }
+                    string change = await ApplyChangeAsync(text, cancellationToken).ConfigureAwait(false);
+                    if (change != null) return change;
 
-                    return "Reply Y to create it, or say what to change: mode, stations, timing, move or name."
+                    return "Reply Y to create it, or say what to change: mode, stations, timing, move, name or tips."
                         + Environment.NewLine + Environment.NewLine + Summary();
                 }
             }
 
             return string.Empty;
+        }
+
+        /// <summary>
+        /// A change asked for at the summary. The new value can come in the same message ("change the
+        /// stations to: Bike, Rower", "timing 40/20 x 6", "move 30", "tip for Bike: stay seated");
+        /// otherwise that one question is asked and the summary comes straight back - the other answers are kept.
+        /// </summary>
+        private async Task<string> ApplyChangeAsync(string text, CancellationToken cancellationToken)
+        {
+            // Coaching tips: "tip for Bike: stay seated", "tip 2: ...", "no tips".
+            if (Regex.IsMatch(text, @"^(no|remove|clear|without)\s+(the\s+)?(tips?|cues?|notes?)$", RegexOptions.IgnoreCase))
+            {
+                foreach (StationPlan st in _stations) { st.Cue = null; st.WorkNote = null; }
+                _sharedWorkNote = null;
+                return "Tips removed." + Environment.NewLine + Environment.NewLine + Question(Step.Confirm);
+            }
+            Match tip = Regex.Match(text, @"^(?:change\s+(?:the\s+)?)?(?:tip|cue|note|coaching(?:\s+tip)?)s?\s+(?:for\s+|at\s+)?(?:station\s+)?(.+?)\s*(?::|=|\bto\b|\s-\s)\s*(.+)$",
+                RegexOptions.IgnoreCase | RegexOptions.Singleline);
+            if (tip.Success)
+            {
+                StationPlan target = FindStation(tip.Groups[1].Value);
+                if (target == null) return "I couldn't find a station called \"" + tip.Groups[1].Value.Trim() + "\". The stations are: "
+                    + string.Join(", ", _stations.Select((st, i) => (i + 1) + ") " + st.Name)) + ".";
+                target.Cue = tip.Groups[2].Value.Trim().Trim('"');
+                target.WorkNote = null;
+                return "Tip updated." + Environment.NewLine + Environment.NewLine + Question(Step.Confirm);
+            }
+
+            Match stations = Regex.Match(text, @"\bstations?\b", RegexOptions.IgnoreCase);
+            if (stations.Success)
+            {
+                string list = ValueAfter(text, stations, @"(?:to\s+be|to|are|should\s+be|with|=|:)");
+                _editing = true;
+                if (list.Length == 0) return Advance(Step.Stations);
+
+                string error = await ReadStationsAsync(list, cancellationToken).ConfigureAwait(false);
+                if (error != null) return error + Environment.NewLine + Environment.NewLine + Advance(Step.Stations);
+                if (_sharedTiming == null && _stations.Any(st => st.Timing == null)) return Advance(Step.Timing);
+                return Advance(Next(Step.Confirm));
+            }
+
+            Match timing = Regex.Match(text, @"\b(timing|times?|pattern|intervals?)\b", RegexOptions.IgnoreCase);
+            if (timing.Success)
+            {
+                _editing = true;
+                string pattern = ValueAfter(text, timing, @"(?:to\s+be|to|is|should\s+be|=|:)");
+                ClearTiming();
+                if (pattern.Length > 0 && LooksLikeTiming(pattern))
+                {
+                    string error = ReadTiming(pattern);
+                    if (error == null) return Advance(Next(Step.Confirm));
+                    return error + Environment.NewLine + Environment.NewLine + Advance(Step.Timing);
+                }
+                return Advance(Step.Timing);
+            }
+
+            Match move = Regex.Match(text, @"\b(move|rotation|rotate|changeover|transition)\b", RegexOptions.IgnoreCase);
+            if (move.Success)
+            {
+                _editing = true;
+                int? seconds = ParseMove(ValueAfter(text, move, @"(?:time\s+)?(?:to\s+be|to|is|=|:)"));
+                if (seconds.HasValue) { _moveSeconds = seconds.Value; return Advance(Step.Confirm); }
+                return Advance(Step.Move);
+            }
+
+            Match name = Regex.Match(text, @"\b(name|call\s+it|called|title)\b", RegexOptions.IgnoreCase);
+            if (name.Success)
+            {
+                _editing = true;
+                string value = ValueAfter(text, name, @"(?:to\s+be|to|is|=|:)").Trim('"', '\'', ' ');
+                if (value.Length > 0) { _name = value; return Advance(Step.Confirm); }
+                return Advance(Step.Name);
+            }
+
+            if (Regex.IsMatch(text, @"\bmode\b", RegexOptions.IgnoreCase))
+            {
+                _editing = true;
+                return Advance(Step.Mode);
+            }
+            if (Regex.IsMatch(text, @"^(n|no|restart|start again|start over)$", RegexOptions.IgnoreCase))
+            {
+                _editing = false;
+                _mode = null; _stations.Clear(); ClearTiming(); _moveSeconds = null;
+                CurrentStep = Step.Mode;
+                return Question(Step.Mode);
+            }
+            return null;
+        }
+
+        /// <summary>What follows the keyword: "change stations to be:\n1. Bike..." -> "1. Bike...".</summary>
+        private static string ValueAfter(string text, Match keyword, string joiner)
+        {
+            string rest = text.Substring(keyword.Index + keyword.Length);
+            rest = Regex.Replace(rest, @"^\s*(?:" + joiner + @")?\s*:?", string.Empty, RegexOptions.IgnoreCase);
+            return rest.Trim();
+        }
+
+        private StationPlan FindStation(string reference)
+        {
+            string value = (reference ?? string.Empty).Trim().Trim('"');
+            Match number = Regex.Match(value, @"^(\d{1,2})$");
+            if (number.Success)
+            {
+                int index = int.Parse(number.Groups[1].Value, CultureInfo.InvariantCulture) - 1;
+                return index >= 0 && index < _stations.Count ? _stations[index] : null;
+            }
+            string clean = CleanStationName(value);
+            if (clean.Length == 0) return null;
+            return _stations.FirstOrDefault(st => string.Equals(st.Name, clean, StringComparison.OrdinalIgnoreCase))
+                ?? _stations.FirstOrDefault(st => st.Name.IndexOf(clean, StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        /// <summary>While changing one thing from the summary, go back to the summary once nothing is missing.</summary>
+        private Step Next(Step normal)
+        {
+            if (!_editing) return normal;
+            bool needsMove = _mode != ExecutionMode.Shared && _stations.Count >= 2 && !_moveSeconds.HasValue;
+            if (needsMove) return Step.Move;
+            if (_name == null) return Step.Name;
+            return Step.Confirm;
         }
 
         private Step NextAfterTiming()
@@ -186,6 +315,7 @@ namespace GymClock.AI
         private string Advance(Step next)
         {
             CurrentStep = next;
+            if (next == Step.Confirm) _editing = true;
             return Question(next);
         }
 
@@ -241,7 +371,8 @@ namespace GymClock.AI
 
                 case Step.Confirm:
                     return Summary() + Environment.NewLine + Environment.NewLine
-                        + "Reply Y to create it, or say what to change: mode, stations, timing, move or name.";
+                        + "Reply Y to create it, or say what to change: mode, stations, timing, move, name or tips."
+                        + Environment.NewLine + "  e.g.  timing 40/20 x 6    or    tip for 2: drive through the heel";
             }
             return string.Empty;
         }
@@ -270,6 +401,7 @@ namespace GymClock.AI
             if (_recentIdeas.Count > 0 && Regex.IsMatch(text, @"^(use\s+)?(these|those|them|the\s+list|that\s+list|the\s+suggestions|the\s+exercises)\b", RegexOptions.IgnoreCase))
             {
                 foreach (string idea in _recentIdeas) _stations.Add(new StationPlan { Name = idea });
+                await FillCuesAsync(cancellationToken).ConfigureAwait(false);
                 return null;
             }
 
@@ -280,10 +412,13 @@ namespace GymClock.AI
                 if (n < 1 || n > 20) return "Please choose between 1 and 20 stations.";
                 IReadOnlyList<string> names = await SuggestNamesAsync(n, cancellationToken).ConfigureAwait(false);
                 foreach (string name in names) _stations.Add(new StationPlan { Name = name });
+                await FillCuesAsync(cancellationToken).ConfigureAwait(false);
                 return null;
             }
 
             List<string> lines = text.Replace("\r", string.Empty).Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+            // "Change the stations to be:" / "Stations:" above a list is an instruction, not a station.
+            if (lines.Count > 1 && Regex.IsMatch(lines[0], @"(:|\b(be|are|to))$", RegexOptions.IgnoreCase) && !LooksLikeTiming(lines[0])) lines.RemoveAt(0);
             if (lines.Count == 1 && !LooksLikeTiming(lines[0])) lines = lines[0].Split(',', ';').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
 
             foreach (string line in lines)
@@ -304,7 +439,31 @@ namespace GymClock.AI
 
             if (_stations.Count == 0) return "I couldn't find any station names.";
             if (_stations.Count > 20) return "That's more than 20 stations - please list up to 20.";
+            await FillCuesAsync(cancellationToken).ConfigureAwait(false);
             return null;
+        }
+
+        /// <summary>
+        /// A coaching tip for every station: the exercise library's cue when the name matches one
+        /// ("box step ups" -> Step-Ups), otherwise one from the local AI if it is running.
+        /// </summary>
+        private async Task FillCuesAsync(CancellationToken cancellationToken)
+        {
+            foreach (StationPlan station in _stations)
+            {
+                if (!string.IsNullOrWhiteSpace(station.Cue)) continue;
+                Exercise known = ExerciseLibrary.FindByName(station.Name);
+                if (known != null && !string.IsNullOrWhiteSpace(known.Cue)) { station.Cue = known.Cue; continue; }
+
+                if (_suggestCue == null) continue;
+                try
+                {
+                    string cue = await _suggestCue(station.Name, cancellationToken).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(cue)) station.Cue = cue.Trim();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch { /* no tip for this one - the teacher can add it */ }
+            }
         }
 
         private string ReadTiming(string text)
@@ -356,7 +515,18 @@ namespace GymClock.AI
         private async Task<IReadOnlyList<string>> SuggestNamesAsync(int count, CancellationToken cancellationToken)
         {
             List<string> names = new List<string>();
-            if (_suggestNames != null)
+
+            // The exercise library first: instant, fits the request ("cardio focused", "no equipment"),
+            // only uses equipment the gym has, and every pick comes with a coaching cue.
+            ExerciseQuery query = ExerciseLibrary.Parse(_originalRequest);
+            query.Count = count;
+            foreach (Exercise e in ExerciseLibrary.Pick(query, _recentIdeas, new Random(), out _))
+            {
+                if (names.Count >= count) break;
+                if (!names.Contains(e.Name, StringComparer.OrdinalIgnoreCase)) names.Add(e.Name);
+            }
+
+            if (names.Count < count && _suggestNames != null)
             {
                 try
                 {
@@ -432,8 +602,9 @@ namespace GymClock.AI
             string value = Regex.Replace(name ?? string.Empty, @"\bstation\b", string.Empty, RegexOptions.IgnoreCase);
             value = Regex.Replace(value, @"\s+", " ").Trim().Trim('"', '\'', '-', ':', '.', ',');
             if (value.Length == 0) return string.Empty;
-            // Whiteboard capitals ("BIKE") -> "Bike"; keep mixed case as written.
-            if (value == value.ToUpperInvariant()) value = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value.ToLowerInvariant());
+            // Whiteboard capitals ("BIKE") or all lower case ("box step ups") -> "Box Step Ups"; keep mixed case as written.
+            if (value == value.ToUpperInvariant() || value == value.ToLowerInvariant())
+                value = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(value.ToLowerInvariant());
             return value;
         }
 
@@ -447,10 +618,15 @@ namespace GymClock.AI
             workNote = null;
             restNote = null;
             string value = (text ?? string.Empty).Trim();
+            // An echoed summary line: "Timing: 4x 45s/15s = 4:00" -> "4x 45s/15s".
+            value = Regex.Replace(value, @"^\s*(timing|pattern|intervals?)\s*:\s*", string.Empty, RegexOptions.IgnoreCase);
+            value = Regex.Replace(value, @"\s*=.*$", string.Empty, RegexOptions.Singleline).Trim();
             if (value.Length == 0) return false;
 
             int rounds = 1;
-            Match roundsMatch = RoundsRegex.Match(value);
+            Match roundsMatch = Regex.Match(value, @"^\s*(\d{1,3})\s*[x×*]\s*(?=\d|tabata|pyramid)", RegexOptions.IgnoreCase);
+            if (!roundsMatch.Success) roundsMatch = Regex.Match(value, @"^\s*(\d{1,3})\s*(?:rounds?|sets?|times)\s*(?:of\s*)?(?=\d|tabata|pyramid)", RegexOptions.IgnoreCase);
+            if (!roundsMatch.Success) roundsMatch = RoundsRegex.Match(value);
             if (roundsMatch.Success)
             {
                 rounds = int.Parse(roundsMatch.Groups[1].Success ? roundsMatch.Groups[1].Value : roundsMatch.Groups[2].Value, CultureInfo.InvariantCulture);
@@ -477,6 +653,12 @@ namespace GymClock.AI
                 {
                     Match restWord = Regex.Match(value, @"(?:rest|off|recovery)\s*(\d+)", RegexOptions.IgnoreCase);
                     if (restWord.Success) { rest = int.Parse(restWord.Groups[1].Value, CultureInfo.InvariantCulture); steps.Remove(rest); }
+                }
+                if (steps.Count == 0 && !Regex.IsMatch(value, @"\d"))
+                {
+                    // Just "pyramid": the usual 20-30-40 seconds up and back down, 20 s rest.
+                    steps = new List<int> { 20, 30, 40 };
+                    if (rest == 0) rest = 20;
                 }
                 if (steps.Count < 2) return false;
 
@@ -543,6 +725,7 @@ namespace GymClock.AI
             note = note.Replace("@", " at ");
             note = Regex.Replace(note, @"^\s*(on|off|of)\b|\b(on|off)\s*$", " ", RegexOptions.IgnoreCase);
             note = Regex.Replace(note, @"[()]", " ");
+            note = Regex.Replace(note, @"\b(reps?|rounds?|sets?|times|each|per\s+station|x)\b", " ", RegexOptions.IgnoreCase);
             note = Regex.Replace(note, @"\s+", " ").Trim().Trim('-', ',', '.', ':');
 
             // A bare "rest" / "work" / "recovery" says nothing the screen doesn't already show.
@@ -611,11 +794,12 @@ namespace GymClock.AI
 
             foreach (StationPlan plan in _stations)
             {
+                string timingNote = plan.WorkNote ?? (perStation && plan.Timing == null ? _sharedWorkNote : null);
                 StationDef station = new StationDef
                 {
                     Name = plan.Name,
                     Source = TimingSource.Custom,
-                    WorkInstruction = plan.WorkNote ?? (perStation && plan.Timing == null ? _sharedWorkNote : null) ?? string.Empty,
+                    WorkInstruction = JoinNotes(timingNote, plan.Cue),
                     RestInstruction = plan.RestNote ?? (perStation && plan.Timing == null ? _sharedRestNote : null) ?? string.Empty
                 };
                 if (perStation)
@@ -641,15 +825,25 @@ namespace GymClock.AI
                 for (int i = 0; i < program.Stations.Count; i++) program.Stations[i].Colour = palette[i % palette.Length];
                 if (!string.IsNullOrEmpty(_sharedWorkNote) || !string.IsNullOrEmpty(_sharedRestNote))
                 {
-                    foreach (StationDef s in program.Stations)
+                    for (int i = 0; i < program.Stations.Count; i++)
                     {
-                        if (string.IsNullOrEmpty(s.WorkInstruction)) s.WorkInstruction = _sharedWorkNote ?? string.Empty;
+                        StationDef s = program.Stations[i];
+                        s.WorkInstruction = JoinNotes(_sharedWorkNote, _stations[i].Cue);
                         if (string.IsNullOrEmpty(s.RestInstruction)) s.RestInstruction = _sharedRestNote ?? string.Empty;
                     }
                 }
             }
 
             return program;
+        }
+
+        /// <summary>The work note: the teacher's words from the timing ("high intensity") if any, otherwise the coaching tip.</summary>
+        private static string JoinNotes(string timingNote, string cue)
+        {
+            string a = (timingNote ?? string.Empty).Trim();
+            string b = (cue ?? string.Empty).Trim();
+            // The teacher's own words from the whiteboard win; the library/AI tip fills the gap.
+            return a.Length > 0 ? a : b;
         }
 
         public string BuildScript()
@@ -670,13 +864,17 @@ namespace GymClock.AI
                 for (int i = 0; i < program.Stations.Count; i++)
                 {
                     Timeline t = program.TimelineForStation(i);
-                    sb.AppendLine("  " + (i + 1) + ". " + program.Stations[i].Name + " - " + Describe(t));
+                    sb.AppendLine("  " + (i + 1) + ". " + program.Stations[i].Name + " - " + Describe(t) + TipText(program.Stations[i]));
                 }
             }
             else
             {
                 sb.AppendLine("  Timing: " + Describe(program.SharedTimeline));
-                if (program.Stations.Count > 0) sb.AppendLine("  Stations: " + string.Join(", ", program.Stations.Select(s => s.Name)));
+                if (program.Stations.Count > 0) sb.AppendLine("  Stations:");
+                for (int i = 0; i < program.Stations.Count; i++)
+                {
+                    sb.AppendLine("  " + (i + 1) + ". " + program.Stations[i].Name + TipText(program.Stations[i]));
+                }
             }
 
             if (program.Mode != ExecutionMode.Shared && program.Stations.Count >= 2)
@@ -698,6 +896,12 @@ namespace GymClock.AI
             }
             sb.Append("  Total: " + Clock(total));
             return sb.ToString();
+        }
+
+        private static string TipText(StationDef station)
+        {
+            return string.IsNullOrWhiteSpace(station.WorkInstruction) ? string.Empty
+                : Environment.NewLine + "       Tip: " + station.WorkInstruction;
         }
 
         private static string Describe(Timeline t)
