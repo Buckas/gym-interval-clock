@@ -132,10 +132,7 @@ namespace GymClock
             _programName.Text = _program.Name;
             _programName.TextChanged += ProgramName_TextChanged;
 
-            _modeShared.Checked = _program.Mode == ExecutionMode.Shared;
-            _modeSequential.Checked = _program.Mode == ExecutionMode.Sequential;
-            _modeParallel.Checked = _program.Mode == ExecutionMode.Parallel;
-            _modeCircuit.Checked = _program.Mode == ExecutionMode.Circuit;
+            ShowModeInRadios();
             EventHandler modeChanged = ModeRadio_CheckedChanged;
             _modeShared.CheckedChanged += modeChanged;
             _modeSequential.CheckedChanged += modeChanged;
@@ -406,8 +403,40 @@ namespace GymClock
             RefreshScriptFromProgram();
         }
 
+        /// <summary>True while the radios are being set to show the program's mode (not a teacher's click).</summary>
+        private bool _showingMode;
+
+        /// <summary>
+        /// Ticks the radio for the program's mode. Setting them one at a time used to fire CheckedChanged
+        /// while none was ticked, which read as "Shared" and switched a loaded Circuit program to Shared
+        /// (losing its BETWEEN move when saved).
+        /// </summary>
+        private void ShowModeInRadios()
+        {
+            _showingMode = true;
+            try
+            {
+                RadioButton target = _program.Mode == ExecutionMode.Sequential ? _modeSequential
+                    : _program.Mode == ExecutionMode.Parallel ? _modeParallel
+                    : _program.Mode == ExecutionMode.Circuit ? _modeCircuit
+                    : _modeShared;
+                target.Checked = true; // the group unticks the others
+                foreach (RadioButton other in new[] { _modeShared, _modeSequential, _modeParallel, _modeCircuit })
+                {
+                    if (other != target) other.Checked = false;
+                }
+            }
+            finally
+            {
+                _showingMode = false;
+            }
+        }
+
         private void ModeRadio_CheckedChanged(object sender, EventArgs e)
         {
+            if (_showingMode) return;
+            // Unticking fires too; act only on the radio that became ticked.
+            if (sender is RadioButton radio && !radio.Checked) return;
             ExecutionMode newMode = _modeSequential.Checked ? ExecutionMode.Sequential
                 : _modeParallel.Checked ? ExecutionMode.Parallel
                 : _modeCircuit.Checked ? ExecutionMode.Circuit
@@ -564,10 +593,7 @@ namespace GymClock
             _lastOutlineTag = null;
 
             _programName.Text = _program.Name;
-            _modeShared.Checked = _program.Mode == ExecutionMode.Shared;
-            _modeSequential.Checked = _program.Mode == ExecutionMode.Sequential;
-            _modeParallel.Checked = _program.Mode == ExecutionMode.Parallel;
-            _modeCircuit.Checked = _program.Mode == ExecutionMode.Circuit;
+            ShowModeInRadios();
             UpdateModeDescription();
 
             RefreshOutline();
@@ -1060,10 +1086,7 @@ namespace GymClock
             if (_properties.SelectedObject is ProgramInfo)
             {
                 _programName.Text = _program.Name;
-                _modeShared.Checked = _program.Mode == ExecutionMode.Shared;
-                _modeSequential.Checked = _program.Mode == ExecutionMode.Sequential;
-                _modeParallel.Checked = _program.Mode == ExecutionMode.Parallel;
-                _modeCircuit.Checked = _program.Mode == ExecutionMode.Circuit;
+                ShowModeInRadios();
                 UpdateModeDescription();
                 RefreshOutline();
             }
@@ -1152,9 +1175,7 @@ namespace GymClock
             _programName.Text = _program.Name;
             _programName.TextChanged += ProgramName_TextChanged;
 
-            _modeShared.Checked = _program.Mode == ExecutionMode.Shared;
-            _modeSequential.Checked = _program.Mode == ExecutionMode.Sequential;
-            _modeParallel.Checked = _program.Mode == ExecutionMode.Parallel;
+            ShowModeInRadios();
             UpdateModeDescription();
 
             RefreshOutline();
