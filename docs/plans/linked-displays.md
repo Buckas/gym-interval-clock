@@ -88,14 +88,14 @@ Each follower draws at full resolution itself. That uses tiny bandwidth, gives s
   - **as follower**, `RunState` is set from received state, and only the display keys (F6, F11, Q) stay active;
   - drawing reads `RunState` instead of the separate fields.
 - **`MainForm` drawing:**
-  - pass a **display role** into `OnPaint`: Mirror, Stations X–Y, or Big clock;
+  - pass a **display role** into `OnPaint`: Mirror for one-clock programs, or Stations X–Y for Parallel (see section 9);
   - `PaintParallelDashboard` takes a station range;
   - add a small corner badge: "LINKED - Leader: Gym PC 1" / "RECONNECTING…".
-- **Sound:** off on followers by default, with an option to turn it on.
+- **Sound:** each follower has its own sound on/off setting, set on the follower (default off).
 - **Settings window:** a "Link displays" section with:
   - Off / Lead this session / Follow another PC,
   - the link code,
-  - the display role, and
+  - the station range shown for Parallel programs, the follower sound setting, and
   - "Connect by address".
 - **`ProgramLibrary` / startup:** a follower doesn't load `current.program.txt`. It waits for `PROGRAM` and shows "Waiting for leader…".
 
@@ -116,7 +116,7 @@ The first time the app runs as leader, Windows asks to allow it through the fire
 |---|---|---|
 | **0. Spike** (½ day) | Small console test: broadcast and TCP heartbeat between two school PCs, on Wi-Fi and on a hotspot | We know which network setup works in the gym |
 | **1. Mirror MVP** | `RunState` refactor, `LinkLeader`/`LinkFollower`, `PROGRAM` + `STATE`, `ClockSync`, pairing code, badge, settings | Two PCs mirror any of the 4 modes, including pause/skip/reset, within 100 ms |
-| **2. Display roles** | Station range and "big clock" role, per-follower settings | Everest Session 1 on 2 screens: stations 1–2 / 3–4 |
+| **2. Display roles** | Automatic mirror for one-clock programs; chosen station range for Parallel; per-follower settings | Everest Session 1 on 2 screens: stations 1–2 / 3–4 |
 | **3. Resilience** | Reconnect, keep counting while offline, mid-session join (follower starts at the current point) | Unplug Wi-Fi for 30 s: the follower keeps time, then resyncs without a visible jump |
 | **4. Bluetooth (optional)** | RFCOMM transport behind the same message interface, for venues with no usable network | Two paired laptops sync with Wi-Fi off |
 
