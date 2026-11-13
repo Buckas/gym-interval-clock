@@ -27,6 +27,9 @@ namespace GymClock.AI
         private readonly Func<string, int, CancellationToken, Task<IReadOnlyList<string>>> _suggestNames;
 
         private readonly string _originalRequest;
+
+        /// <summary>Exercises just suggested in the chat, usable as the stations ("use these").</summary>
+        private readonly IReadOnlyList<string> _recentIdeas;
         private ExecutionMode? _mode;
         private readonly List<StationPlan> _stations = new List<StationPlan>();
         private Timeline _sharedTiming;
@@ -49,10 +52,12 @@ namespace GymClock.AI
         }
 
         public GuidedProgramBuilder(string originalRequest,
-            Func<string, int, CancellationToken, Task<IReadOnlyList<string>>> suggestNames = null)
+            Func<string, int, CancellationToken, Task<IReadOnlyList<string>>> suggestNames = null,
+            IReadOnlyList<string> recentIdeas = null)
         {
             _originalRequest = (originalRequest ?? string.Empty).Trim();
             _suggestNames = suggestNames;
+            _recentIdeas = recentIdeas ?? Array.Empty<string>();
 
             // Pick up anything the first message already settled.
             ExecutionMode? hinted = ModeFromWords(_originalRequest);
@@ -208,6 +213,7 @@ namespace GymClock.AI
                         + (_mode == ExecutionMode.Shared ? ", or reply NONE." : ".") + Environment.NewLine
                         + "  e.g. Bike, Treadmill, Skipping, Floor" + Environment.NewLine
                         + "Or reply with a number (e.g. 6) and I'll suggest exercises."
+                        + (_recentIdeas.Count > 0 ? Environment.NewLine + "Or reply USE THESE for the " + _recentIdeas.Count + " exercises I just suggested." : string.Empty)
                         + (_mode == ExecutionMode.Sequential || _mode == ExecutionMode.Parallel
                             ? Environment.NewLine + "You can also give each station its own timing, e.g.  Bike: 40/20 x 8"
                             : string.Empty);
@@ -259,6 +265,13 @@ namespace GymClock.AI
             _stations.Clear();
 
             if (_mode == ExecutionMode.Shared && Regex.IsMatch(text, @"^(none|no|skip|0)$", RegexOptions.IgnoreCase)) return null;
+
+            // "use these" - the exercises just suggested in the chat become the stations.
+            if (_recentIdeas.Count > 0 && Regex.IsMatch(text, @"^(use\s+)?(these|those|them|the\s+list|that\s+list|the\s+suggestions|the\s+exercises)\b", RegexOptions.IgnoreCase))
+            {
+                foreach (string idea in _recentIdeas) _stations.Add(new StationPlan { Name = idea });
+                return null;
+            }
 
             Match count = Regex.Match(text, @"^\s*(\d{1,2})\s*(stations?)?\s*$", RegexOptions.IgnoreCase);
             if (count.Success)

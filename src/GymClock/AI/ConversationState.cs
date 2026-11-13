@@ -16,10 +16,14 @@ namespace GymClock.AI
         /// <summary>Replacement options offered for a station, waiting for the user to pick one.</summary>
         public PendingStationSuggestion PendingSuggestion { get; set; }
 
+        /// <summary>Exercise names from the last "give me N exercises" answer (for "more" and "use these").</summary>
+        public List<string> LastExerciseIdeas { get; set; } = new List<string>();
+
         public void Clear()
         {
             _messages.Clear();
             PendingSuggestion = null;
+            LastExerciseIdeas = new List<string>();
         }
 
         public void AddUser(string content)

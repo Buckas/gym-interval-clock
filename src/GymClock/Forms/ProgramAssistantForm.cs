@@ -759,7 +759,7 @@ namespace GymClock
                         // A new program with no clear structure: ask the guided questions and build it
                         // in code (always valid) instead of letting the small model write the whole script.
                         ResetClarificationState();
-                        _builder = new GuidedProgramBuilder(userInput, SuggestStationNamesAsync);
+                        _builder = new GuidedProgramBuilder(userInput, SuggestStationNamesAsync, _conversation.LastExerciseIdeas);
                         AppendConversation("Assistant", _builder.Start());
                     }
                     return;
@@ -920,10 +920,21 @@ namespace GymClock
             if (!builderActive)
             {
                 if (_clarificationStage != ClarificationStage.None || _awaitingModeClarification) return false;
+
+                // "I need 5 resistance exercises with basic weights" - answered from the built-in library.
+                if (ExerciseLibrary.IsIdeasRequest(userInput))
+                {
+                    txtRequest.Clear();
+                    AppendConversation("User", userInput);
+                    AppendConversation("Assistant", ExerciseLibrary.Answer(userInput, _conversation));
+                    return true;
+                }
+
                 bool hasLoadedProgram = !string.IsNullOrWhiteSpace(rtbProposedScript.Text) || !string.IsNullOrWhiteSpace(_baselineScript);
                 if (!GuidedProgramBuilder.IsCreationRequest(userInput, hasLoadedProgram)) return false;
 
-                _builder = new GuidedProgramBuilder(userInput, _localAiReady ? SuggestStationNamesAsync : (Func<string, int, CancellationToken, Task<IReadOnlyList<string>>>)null);
+                _builder = new GuidedProgramBuilder(userInput, _localAiReady ? SuggestStationNamesAsync : (Func<string, int, CancellationToken, Task<IReadOnlyList<string>>>)null,
+                    _conversation.LastExerciseIdeas);
                 txtRequest.Clear();
                 AppendConversation("User", userInput);
                 AppendConversation("Assistant", _builder.Start());
