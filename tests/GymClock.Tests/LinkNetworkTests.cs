@@ -207,6 +207,7 @@ END STATION
                 int oldData = MainForm.LinkDataPort, oldDiscovery = MainForm.LinkDiscoveryPort;
                 MainForm.LinkDataPort = DataPort;
                 MainForm.LinkDiscoveryPort = DiscoveryPort;
+                MainForm.LinkBluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
 
                 TimerSettings mainSettings = new TimerSettings
                 {
@@ -252,6 +253,17 @@ END STATION
                     Assert.True(Pump(main, second, () => Field<Phase>(second, "_phase") == Phase.Active && Field<int>(second, "_index") == 0), "skip did not mirror");
                     PumpFor(main, second, 600);
                     Assert.InRange(PhaseSeconds(second) - PhaseSeconds(main), -0.1, 0.1);
+
+                    // ---- it remembered the route that worked, to try first next time, and reports the link test
+                    Assert.Equal("tcp:127.0.0.1", secondSettings.LinkLastRoute);
+                    LinkStatus linkStatus = (LinkStatus)typeof(MainForm).GetMethod("GetLinkStatus", Private).Invoke(second, null);
+                    Assert.Equal("follow", linkStatus.Role);
+                    Assert.Equal(FollowerStatus.Connected, linkStatus.FollowerState);
+                    Assert.Equal("network", linkStatus.Via);
+                    Assert.True(linkStatus.SessionRunning);
+                    LinkStatus mainStatus = (LinkStatus)typeof(MainForm).GetMethod("GetLinkStatus", Private).Invoke(main, null);
+                    Assert.True(mainStatus.LeaderRunning);
+                    Assert.Equal(new[] { Environment.MachineName + " (network)" }, mainStatus.Screens.ToArray());
 
                     // ---- the second screen's status line reports how well in step it is (shown with the key hints)
                     object[] badgeArgs = { true, null };
@@ -307,6 +319,7 @@ END STATION
                     second.Dispose();
                     MainForm.LinkDataPort = oldData;
                     MainForm.LinkDiscoveryPort = oldDiscovery;
+                    MainForm.LinkBluetoothEnabled = true;
                 }
             });
         }
@@ -319,6 +332,7 @@ END STATION
                 int oldData = MainForm.LinkDataPort, oldDiscovery = MainForm.LinkDiscoveryPort;
                 MainForm.LinkDataPort = DataPort;
                 MainForm.LinkDiscoveryPort = DiscoveryPort;
+                MainForm.LinkBluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
 
                 MainForm main = new MainForm(new TimerSettings
                 {
@@ -354,6 +368,7 @@ END STATION
                     second.Dispose();
                     MainForm.LinkDataPort = oldData;
                     MainForm.LinkDiscoveryPort = oldDiscovery;
+                    MainForm.LinkBluetoothEnabled = true;
                 }
             });
         }

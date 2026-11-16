@@ -41,6 +41,13 @@ namespace GymClock
         private string _receivedProgramKey;
         private bool _hasLeaderProgram;
         private bool _snapOnNextState;
+        private FollowerStatus _lastFollowerStatus = FollowerStatus.Searching;
+
+        /// <summary>Why the main PC's link could not start, for the setup window.</summary>
+        private string _linkLeaderError = string.Empty;
+
+        /// <summary>Bluetooth is used automatically where the PC has it. Tests switch it off so they never touch a real radio.</summary>
+        public static bool LinkBluetoothEnabled = true;
 
         /// <summary>
         /// Second screen: the largest recent difference from the main PC's countdown, in milliseconds
@@ -93,32 +100,34 @@ namespace GymClock
                     OnUi(() => { if (_linkLeader == leader) ShowToast("SECOND SCREEN LINKED: " + name.ToUpperInvariant(), 4); });
                 };
                 leader.FollowersChanged += () => OnUi(Invalidate);
-                if (own.LinkBluetooth) leader.AddListener(new BluetoothLinkListener());
+
+                // Bluetooth needs no switch: if this PC has it, second screens may use it. If it can't start,
+                // the network link runs without it (the Link displays window shows which are ready).
+                if (LinkBluetoothEnabled && BluetoothLink.HasRadio()) leader.AddListener(new BluetoothLinkListener());
 
                 if (!leader.Start())
                 {
+                    _linkLeaderError = leader.StartError ?? string.Empty;
                     ShowToast("LINK NOT STARTED: " + leader.StartError, 8);
                     leader.Dispose();
                     return;
                 }
+                _linkLeaderError = string.Empty;
                 _linkLeader = leader;
-
-                // Bluetooth is an extra: if it can't start, the network link still runs - but say so.
-                if (leader.Warnings.Count > 0) ShowToast("LINK ON, BUT " + leader.Warnings[0].ToUpperInvariant(), 8);
             }
             else if (own.IsLinkFollower)
             {
-                LinkFollower follower;
-                if (own.LinkBluetooth && BluetoothLink.TryParseAddress(own.LinkBluetoothAddress, out ulong mainPcBluetooth))
+                // The second screen works the route out by itself: what worked last time, a typed address,
+                // the main PC's announcement on the network, then Bluetooth to a paired computer.
+                LinkFollower follower = new LinkFollower(Environment.MachineName, own.LinkCode, new LinkRoutePlan
                 {
-                    // Over Bluetooth there is nothing to search for: connect straight to the paired main PC.
-                    follower = new LinkFollower(Environment.MachineName, own.LinkCode,
-                        stop => BluetoothLinkConnection.Connect(mainPcBluetooth, stop));
-                }
-                else
-                {
-                    follower = new LinkFollower(Environment.MachineName, own.LinkCode, own.LinkAddress, LinkDataPort, LinkDiscoveryPort);
-                }
+                    LastGoodRoute = own.LinkLastRoute,
+                    TypedAddress = own.LinkAddress,
+                    UseNetwork = true,
+                    UseBluetooth = LinkBluetoothEnabled,
+                    BluetoothAddress = own.LinkBluetoothAddress
+                }, LinkDataPort, LinkDiscoveryPort);
+                _lastFollowerStatus = FollowerStatus.Searching;
                 follower.ProgramReceived += (settingsText, script) => OnUi(() => { if (_linkFollower == follower) OnLeaderProgram(settingsText, script); });
                 follower.StateReceived += message => OnUi(() => { if (_linkFollower == follower) OnLeaderState(message); });
                 follower.StatusChanged += () => OnUi(() => { if (_linkFollower == follower) OnFollowerStatusChanged(); });
@@ -143,6 +152,7 @@ namespace GymClock
             _receivedProgramKey = null;
             _hasLeaderProgram = false;
             _linkDriftPeakMs = 0;
+            _linkLeaderError = string.Empty;
 
             if (_ownSettings != null)
             {
@@ -156,20 +166,62 @@ namespace GymClock
             }
         }
 
-        /// <summary>The Link Displays window (L). Works on both the main PC and a second screen.</summary>
-        private void ShowLinkSettings()
+        /// <summary>
+        /// The Link displays window (L, or the button in the settings window): the guided setup. Every
+        /// choice in it takes effect at once, so the window can show the link coming up live.
+        /// </summary>
+        internal void ShowLinkSettings(IWin32Window owner = null)
         {
-            using (LinkSettingsForm dialog = new LinkSettingsForm(OwnSettings))
+            using (LinkSetupForm dialog = new LinkSetupForm(OwnSettings, GetLinkStatus, ApplyLinkChange))
             {
-                if (dialog.ShowDialog(this) != DialogResult.OK) return;
-
-                TimerSettings own = OwnSettings;
-                dialog.ApplyTo(own);
-                own.Save();
-
-                StartLink();
-                ShowHint(6);
+                dialog.ShowDialog(owner ?? this);
             }
+            ShowHint(6);
+        }
+
+        /// <summary>Changes this PC's link settings, saves them and restarts the link with them.</summary>
+        private void ApplyLinkChange(Action<TimerSettings> change)
+        {
+            TimerSettings own = OwnSettings;
+            string before = own.LinkKey();
+            change(own);
+            if (own.LinkKey() == before) return;
+
+            // A different main PC or code: what worked last time no longer applies.
+            if (!own.IsLinkFollower) own.LinkLastRoute = string.Empty;
+            own.Save();
+            StartLink();
+        }
+
+        /// <summary>The link right now, for the setup window.</summary>
+        private LinkStatus GetLinkStatus()
+        {
+            TimerSettings own = OwnSettings;
+            LinkStatus status = new LinkStatus { Role = own.IsLinkLeader ? "lead" : own.IsLinkFollower ? "follow" : "off", Code = own.LinkCode ?? string.Empty };
+
+            LinkLeader leader = _linkLeader;
+            if (leader != null)
+            {
+                status.LeaderRunning = true;
+                status.Screens.AddRange(leader.FollowerDescriptions);
+                status.BluetoothListening = leader.ActiveTransports.Contains("Bluetooth");
+            }
+            status.LeaderError = _linkLeaderError;
+
+            LinkFollower follower = _linkFollower;
+            if (follower != null)
+            {
+                status.FollowerState = follower.Status;
+                status.Activity = follower.Activity ?? string.Empty;
+                status.LeaderName = follower.LeaderName ?? string.Empty;
+                status.Via = follower.ConnectedVia ?? string.Empty;
+                status.ClockMatched = follower.TryLeaderNow(out _);
+                status.Quality = follower.Quality;
+                status.FailedRounds = follower.FailedRounds;
+                status.SessionRunning = InTimedPhase && !IsPaused;
+                status.DriftPeakMs = _linkDriftPeakMs;
+            }
+            return status;
         }
 
         // ------------------------------------------------------------------ main PC: publish
@@ -245,15 +297,29 @@ namespace GymClock
             LinkFollower follower = _linkFollower;
             if (follower == null) return;
 
-            switch (follower.Status)
+            // This also fires when only the activity text changes ("Trying Bluetooth..."): announce a status once.
+            FollowerStatus now = follower.Status;
+            if (now != _lastFollowerStatus)
             {
-                case FollowerStatus.Connected:
-                    _snapOnNextState = true;
-                    ShowToast("LINKED TO THE MAIN PC" + (follower.LeaderName.Length > 0 ? ": " + follower.LeaderName.ToUpperInvariant() : string.Empty), 4);
-                    break;
-                case FollowerStatus.WrongCode:
-                    ShowToast("LINK CODE NOT ACCEPTED  -  PRESS L TO CHECK IT", 8);
-                    break;
+                _lastFollowerStatus = now;
+                switch (now)
+                {
+                    case FollowerStatus.Connected:
+                        _snapOnNextState = true;
+                        ShowToast("LINKED TO THE MAIN PC" + (follower.LeaderName.Length > 0 ? ": " + follower.LeaderName.ToUpperInvariant() : string.Empty), 4);
+
+                        // Remember the route that worked, so next time it is tried first.
+                        TimerSettings own = OwnSettings;
+                        if (follower.ConnectedRoute.Length > 0 && own.LinkLastRoute != follower.ConnectedRoute)
+                        {
+                            own.LinkLastRoute = follower.ConnectedRoute;
+                            own.Save();
+                        }
+                        break;
+                    case FollowerStatus.WrongCode:
+                        ShowToast("LINK CODE NOT ACCEPTED  -  PRESS L TO CHECK IT", 8);
+                        break;
+                }
             }
             Invalidate();
         }
@@ -477,16 +543,6 @@ namespace GymClock
             return number >= from && number <= to;
         }
 
-        /// <summary>True when this second screen is set to reach the main PC over Bluetooth.</summary>
-        private bool FollowingByBluetooth
-        {
-            get
-            {
-                TimerSettings own = OwnSettings;
-                return IsFollowing && own.LinkBluetooth && BluetoothLink.TryParseAddress(own.LinkBluetoothAddress, out _);
-            }
-        }
-
         /// <summary>The small link status line at the bottom of the screen, or empty when the link is off.</summary>
         private string LinkBadgeText(bool detail, out Color colour)
         {
@@ -502,7 +558,7 @@ namespace GymClock
 
                 // The address (only needed when a second screen can't find this PC) is in the Link displays window.
                 bool bluetooth = leader.ActiveTransports.Contains("Bluetooth");
-                return "LINK ON" + (bluetooth ? " (NETWORK + BLUETOOTH)" : string.Empty) + "  -  CODE " + OwnSettings.LinkCode + "  -  NO SECOND SCREEN YET";
+                return "LINK ON" + (bluetooth ? " (NETWORK + BLUETOOTH)" : string.Empty) + "  -  CODE " + OwnSettings.LinkCode + "  -  NO SECOND SCREEN YET  (L = SETUP)";
             }
 
             LinkFollower follower = _linkFollower;
@@ -528,12 +584,13 @@ namespace GymClock
                     case FollowerStatus.WrongCode:
                         colour = warning;
                         return "LINK CODE NOT ACCEPTED  -  PRESS L";
-                    case FollowerStatus.Connecting:
-                        colour = warning;
-                        return FollowingByBluetooth ? "CONNECTING TO THE MAIN PC BY BLUETOOTH..." : "CONNECTING TO THE MAIN PC...";
                     default:
+                    {
+                        // What it is trying right now ("TRYING BLUETOOTH (GYM-PC)..."), so the screen is never just stuck.
                         colour = warning;
-                        return "LOOKING FOR THE MAIN PC...  (L = LINK SETTINGS)";
+                        string activity = (follower.Activity ?? string.Empty).ToUpperInvariant();
+                        return (activity.Length > 0 ? activity : "LOOKING FOR THE MAIN PC...") + "  (L = SETUP AND HELP)";
+                    }
                 }
             }
 

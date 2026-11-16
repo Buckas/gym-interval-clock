@@ -87,7 +87,7 @@ The result appears in `src/GymClock/bin/publish/win-x64/GymClock.exe`.
 | `T` | Toggle always-on-top |
 | `F11` or `F` | Toggle full screen |
 | `F6` | Move the clock to the next monitor (i.e. the projector) |
-| `L` | Link displays: make this PC the main PC or a second screen (version 4 preview) |
+| `L` | Link displays: guided setup to show one session on two or more PCs, with a built-in help guide (version 4 preview) |
 | `F3` | Licence and version information |
 | `Esc` | Leave full screen |
 | `H` / `F1` | Re-show the hint bar |

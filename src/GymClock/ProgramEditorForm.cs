@@ -88,13 +88,7 @@ namespace GymClock
             };
             linkButton.Click += (s, e) =>
             {
-                if (_link == null) return;
-                using (GymClock.Link.LinkSettingsForm form = new GymClock.Link.LinkSettingsForm(_link))
-                {
-                    if (form.ShowDialog(this) != DialogResult.OK) return;
-                    form.ApplyTo(_link);
-                    _saveStatusLabel.Text = "Link settings changed. They take effect when you press OK.";
-                }
+                if (LinkSetupRequested != null) LinkSetupRequested(this);
             };
             _builtPanel.Controls.Add(linkButton);
 
@@ -105,15 +99,17 @@ namespace GymClock
             _aiWarmupStatusLabel.AutoEllipsis = true;
         }
 
-        /// <summary>The link settings as edited in this window (applied to the result on OK / Save).</summary>
-        private TimerSettings _link;
+        /// <summary>
+        /// Opens the Link displays setup (set by the clock window, which owns the link). Its choices take
+        /// effect at once, independently of this window's OK / Cancel.
+        /// </summary>
+        public Action<IWin32Window> LinkSetupRequested { get; set; }
 
         public ProgramEditorForm(TimerSettings settings)
             : this()
         {
             _original = settings;
             Result = settings.Clone();
-            _link = settings.Clone();
 
             _scriptSyncTimer.Tick += ScriptSyncTimer_Tick;
             AiAssistantRuntime.EnsureInitialized();
@@ -1250,9 +1246,6 @@ namespace GymClock
             // switching back and forth never loses either one.
             target.ProgramScript = ProgramScriptFormat.ToScript(_program);
             target.UseBuiltProgram = _sourceBuilt.Checked;
-
-            // Link displays, tracked via its own window
-            if (_link != null) target.CopyLinkFrom(_link);
 
             // General settings, tracked via the separate window
             target.PrepSeconds = _gPrepSeconds;

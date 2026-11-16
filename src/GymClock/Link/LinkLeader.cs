@@ -27,6 +27,7 @@ namespace GymClock.Link
         private sealed class Follower
         {
             public string Name = "?";
+            public string Kind = "network";
             public ILinkConnection Connection;
             public StreamWriter Writer;
             public readonly object SendLock = new object();
@@ -85,6 +86,12 @@ namespace GymClock.Link
         public IReadOnlyList<string> FollowerNames
         {
             get { lock (_followers) return _followers.Select(f => f.Name).ToList(); }
+        }
+
+        /// <summary>The linked second screens with how each is connected, e.g. "GYM-PC2 (network)".</summary>
+        public IReadOnlyList<string> FollowerDescriptions
+        {
+            get { lock (_followers) return _followers.Select(f => f.Name + " (" + f.Kind + ")").ToList(); }
         }
 
         public bool Start()
@@ -172,6 +179,7 @@ namespace GymClock.Link
 
                 Follower follower = new Follower
                 {
+                    Kind = listener.Kind,
                     Connection = connection,
                     Writer = new StreamWriter(connection.Stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" }
                 };

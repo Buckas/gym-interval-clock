@@ -153,6 +153,23 @@ namespace GymClock.Tests
             }
         }
 
+        // ---------------------------------------------------------------- the link test
+
+        [Theory]
+        [InlineData(2, 5, 30, 300, LinkQuality.Level.Measuring)]     // not enough pings yet
+        [InlineData(8, 5, 30, 300, LinkQuality.Level.Good)]
+        [InlineData(8, 60, 250, 700, LinkQuality.Level.Good)]
+        [InlineData(8, 90, 150, 400, LinkQuality.Level.Usable)]      // slow
+        [InlineData(8, 10, 40, 1200, LinkQuality.Level.Usable)]      // uneven
+        [InlineData(8, 400, 900, 500, LinkQuality.Level.Poor)]
+        [InlineData(8, 20, 60, 4000, LinkQuality.Level.Poor)]        // long freezes
+        public void LinkTest_Verdict(int samples, long ping, long worst, long gap, LinkQuality.Level expected)
+        {
+            LinkQuality quality = new LinkQuality { Samples = samples, PingMs = ping, WorstPingMs = worst, MaxGapMs = gap };
+            Assert.Equal(expected, quality.Verdict);
+            Assert.StartsWith("Link test: " + (expected == LinkQuality.Level.Measuring ? "measuring" : expected.ToString().ToUpperInvariant()), quality.Describe());
+        }
+
         // ---------------------------------------------------------------- which stations a second screen shows
 
         [Theory]
@@ -181,7 +198,7 @@ namespace GymClock.Tests
                 PrepSeconds = 7, WorkSeconds = 50, RestSeconds = 20, Rounds = 6, WorkLabel = "GO", WorkColour = "#112233",
                 ShowStationsTable = false, UseBuiltProgram = true,
                 LinkRole = "lead", LinkCode = "4821", LinkAddress = "10.0.0.9", LinkSound = true, LinkStationsFrom = 2, LinkStationsTo = 3,
-                LinkBluetooth = true, LinkBluetoothAddress = "00:1A:7D:DA:71:13", LinkBluetoothName = "GYM-PC-1"
+                LinkBluetoothAddress = "00:1A:7D:DA:71:13", LinkBluetoothName = "GYM-PC-1", LinkLastRoute = "tcp:10.0.0.9"
             };
             main.Stations.Add(new Station("Bike", "fast", "easy"));
 
@@ -190,6 +207,7 @@ namespace GymClock.Tests
             Assert.DoesNotContain("linkrole", sent);
             Assert.DoesNotContain("00:1A:7D", sent);
             Assert.DoesNotContain("linkbluetooth", sent);
+            Assert.DoesNotContain("linklastroute", sent);
 
             TimerSettings second = TimerSettings.FromText(sent, "PROGRAM \"X\"\nWORK 30s");
             Assert.Equal(7, second.PrepSeconds);
@@ -207,8 +225,8 @@ namespace GymClock.Tests
             Assert.Equal("off", second.LinkRole);
             Assert.Equal(string.Empty, second.LinkCode);
             Assert.False(second.LinkSound);
-            Assert.False(second.LinkBluetooth);
             Assert.Equal(string.Empty, second.LinkBluetoothAddress);
+            Assert.Equal(string.Empty, second.LinkLastRoute);
 
             // This PC's own file does keep them, and Clone (used by the settings window) carries them.
             Assert.Contains("linkcode=4821", main.ToText(true));
@@ -219,12 +237,15 @@ namespace GymClock.Tests
             Assert.True(clone.LinkSound);
             Assert.Equal(2, clone.LinkStationsFrom);
             Assert.Equal(3, clone.LinkStationsTo);
-            Assert.True(clone.LinkBluetooth);
+            Assert.Equal("tcp:10.0.0.9", clone.LinkLastRoute);
+            Assert.Contains("linklastroute=tcp:10.0.0.9", main.ToText(true));
             Assert.Equal("00:1A:7D:DA:71:13", clone.LinkBluetoothAddress);
             Assert.Equal("GYM-PC-1", clone.LinkBluetoothName);
             Assert.Contains("linkbluetoothaddress=00:1A:7D:DA:71:13", main.ToText(true));
 
-            // LinkKey changes when any link setting does (the settings window uses it to restart the link)...
+            // LinkKey changes when any link setting the teacher chooses does (it decides whether to restart the link)...
+            Assert.Equal(main.LinkKey(), clone.LinkKey());
+            clone.LinkLastRoute = "bt:00:11:22:33:44:55"; // written by the app, not a choice: no restart
             Assert.Equal(main.LinkKey(), clone.LinkKey());
             clone.LinkCode = "9999";
             Assert.NotEqual(main.LinkKey(), clone.LinkKey());

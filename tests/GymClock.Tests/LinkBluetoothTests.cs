@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Threading;
 using GymClock.Link;
 using Xunit;
@@ -175,36 +176,205 @@ namespace GymClock.Tests
             Assert.False(BluetoothLink.TryParseAddress(text, out _));
         }
 
-        [Fact]
-        public void SetupHelp_CoversPairingThePanAndBothPcs_AndTheWindowsOpen()
-        {
-            // The steps a teacher follows (also written in the plan, section 6.3).
-            string all = string.Join(" ", System.Linq.Enumerable.SelectMany(BluetoothHelpForm.Steps, step => step));
-            Assert.Equal(5, BluetoothHelpForm.Steps.Length);
-            Assert.Contains("Bluetooth & devices", all);
-            Assert.Contains("Add device", all);
-            Assert.Contains("Join a Personal Area Network", all);
-            Assert.Contains("Direct connection", all);
-            Assert.Contains("Also accept second screens over Bluetooth", all);            // the main PC's tick box, word for word
-            Assert.Contains("Connect by Bluetooth instead of the network", all);          // the second PC's tick box
+        // ---------------------------------------------------------------- the second screen works the route out itself
 
-            Exception error = null;
-            Thread t = new Thread(() =>
+        private static readonly BluetoothDevice FakeMainPc = new BluetoothDevice { Address = 0x001A7DDA7113UL, Name = "GYM-MAIN", IsComputer = true };
+
+        [Fact]
+        public void Automatic_FindsTheMainPcOnTheNetwork_WithOnlyTheCode()
+        {
+            using (LinkLeader leader = new LinkLeader("MAIN", "4821", 47416, 47415))
+            using (LinkFollower follower = new LinkFollower("SECOND", "4821", new LinkRoutePlan { UseBluetooth = false }, 47416, 47415))
             {
-                try
+                Assert.True(leader.Start(), leader.StartError);
+                follower.Start();
+
+                Assert.True(WaitFor(() => leader.FollowerNames.Count == 1, 12000), "not found; doing: " + follower.Activity);
+                leader.Broadcast(new LinkMessage { Type = LinkMessage.State, Phase = 0 });
+                Assert.True(WaitFor(() => follower.Status == FollowerStatus.Connected));
+                Assert.Equal("network", follower.ConnectedVia);
+                Assert.StartsWith("tcp:", follower.ConnectedRoute);
+                Assert.Equal(new[] { "SECOND (network)" }, leader.FollowerDescriptions);
+            }
+        }
+
+        [Fact]
+        public void Automatic_FallsBackToBluetooth_WhenTheNetworkHasNoMainPc()
+        {
+            FakeTransport radio = new FakeTransport();
+            List<ulong> dialled = new List<ulong>();
+            LinkRoutePlan plan = new LinkRoutePlan
+            {
+                UseNetwork = false, // as if the two PCs share no network
+                PairedComputers = () => new[] { FakeMainPc },
+                BluetoothConnect = (address, stop) => { dialled.Add(address); return radio.Connect(); }
+            };
+
+            using (LinkLeader leader = new LinkLeader("MAIN", "4821", 47416, 47415))
+            using (LinkFollower follower = new LinkFollower("SECOND", "4821", plan, 47416, 47415))
+            {
+                leader.AddListener(radio);
+                Assert.True(leader.Start(), leader.StartError);
+                follower.Start();
+
+                Assert.True(WaitFor(() => leader.FollowerNames.Count == 1), "never linked; doing: " + follower.Activity);
+                leader.Broadcast(new LinkMessage { Type = LinkMessage.State, Phase = 0 });
+                Assert.True(WaitFor(() => follower.Status == FollowerStatus.Connected));
+                Assert.Equal("Bluetooth", follower.ConnectedVia);
+                Assert.Equal("bt:00:1A:7D:DA:71:13", follower.ConnectedRoute);   // remembered for next time
+                Assert.Equal(new[] { FakeMainPc.Address }, dialled.ToArray());
+                Assert.Equal(new[] { "SECOND (Fake radio)" }, leader.FollowerDescriptions);
+            }
+        }
+
+        [Fact]
+        public void Automatic_TriesTheRouteThatWorkedLastTime_First()
+        {
+            List<string> seen = new List<string>();
+            using (LinkLeader leader = new LinkLeader("MAIN", "4821", 47416, 47415))
+            using (LinkFollower follower = new LinkFollower("SECOND", "4821",
+                new LinkRoutePlan { LastGoodRoute = "tcp:127.0.0.1", UseNetwork = false, UseBluetooth = false }, 47416, 47415))
+            {
+                follower.StatusChanged += () => { lock (seen) seen.Add(follower.Activity); };
+                Assert.True(leader.Start(), leader.StartError);
+                follower.Start();
+
+                Assert.True(WaitFor(() => leader.FollowerNames.Count == 1), "the remembered route was not used");
+                lock (seen) Assert.Contains("Connecting to the main PC at 127.0.0.1...", seen);
+            }
+        }
+
+        [Fact]
+        public void Automatic_KeepsTrying_AndSaysWhatItIsDoing_WhenThereIsNoMainPc()
+        {
+            List<string> seen = new List<string>();
+            LinkRoutePlan plan = new LinkRoutePlan
+            {
+                TypedAddress = "127.0.0.1", UseNetwork = false,
+                PairedComputers = () => new[] { FakeMainPc },
+                BluetoothConnect = (address, stop) => null // out of range
+            };
+            using (LinkFollower follower = new LinkFollower("SECOND", "4821", plan, 47416, 47415))
+            {
+                follower.StatusChanged += () => { lock (seen) seen.Add(follower.Activity); };
+                follower.Start();
+
+                Assert.True(WaitFor(() => follower.FailedRounds >= 1, 15000), "no round finished");
+                Assert.Equal(FollowerStatus.Searching, follower.Status);
+                lock (seen)
                 {
-                    using (BluetoothHelpForm help = new BluetoothHelpForm()) { IntPtr h = help.Handle; }
-                    using (LinkSettingsForm link = new LinkSettingsForm(new TimerSettings { LinkRole = "follow", LinkCode = "4821", LinkBluetooth = true }))
-                    {
-                        IntPtr h = link.Handle;
-                    }
+                    Assert.Contains("Connecting to the main PC at 127.0.0.1...", seen);
+                    Assert.Contains("Trying Bluetooth (GYM-MAIN)...", seen);
+                    Assert.Contains("The main PC was not found. Trying again...", seen);
                 }
-                catch (Exception ex) { error = ex; }
-            });
+            }
+        }
+
+        // ---------------------------------------------------------------- the built-in guide and the setup window
+
+        [Fact]
+        public void Help_CoversSetupOnANetwork_OverBluetooth_AndTroubleshooting_InTheAppsOwnWords()
+        {
+            Assert.Equal(new[] { "Quick start", "Network setup", "Bluetooth setup", "Not connecting?", "On a second screen", "Checking it's in step" },
+                LinkHelp.Topics.Select(t => t.Title).ToArray());
+
+            string start = string.Join(" ", LinkHelp.Find(LinkHelp.Start).Lines);
+            Assert.Contains("\"This is the MAIN PC\"", start);           // the setup window's buttons, word for word
+            Assert.Contains("\"This is a SECOND SCREEN\"", start);
+            Assert.Contains("\"Turn linking off\"", start);
+
+            string network = string.Join(" ", LinkHelp.Find(LinkHelp.Network).Lines);
+            Assert.Contains("firewall", network);
+            Assert.Contains("47215", network);
+            Assert.Contains("47216", network);
+            Assert.Contains("\"Main PC's address\"", network);
+            Assert.Contains("hotspot", network);
+
+            string bluetooth = string.Join(" ", LinkHelp.Find(LinkHelp.Bluetooth).Lines);
+            Assert.Contains("Bluetooth & devices", bluetooth);
+            Assert.Contains("Add device", bluetooth);
+            Assert.Contains("Join a Personal Area Network", bluetooth);
+            Assert.Contains("Direct connection", bluetooth);
+
+            string trouble = string.Join(" ", LinkHelp.Find(LinkHelp.Trouble).Lines);
+            Assert.Contains("Link code not accepted", trouble);
+            Assert.Contains("Reconnecting", trouble);
+        }
+
+        private static void RunSta(Action action)
+        {
+            Exception error = null;
+            Thread t = new Thread(() => { try { action(); } catch (Exception ex) { error = ex; } });
             t.SetApartmentState(ApartmentState.STA);
             t.Start();
             t.Join();
-            Assert.Null(error);
+            if (error != null) throw new Exception(error.ToString(), error);
+        }
+
+        [Fact]
+        public void HelpWindow_OpensOnEveryTopic()
+        {
+            RunSta(() =>
+            {
+                foreach (LinkHelpTopic topic in LinkHelp.Topics)
+                {
+                    using (LinkHelpForm help = new LinkHelpForm(topic.Id)) { IntPtr h = help.Handle; }
+                }
+            });
+        }
+
+        [Fact]
+        public void SetupWindow_MainPcIsOneClick_AndASecondScreenOnlyTypesTheCode()
+        {
+            RunSta(() =>
+            {
+                System.Reflection.BindingFlags priv = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                TimerSettings settings = new TimerSettings();
+                int applied = 0;
+                Func<LinkStatus> status = () => new LinkStatus
+                {
+                    Role = settings.IsLinkLeader ? "lead" : settings.IsLinkFollower ? "follow" : "off",
+                    Code = settings.LinkCode, LeaderRunning = settings.IsLinkLeader
+                };
+                Action<Action<TimerSettings>> apply = change => { change(settings); applied++; };
+
+                // ---- main PC: one click turns the link on and makes the code
+                using (LinkSetupForm setup = new LinkSetupForm(settings, status, apply))
+                {
+                    IntPtr h = setup.Handle;
+                    typeof(LinkSetupForm).GetMethod("BecomeMainPc", priv).Invoke(setup, null);
+                    Assert.True(settings.IsLinkLeader);
+                    Assert.Equal(4, settings.LinkCode.Length);
+                    Assert.Equal(1, applied);
+                }
+
+                // ---- second screen: the fourth digit starts the link - no OK button, nothing else to choose
+                settings.LinkRole = "off";
+                settings.LinkCode = string.Empty;
+                applied = 0;
+                using (LinkSetupForm setup = new LinkSetupForm(settings, status, apply))
+                {
+                    IntPtr h = setup.Handle;
+                    typeof(LinkSetupForm).GetMethod("ShowPage", priv).Invoke(setup,
+                        new object[] { typeof(LinkSetupForm).GetField("_followPage", priv).GetValue(setup) });
+                    System.Windows.Forms.TextBox code = (System.Windows.Forms.TextBox)typeof(LinkSetupForm).GetField("_codeBox", priv).GetValue(setup);
+
+                    code.Text = "482";
+                    Assert.False(settings.IsLinkFollower);
+                    code.Text = "4821";
+                    Assert.True(settings.IsLinkFollower);
+                    Assert.Equal("4821", settings.LinkCode);
+                    Assert.Equal(1, applied);
+
+                    // "More options" are optional extras; applying them changes only what was typed
+                    ((System.Windows.Forms.TextBox)typeof(LinkSetupForm).GetField("_stationsFrom", priv).GetValue(setup)).Text = "3";
+                    ((System.Windows.Forms.TextBox)typeof(LinkSetupForm).GetField("_stationsTo", priv).GetValue(setup)).Text = "4";
+                    Assert.True((bool)typeof(LinkSetupForm).GetMethod("ApplyOptions", priv).Invoke(setup, null));
+                    Assert.Equal(3, settings.LinkStationsFrom);
+                    Assert.Equal(4, settings.LinkStationsTo);
+                    Assert.Equal("4821", settings.LinkCode);
+                }
+            });
         }
 
         [Fact]

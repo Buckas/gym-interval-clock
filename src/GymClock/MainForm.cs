@@ -637,6 +637,7 @@ namespace GymClock
         {
             using (ProgramEditorForm dialog = new ProgramEditorForm(_settings))
             {
+                dialog.LinkSetupRequested = owner => ShowLinkSettings(owner);
                 if (launchWizard) dialog.Shown += delegate { dialog.LaunchAiAssistant(); };
 
                 if (dialog.ShowDialog(this) == DialogResult.OK)
@@ -644,12 +645,22 @@ namespace GymClock
                     bool justActivatedProgram = dialog.Result.UseBuiltProgram
                         && (!_settings.UseBuiltProgram || _settings.ProgramScript != dialog.Result.ProgramScript);
 
-                    string linkBefore = _settings.LinkKey();
+                    if (_ownSettings != null)
+                    {
+                        // "Link displays..." in the settings window made this PC a second screen: it is now showing
+                        // the main PC's session, so the edits belong to its own settings, kept for later.
+                        dialog.Result.CopyLinkFrom(_ownSettings);
+                        _ownSettings = dialog.Result;
+                        _ownSettings.Save();
+                        return;
+                    }
+
+                    // The link is applied live by its own window, so keep whatever it is now.
+                    dialog.Result.CopyLinkFrom(_settings);
                     _settings = dialog.Result;
                     _settings.Save();
                     ApplySettingsLive();
                     ResetSession();
-                    if (_settings.LinkKey() != linkBefore) StartLink(); // "Link displays..." was used in the settings window
 
                     if (justActivatedProgram)
                     {

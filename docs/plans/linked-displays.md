@@ -211,29 +211,26 @@ Results. Chris reported on 17 Nov 2026 that the test worked on two PCs; which ne
 | School Wi-Fi | | | | |
 | Phone hotspot | | | | |
 
-### 6.2 Trying linked displays in the app
+### 6.2 Using linked displays in the app
 
-Use a version 4 preview build on both PCs (section 0), on the same network.
+**The app is its own guide.** Press **L** for the Link displays window, and "Help and setup guide" in it for the full instructions: quick start, network setup, Bluetooth setup, troubleshooting by status message, what a second screen can do, and how to check the screens are in step. The text lives in `src/GymClock/Link/LinkHelp.cs`; this section is only a summary for developers.
 
-1. **Main PC:** press **L**, choose "This is the MAIN PC" and press OK. The bottom of the screen shows `LINK ON - CODE 1234 - NO SECOND SCREEN YET`. If Windows asks about the firewall, choose Allow.
-2. **Second PC:** press **L**, choose "This is a SECOND SCREEN", type the code from the main PC and press OK. Leave the address blank to find the main PC automatically. If Windows asks about the firewall, choose Allow.
-3. The second PC shows `FOLLOWING <main PC>` and the main PC shows `LINKED - 1 SECOND SCREEN`. The second screen now shows the main PC's program.
-4. Run the session from the main PC as normal. Start, pause, skip, back and reset all show on the second screen.
+Setup is two steps (both PCs on the same build):
 
-If the second PC stays on `LOOKING FOR THE MAIN PC...`: press **L** on the main PC to see its address, then press **L** on the second PC and type it in "Main PC's address". If that also fails, the network is blocking PC-to-PC traffic (section 5).
+1. **Main PC:** press **L** and click "This is the MAIN PC". The link starts at once. The window shows the link code in large digits, this PC's network and address, whether Bluetooth is ready, and the second screens as they join.
+2. **Second PC:** press **L**, click "This is a SECOND SCREEN" and type the code. Linking starts on the fourth digit; there is no OK button.
 
-On a second screen:
+The second PC then finds the main PC by itself, trying in order: the route that worked last time, a typed address (if one was given), the main PC's announcement on the network, then Bluetooth to each paired computer. It repeats until the main PC answers, and shows what it is trying ("Trying Bluetooth (GYM-PC)..."). When it links it remembers the route, so the next start is quick, and it runs a link test: GOOD, USABLE or POOR, with the delay.
 
-- The session keys do nothing (the main PC has the controls). **L** (link settings), **M** (sound on this screen), **F11**, **F6**, **F3** and **Q** still work.
-- Sound is off unless "Play the sounds on this screen too" is ticked (or press **M**).
-- "Show stations 3 to 4" applies to Parallel programs only. Other programs always mirror the main PC.
-- Choosing "Not linked" returns it to its own program and settings, which are never changed by following.
+If it has not linked after two full rounds, the window says what to check (main PC set up, same network or paired, firewall) without being asked. "More options" on the second PC holds the extras: sound on this screen, a station range for Parallel programs, a typed main PC address, and a choice of paired main PC. None is needed to link.
+
+On a second screen the session keys do nothing. **L**, **M** (sound on this screen), **F11**, **F6**, **F3** and **Q** still work. "Turn linking off" returns it to its own program and settings, which following never changes.
 
 ### 6.3 Linking over Bluetooth (Phase 4)
 
 For a venue with no network the two PCs can share. Bluetooth reaches about 10 m and walls reduce it, so keep the two PCs in the same room.
 
-The same steps are in the app: press **L**, then "How to set up Bluetooth between two PCs...". That window also has buttons that open the two Windows screens used below.
+The same steps are in the app: press **L**, "Help and setup guide", then "Bluetooth setup". That page also has buttons that open the two Windows screens used below.
 
 **In Windows**
 
@@ -244,20 +241,19 @@ The same steps are in the app: press **L**, then "How to set up Bluetooth betwee
 
 **In Gym Interval Clock**
 
-4. **Main PC:** press **L**, choose "This is the MAIN PC" and tick "Also accept second screens over Bluetooth". The bottom line shows `LINK ON (NETWORK + BLUETOOTH) - CODE 1234`.
-5. **Second PC:** press **L**, choose "This is a SECOND SCREEN", type the code, tick "Connect by Bluetooth instead of the network" and choose the main PC from the list of paired devices. If exactly one paired device is a computer, it is already selected.
-6. The second PC shows `CONNECTING TO THE MAIN PC BY BLUETOOTH...` (this can take several seconds), then `FOLLOWING <main PC>`.
+4. **Main PC:** press **L** and click "This is the MAIN PC". The window shows "Bluetooth: ready". There is nothing to tick: Bluetooth is used automatically when the PC has it.
+5. **Second PC:** press **L**, click "This is a SECOND SCREEN" and type the code. It tries the network first, then Bluetooth to each paired computer. Connecting by Bluetooth can take several seconds.
 
 The main PC keeps accepting network second screens at the same time. If Bluetooth can't start on the main PC, the network link still runs and a message says why.
 
-**If it will not connect:** check Bluetooth is on at both PCs, that each PC lists the other as Paired, and that the main PC's screen says `(NETWORK + BLUETOOTH)`.
+**If it will not connect:** check Bluetooth is on at both PCs, that each PC lists the other as Paired, and that the main PC's Link displays window says "Bluetooth: ready". If the second PC is paired with more than one computer, choose the main PC under "Bluetooth main PC" in "More options".
 
 **What the two-PC test showed, and what it didn't (17 Nov 2026)**
 
 - With the PCs paired and the second PC joined to the Personal Area Network, the link worked in the app.
 - The PAN was joined before the app was tried, so **it is not known whether step 3 is needed.** The app's own Bluetooth connection (RFCOMM) should need only pairing. Step 3 is in the instructions because it is the setup known to work.
 - A joined PAN is also an ordinary network between the two PCs, so the link may have run over it as a network link instead of the app's Bluetooth connection. Chris could not recall whether "Connect by Bluetooth" was ticked.
-- To settle both: pair the PCs, skip step 3, tick "Connect by Bluetooth" on the second PC and see whether it links. If it does, step 3 can be dropped from the instructions and the help window.
+- To settle both: pair the PCs, skip step 3, put the two PCs on different networks (or turn Wi-Fi off on one) and see whether the second PC links. The Link displays window says which route it used ("Linked to ... over Bluetooth"). If it links, step 3 can be dropped from the help.
 
 ### 6.4 How it was built (differences from sections 3 and 4)
 
@@ -265,7 +261,9 @@ The main PC keeps accepting network second screens at the same time. If Bluetoot
 - **No `RunState` refactor of `MainForm`.** The two session clocks became `RunClock` (a stopwatch that can be set to a position). The main PC's state is read from the existing fields each tick and sent when something changes, or every 250 ms.
 - **`PROGRAM` carries the settings as well as the script** (`TimerSettings.ToText(false)` plus `ProgramScript`), so colours, labels, prep time and the simple (non-program) session all mirror. Link settings are never sent or accepted.
 - **Signing:** every line is `HEX(HMAC-SHA256) + space + JSON`, with the key derived from the link code. Announcements are unsigned but carry a tag only a PC with the same code can produce, so a second screen ignores other main PCs on the network.
-- **The link window is opened with L** from the clock screen, or with the "Link displays..." button in the settings window. Changes made from the settings window take effect when that window is closed with OK.
+- **The link window is opened with L** from the clock screen, or with the "Link displays..." button in the settings window. It is a guided setup (`LinkSetupForm`): every choice takes effect at once, and it polls the link's state (`LinkStatus`) to show progress live.
+- **Automatic routing:** a second screen is given a `LinkRoutePlan` and works the route out itself (last good route, typed address, network announcement, Bluetooth). The main PC adds the Bluetooth listener whenever the PC has a radio. There are no transport settings to choose.
+- **In-app guide:** `LinkHelp` holds the text and `LinkHelpForm` shows it. It quotes the app's buttons and status lines word for word, and the tests check that.
 - **How well in step:** while the key hints are showing (press **H**), a second screen's status line reads `FOLLOWING <main PC> - IN STEP WITHIN 15 MS (PING 8)`. The figure is the largest recent difference from the main PC's countdown plus half the ping, which is the uncertainty in matching the two PCs' clocks.
 - **Transports:** the main PC and second-screen code only see a stream (`ILinkConnection`, `ILinkListener` in `LinkTransport.cs`). TCP and Bluetooth are two implementations, so everything above the connection (link code, signing, clock matching, mirroring) is shared.
 - **Bluetooth** (`BluetoothLink.cs`) uses Windows' own Bluetooth sockets (RFCOMM through `ws2_32`) and paired-device list (`BluetoothApis`) directly, with no extra library. The main PC advertises the service id `6f0c7a52-3b1e-4d7a-9a57-47796d436c6b`; a second screen connects to the paired main PC by that id. There is no searching over Bluetooth: the teacher picks the paired main PC.

@@ -245,11 +245,14 @@ namespace GymClock
         /// <summary>Follower, Parallel programs: first and last station to show (1-based). 0 = all stations.</summary>
         public int LinkStationsFrom = 0;
         public int LinkStationsTo = 0;
-        /// <summary>Main PC: also accept second screens over Bluetooth. Second screen: connect over Bluetooth instead of the network.</summary>
-        public bool LinkBluetooth = false;
-        /// <summary>Second screen: the paired main PC's Bluetooth address ("00:1A:7D:DA:71:13") and its name, for display.</summary>
+        /// <summary>
+        /// Second screen, optional: the paired main PC to use for Bluetooth ("00:1A:7D:DA:71:13") and its
+        /// name. Blank = try every paired computer. (Bluetooth itself is automatic on both PCs.)
+        /// </summary>
         public string LinkBluetoothAddress = string.Empty;
         public string LinkBluetoothName = string.Empty;
+        /// <summary>Second screen: the route that reached the main PC last time ("tcp:192.168.1.20" / "bt:00:1A:..."), tried first.</summary>
+        public string LinkLastRoute = string.Empty;
 
         /// <summary>Copies this PC's link settings (and nothing else) from another settings object.</summary>
         public void CopyLinkFrom(TimerSettings other)
@@ -260,9 +263,9 @@ namespace GymClock
             LinkSound = other.LinkSound;
             LinkStationsFrom = other.LinkStationsFrom;
             LinkStationsTo = other.LinkStationsTo;
-            LinkBluetooth = other.LinkBluetooth;
             LinkBluetoothAddress = other.LinkBluetoothAddress;
             LinkBluetoothName = other.LinkBluetoothName;
+            LinkLastRoute = other.LinkLastRoute;
         }
 
         /// <summary>All the link settings as one string, to tell whether any of them changed.</summary>
@@ -270,7 +273,7 @@ namespace GymClock
         {
             return string.Join("|", LinkRole, LinkCode, LinkAddress, LinkSound ? "1" : "0",
                 LinkStationsFrom.ToString(CultureInfo.InvariantCulture), LinkStationsTo.ToString(CultureInfo.InvariantCulture),
-                LinkBluetooth ? "1" : "0", LinkBluetoothAddress, LinkBluetoothName);
+                LinkBluetoothAddress, LinkBluetoothName);
         }
 
         public bool IsLinkLeader { get { return string.Equals(LinkRole, "lead", StringComparison.OrdinalIgnoreCase); } }
@@ -577,7 +580,7 @@ namespace GymClock
                     case "linksound": if (includeLink) s.LinkSound = ReadBool(value, s.LinkSound); break;
                     case "linkstationsfrom": if (includeLink) s.LinkStationsFrom = ReadInt(value, 0, 0, 99); break;
                     case "linkstationsto": if (includeLink) s.LinkStationsTo = ReadInt(value, 0, 0, 99); break;
-                    case "linkbluetooth": if (includeLink) s.LinkBluetooth = ReadBool(value, s.LinkBluetooth); break;
+                    case "linklastroute": if (includeLink) s.LinkLastRoute = value; break;
                     case "linkbluetoothaddress": if (includeLink) s.LinkBluetoothAddress = value; break;
                     case "linkbluetoothname": if (includeLink) s.LinkBluetoothName = value; break;
                     case "presets":
@@ -705,11 +708,12 @@ namespace GymClock
                 sb.AppendLine("linksound=" + (LinkSound ? "true" : "false"));
                 sb.AppendLine("linkstationsfrom=" + LinkStationsFrom.ToString(CultureInfo.InvariantCulture));
                 sb.AppendLine("linkstationsto=" + LinkStationsTo.ToString(CultureInfo.InvariantCulture));
-                sb.AppendLine("# Bluetooth, for places with no usable network (pair the PCs in Windows first). Main PC: also");
-                sb.AppendLine("# accept Bluetooth second screens. Second screen: connect to this paired main PC by Bluetooth.");
-                sb.AppendLine("linkbluetooth=" + (LinkBluetooth ? "true" : "false"));
+                sb.AppendLine("# Bluetooth is used automatically when the PCs are paired in Windows. Optional: the one paired");
+                sb.AppendLine("# main PC a second screen should use (blank = try every paired computer).");
                 sb.AppendLine("linkbluetoothaddress=" + LinkBluetoothAddress);
                 sb.AppendLine("linkbluetoothname=" + LinkBluetoothName);
+                sb.AppendLine("# The route that reached the main PC last time, tried first (written by the app).");
+                sb.AppendLine("linklastroute=" + LinkLastRoute);
             }
             sb.AppendLine();
             sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
