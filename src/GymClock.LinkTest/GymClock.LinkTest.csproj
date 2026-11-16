@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Phase 0 of docs/plans/linked-displays.md: a small console tool that checks whether two
+    PCs on the gym network can find each other and stay in time, before linked displays
+    are built into the app. It shares no code with the app and is not part of a release.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>GymClock.LinkTest</RootNamespace>
+    <AssemblyName>GymClock.LinkTest</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

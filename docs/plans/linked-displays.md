@@ -1,6 +1,6 @@
 # Plan: Linked displays (two or more PCs in sync)
 
-**Status:** agreed, being built as **Gym Interval Clock version 4** (on the `version-4` branch). Next: Phase 0.
+**Status:** agreed, being built as **Gym Interval Clock version 4** (on the `version-4` branch). Phase 0 test tool built; waiting on the gym network test (section 6.1).
 **Goal:** run one session from a "leader" PC and show it, in sync, on one or more "follower" PCs, each driving its own screen or projector, with no video streaming and no internet needed.
 
 ---
@@ -166,6 +166,41 @@ The first time the app runs as leader, Windows asks to allow it through the fire
 | **2. Display roles** | Automatic mirror for one-clock programs; chosen station range for Parallel; per-follower settings | Everest Session 1 on 2 screens: stations 1–2 / 3–4 |
 | **3. Resilience** | Reconnect, keep counting while offline, mid-session join (follower starts at the current point) | Unplug Wi-Fi for 30 s: the follower keeps time, then resyncs without a visible jump |
 | **4. Bluetooth (optional)** | RFCOMM transport behind the same message interface, for venues with no usable network | Two paired laptops sync with Wi-Fi off |
+
+### 6.1 Phase 0: running the network test
+
+The test tool is `src/GymClock.LinkTest` (a console app, separate from the main app and not part of a release). It uses the ports and message style from section 3: announcements on UDP 47215, and a TCP connection on 47216 carrying 4 heartbeats a second plus ping/pong timing.
+
+Build the exe to copy to both PCs:
+
+```powershell
+dotnet publish src/GymClock.LinkTest/GymClock.LinkTest.csproj --configuration Release --runtime win-x64 --self-contained true -p:PublishSingleFile=true -p:DebugType=embedded --output "$env:USERPROFILE\Downloads\GymClock-LinkTest"
+```
+
+Run it once on each network to be checked (school Wi-Fi, then a phone hotspot):
+
+1. Copy `GymClock.LinkTest.exe` to both PCs and connect both to the same network.
+2. On the main PC, run it and choose **1**. If Windows asks about the firewall, choose Allow. It shows this PC's address.
+3. On the second PC, run it and choose **2** (find automatically). If Windows asks about the firewall, choose Allow.
+4. If it can't find the main PC, type the main PC's address when asked (or run again and choose **3**).
+5. Watch the "shared clock" line on both screens for a few seconds: the countdown should change at the same moment on both.
+6. After 30 seconds the second PC prints a RESULT line and saves `LinkTest-report-<PC>-<date>.txt` next to the exe (or on the Desktop).
+
+What the result means:
+
+| Result | Meaning |
+|---|---|
+| **GOOD** | The network works, including finding the main PC automatically. |
+| **GOOD, BY ADDRESS** | Timing is fine, but broadcast is blocked: followers will need "Connect by address". |
+| **USABLE** | It works, but slower or less steady than the 100 ms target. |
+| **POOR / NOT WORKING** | Use a hotspot or cable, or ask IT about UDP 47215 and TCP 47216 (section 5). |
+
+Results (fill in after testing):
+
+| Network | Find | Connect | Average ping | Result |
+|---|---|---|---|---|
+| School Wi-Fi | | | | |
+| Phone hotspot | | | | |
 
 ## 7. Testing
 
