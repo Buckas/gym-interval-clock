@@ -374,12 +374,25 @@ to merge-conflict on beyond the usual `.Designer.cs` layout code.
 
 ## Cutting a release
 
+1. Set the version in `src/GymClock/GymClock.csproj` (`<Version>`, `<AssemblyVersion>`, `<FileVersion>`).
+   Window titles and the About box read it from there.
+2. Commit, then tag and push:
+
 ```powershell
-git tag v1.0.0
-git push origin v1.0.0
+git tag -a v3.1.3 -m "Gym Interval Clock v3.1.3"
+git push
+git push origin v3.1.3
 ```
 
-The workflow builds it and attaches `GymClock.exe` to a new GitHub release.
+The workflow builds it and attaches `GymClock.zip` to a new GitHub release. A tag with a
+`-` in it (e.g. `v4.0.0-preview.1`) is published as a **pre-release** for testing.
+
+### Branches
+
+- `main` - the released app (3.1.x fixes).
+- `version-4` - version 4 (linked displays) while it is built. See
+  [docs/plans/linked-displays.md](docs/plans/linked-displays.md), section 0, for how
+  previews and the 4.0.0 release work.
 
 ## Targeting .NET Framework 4.8 instead
 

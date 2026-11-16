@@ -1,7 +1,55 @@
 # Plan: Linked displays (two or more PCs in sync)
 
-**Status:** proposal, not started
+**Status:** agreed, being built as **Gym Interval Clock version 4** (on the `version-4` branch). Next: Phase 0.
 **Goal:** run one session from a "leader" PC and show it, in sync, on one or more "follower" PCs, each driving its own screen or projector, with no video streaming and no internet needed.
+
+---
+
+## 0. How version 4 is organised
+
+Linked displays is the headline feature of **version 4.0**. The work is kept apart from the released 3.x app so that fixes can still go out while it is being built.
+
+**Branches**
+
+| Branch | Holds | Version in `GymClock.csproj` |
+|---|---|---|
+| `main` | the released 3.x app; 3.1.x fixes only | `3.1.x` |
+| `version-4` | all linked-display work (phases 0–4) | `4.0.0-preview.N` |
+
+- Do all version 4 work on `version-4`: `git checkout version-4`. Commit and push there, not to `main`.
+- A fix to the released app goes on `main` first, as before. Then bring it into version 4 with `git checkout version-4` and `git merge main`.
+- GitHub Actions builds and tests both branches on every push.
+
+**Version numbers**
+
+- While in progress, the version is `4.0.0-preview.N`. The window title shows "Gym Interval Clock Version 4.0 Preview N", so a test PC is easy to recognise.
+- `<AssemblyVersion>` and `<FileVersion>` stay `4.0.0.0`; only `<Version>` carries the preview suffix.
+- Bump N each time a build goes to the gym for testing.
+
+**Test builds for the gym (pre-releases)**
+
+1. Set `<Version>` to the next `4.0.0-preview.N` and commit on `version-4`.
+2. Tag it: `git tag -a v4.0.0-preview.N -m "Gym Interval Clock v4.0.0-preview.N"`.
+3. Push: `git push`, then `git push origin v4.0.0-preview.N`.
+4. GitHub Actions publishes a **pre-release** with `GymClock.zip` attached. Any tag with a `-` in it is a pre-release, so it is never shown as the latest version.
+
+For quick local tests, a single-file exe can be published to `%USERPROFILE%\Downloads\GymClock-v4-test-N` instead (see the publish command in the memory notes).
+
+**Releasing 4.0.0**
+
+1. Make sure all tests pass on `version-4` and the gym testing in section 7 is done.
+2. Merge into `main`: `git checkout main`, `git merge version-4`.
+3. Set `<Version>4.0.0</Version>` on `main`, commit, tag `v4.0.0` ("Gym Interval Clock v4.0.0") and push the commit and the tag.
+4. The release workflow publishes it as the latest release.
+5. After that, `main` carries 4.x and the `version-4` branch can be deleted.
+
+Note: a PC running a preview has assembly version 4.0.0.0, which is the same as the final 4.0.0, so its update check won't offer 4.0.0. Install the final release on test PCs by hand.
+
+**Scope of version 4.0**
+
+- Phases 0–3 in section 6.
+- Phase 4 (Bluetooth) is optional and can follow in a later 4.x.
+- The decisions in section 9 are fixed for 4.0.
 
 ---
 
@@ -9,10 +57,9 @@
 
 - **One set of controls.** Start, pause, skip and reset happen on the leader. Every linked screen follows within a fraction of a second.
 - **A screen anywhere in the gym.** Each display needs only a laptop or mini-PC next to it, so there are no long HDMI runs and no Miracast lag or drop-outs.
-- **Different views per screen.** For example:
-  - **Mirror:** the same picture as the leader.
-  - **Stations 5–8 only:** in a big gym, the far end sees just its own stations' tiles, larger.
-  - **Big clock only:** the rotation countdown ("ROTATE IN 3:10") or the current phase, as large as possible.
+- **The right view on each screen** (see section 9):
+  - **Mirror:** for one-clock programs (Shared, Circuit, Sequential), the follower shows the same picture as the leader.
+  - **Chosen stations:** for Parallel programs, each follower shows the stations it is set to, e.g. stations 5–8 at the far end of a big gym, with larger tiles.
 - **Keeps going if the link drops.** A follower carries on counting by itself, because the timing is predictable, and shows a small "reconnecting" badge until the link returns.
 
 ## 2. Approach: share the *state*, not the picture

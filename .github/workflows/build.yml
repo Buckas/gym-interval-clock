@@ -2,10 +2,10 @@ name: build
 
 on:
   push:
-    branches: [main]
+    branches: [main, version-4]
     tags: ['v*']
   pull_request:
-    branches: [main]
+    branches: [main, version-4]
   workflow_dispatch:
 
 permissions:
@@ -83,9 +83,14 @@ jobs:
 
       - name: Attach the bundle to the release
         if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >
-          gh release create "${{ github.ref_name }}" "GymClock.zip"
-          --title "Gym Interval Clock ${{ github.ref_name }}"
-          --generate-notes
+        run: |
+          # A tag like v4.0.0-preview.1 is a test build for trying in the gym: publish it as a
+          # pre-release, so it is not shown as the latest version.
+          $extra = @()
+          if ("${{ github.ref_name }}".Contains("-")) { $extra += "--prerelease" }
+          gh release create "${{ github.ref_name }}" "GymClock.zip" `
+            --title "Gym Interval Clock ${{ github.ref_name }}" `
+            --generate-notes @extra
