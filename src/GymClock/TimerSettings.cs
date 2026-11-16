@@ -231,6 +231,24 @@ namespace GymClock
         /// </summary>
         public bool UseBuiltProgram = false;
 
+        // ---- Linked displays (version 4). These belong to this PC only: they are never
+        // sent to another PC and never taken from one (see ToText / FromText).
+
+        /// <summary>"off", "lead" (this is the main PC) or "follow" (this is a second screen).</summary>
+        public string LinkRole = "off";
+        /// <summary>The 4-digit code a second screen must enter to follow the main PC.</summary>
+        public string LinkCode = string.Empty;
+        /// <summary>Follower: the main PC's address. Blank = find it automatically.</summary>
+        public string LinkAddress = string.Empty;
+        /// <summary>Follower: play the sound cues on this screen too.</summary>
+        public bool LinkSound = false;
+        /// <summary>Follower, Parallel programs: first and last station to show (1-based). 0 = all stations.</summary>
+        public int LinkStationsFrom = 0;
+        public int LinkStationsTo = 0;
+
+        public bool IsLinkLeader { get { return string.Equals(LinkRole, "lead", StringComparison.OrdinalIgnoreCase); } }
+        public bool IsLinkFollower { get { return string.Equals(LinkRole, "follow", StringComparison.OrdinalIgnoreCase); } }
+
         public List<Preset> Presets = new List<Preset>();
 
         public TimerSettings()
@@ -387,6 +405,12 @@ namespace GymClock
             c.CustomColour = CustomColour;
             c.ProgramScript = ProgramScript;
             c.UseBuiltProgram = UseBuiltProgram;
+            c.LinkRole = LinkRole;
+            c.LinkCode = LinkCode;
+            c.LinkAddress = LinkAddress;
+            c.LinkSound = LinkSound;
+            c.LinkStationsFrom = LinkStationsFrom;
+            c.LinkStationsTo = LinkStationsTo;
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
@@ -431,79 +455,7 @@ namespace GymClock
                     return s;
                 }
 
-                bool presetsSeen = false;
-                foreach (string raw in File.ReadAllLines(path))
-                {
-                    string line = raw.Trim();
-                    if (line.Length == 0 || line.StartsWith("#") || line.StartsWith(";")) continue;
-
-                    int eq = line.IndexOf('=');
-                    if (eq <= 0) continue;
-
-                    string key = line.Substring(0, eq).Trim().ToLowerInvariant();
-                    string value = line.Substring(eq + 1).Trim();
-
-                    switch (key)
-                    {
-                        case "prep": s.PrepSeconds = ReadInt(value, s.PrepSeconds, 0, 300); break;
-                        case "work": s.WorkSeconds = ReadInt(value, s.WorkSeconds, 1, 3600); break;
-                        case "rest": s.RestSeconds = ReadInt(value, s.RestSeconds, 0, 3600); break;
-                        case "rounds": s.Rounds = ReadInt(value, s.Rounds, 0, 999); break;
-                        case "plan": s.Plan = value; break;
-                        case "restafterfinalround": s.RestAfterFinalRound = ReadBool(value, s.RestAfterFinalRound); break;
-                        case "sound": s.SoundEnabled = ReadBool(value, s.SoundEnabled); break;
-                        case "volume": s.Volume = ReadDouble(value, s.Volume, 0.05, 1.0); break;
-                        case "alwaysontop": s.AlwaysOnTop = ReadBool(value, s.AlwaysOnTop); break;
-                        case "showclock": s.ShowClock = ReadBool(value, s.ShowClock); break;
-                        case "clockformat": if (value.Length > 0) s.ClockFormat = value; break;
-                        case "worklabel": s.WorkLabel = value; break;
-                        case "restlabel": s.RestLabel = value; break;
-                        case "workcolour":
-                        case "workcolor": s.WorkColour = value; break;
-                        case "restcolour":
-                        case "restcolor": s.RestColour = value; break;
-                        case "prepcolour":
-                        case "prepcolor": s.PrepColour = value; break;
-                        case "pausedcolour":
-                        case "pausedcolor": s.PausedColour = value; break;
-                        case "donecolour":
-                        case "donecolor": s.DoneColour = value; break;
-                        case "idlecolour":
-                        case "idlecolor": s.IdleColour = value; break;
-                        case "stations": s.Stations = ParseStations(value); break;
-                        case "showstationnameasdescription": s.ShowStationNameAsDescription = ReadBool(value, s.ShowStationNameAsDescription); break;
-                        case "showstationstable": s.ShowStationsTable = ReadBool(value, s.ShowStationsTable); break;
-                        case "highlightcurrentstation": s.HighlightCurrentStation = ReadBool(value, s.HighlightCurrentStation); break;
-                        case "usemovetime": s.UseMoveTime = ReadBool(value, s.UseMoveTime); break;
-                        case "moveseconds": s.MoveSeconds = ReadInt(value, s.MoveSeconds, 1, 600); break;
-                        case "movemessage": s.MoveMessage = value; break;
-                        case "movecolour":
-                        case "movecolor": s.MoveColour = value; break;
-                        case "recoverycolour":
-                        case "recoverycolor": s.RecoveryColour = value; break;
-                        case "countdowncolour":
-                        case "countdowncolor": s.CountdownColour = value; break;
-                        case "waterbreakcolour":
-                        case "waterbreakcolor": s.WaterBreakColour = value; break;
-                        case "instructioncolour":
-                        case "instructioncolor": s.InstructionColour = value; break;
-                        case "customcolour":
-                        case "customcolor": s.CustomColour = value; break;
-                        case "program": legacyProgramScript = value.Replace("\\n", "\n"); break;
-                        case "usebuiltprogram": s.UseBuiltProgram = ReadBool(value, s.UseBuiltProgram); useBuiltProgramSeen = true; break;
-                        case "presets":
-                            List<Preset> parsed = new List<Preset>();
-                            foreach (string item in SplitList(value))
-                            {
-                                Preset p;
-                                if (Preset.TryParse(item, out p)) parsed.Add(p);
-                            }
-                            if (parsed.Count > 0) { s.Presets = parsed; presetsSeen = true; }
-                            break;
-                    }
-                }
-
-                if (!presetsSeen && s.Presets.Count == 0) s.Presets.Add(new Preset(45, 15, 10));
+                ParseLines(File.ReadAllLines(path), s, true, ref legacyProgramScript, ref useBuiltProgramSeen);
 
                 ProgramLibrary.EnsureInstalled();
                 string currentProgram = ProgramLibrary.LoadCurrentProgramScript();
@@ -533,6 +485,210 @@ namespace GymClock
             return s;
         }
 
+        /// <summary>Reads key=value settings lines into <paramref name="s"/>. Link settings are read only from this PC's own file.</summary>
+        private static void ParseLines(IEnumerable<string> lines, TimerSettings s, bool includeLink,
+            ref string legacyProgramScript, ref bool useBuiltProgramSeen)
+        {
+            bool presetsSeen = false;
+            foreach (string raw in lines)
+            {
+                string line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#") || line.StartsWith(";")) continue;
+
+                int eq = line.IndexOf('=');
+                if (eq <= 0) continue;
+
+                string key = line.Substring(0, eq).Trim().ToLowerInvariant();
+                string value = line.Substring(eq + 1).Trim();
+
+                switch (key)
+                {
+                    case "prep": s.PrepSeconds = ReadInt(value, s.PrepSeconds, 0, 300); break;
+                    case "work": s.WorkSeconds = ReadInt(value, s.WorkSeconds, 1, 3600); break;
+                    case "rest": s.RestSeconds = ReadInt(value, s.RestSeconds, 0, 3600); break;
+                    case "rounds": s.Rounds = ReadInt(value, s.Rounds, 0, 999); break;
+                    case "plan": s.Plan = value; break;
+                    case "restafterfinalround": s.RestAfterFinalRound = ReadBool(value, s.RestAfterFinalRound); break;
+                    case "sound": s.SoundEnabled = ReadBool(value, s.SoundEnabled); break;
+                    case "volume": s.Volume = ReadDouble(value, s.Volume, 0.05, 1.0); break;
+                    case "alwaysontop": s.AlwaysOnTop = ReadBool(value, s.AlwaysOnTop); break;
+                    case "showclock": s.ShowClock = ReadBool(value, s.ShowClock); break;
+                    case "clockformat": if (value.Length > 0) s.ClockFormat = value; break;
+                    case "worklabel": s.WorkLabel = value; break;
+                    case "restlabel": s.RestLabel = value; break;
+                    case "workcolour":
+                    case "workcolor": s.WorkColour = value; break;
+                    case "restcolour":
+                    case "restcolor": s.RestColour = value; break;
+                    case "prepcolour":
+                    case "prepcolor": s.PrepColour = value; break;
+                    case "pausedcolour":
+                    case "pausedcolor": s.PausedColour = value; break;
+                    case "donecolour":
+                    case "donecolor": s.DoneColour = value; break;
+                    case "idlecolour":
+                    case "idlecolor": s.IdleColour = value; break;
+                    case "stations": s.Stations = ParseStations(value); break;
+                    case "showstationnameasdescription": s.ShowStationNameAsDescription = ReadBool(value, s.ShowStationNameAsDescription); break;
+                    case "showstationstable": s.ShowStationsTable = ReadBool(value, s.ShowStationsTable); break;
+                    case "highlightcurrentstation": s.HighlightCurrentStation = ReadBool(value, s.HighlightCurrentStation); break;
+                    case "usemovetime": s.UseMoveTime = ReadBool(value, s.UseMoveTime); break;
+                    case "moveseconds": s.MoveSeconds = ReadInt(value, s.MoveSeconds, 1, 600); break;
+                    case "movemessage": s.MoveMessage = value; break;
+                    case "movecolour":
+                    case "movecolor": s.MoveColour = value; break;
+                    case "recoverycolour":
+                    case "recoverycolor": s.RecoveryColour = value; break;
+                    case "countdowncolour":
+                    case "countdowncolor": s.CountdownColour = value; break;
+                    case "waterbreakcolour":
+                    case "waterbreakcolor": s.WaterBreakColour = value; break;
+                    case "instructioncolour":
+                    case "instructioncolor": s.InstructionColour = value; break;
+                    case "customcolour":
+                    case "customcolor": s.CustomColour = value; break;
+                    case "program": legacyProgramScript = value.Replace("\\n", "\n"); break;
+                    case "usebuiltprogram": s.UseBuiltProgram = ReadBool(value, s.UseBuiltProgram); useBuiltProgramSeen = true; break;
+                    case "linkrole": if (includeLink) s.LinkRole = value.ToLowerInvariant(); break;
+                    case "linkcode": if (includeLink) s.LinkCode = value; break;
+                    case "linkaddress": if (includeLink) s.LinkAddress = value; break;
+                    case "linksound": if (includeLink) s.LinkSound = ReadBool(value, s.LinkSound); break;
+                    case "linkstationsfrom": if (includeLink) s.LinkStationsFrom = ReadInt(value, 0, 0, 99); break;
+                    case "linkstationsto": if (includeLink) s.LinkStationsTo = ReadInt(value, 0, 0, 99); break;
+                    case "presets":
+                        List<Preset> parsed = new List<Preset>();
+                        foreach (string item in SplitList(value))
+                        {
+                            Preset p;
+                            if (Preset.TryParse(item, out p)) parsed.Add(p);
+                        }
+                        if (parsed.Count > 0) { s.Presets = parsed; presetsSeen = true; }
+                        break;
+                }
+            }
+
+            if (!presetsSeen && s.Presets.Count == 0) s.Presets.Add(new Preset(45, 15, 10));
+        }
+
+        /// <summary>
+        /// Settings received from the main PC (see ToText). Never touches this PC's files, and
+        /// ignores link settings - a second screen keeps its own.
+        /// </summary>
+        public static TimerSettings FromText(string text, string programScript)
+        {
+            TimerSettings s = new TimerSettings();
+            string legacy = null;
+            bool seen = false;
+            try
+            {
+                ParseLines((text ?? string.Empty).Replace("\r", string.Empty).Split('\n'), s, false, ref legacy, ref seen);
+            }
+            catch
+            {
+                s = new TimerSettings();
+            }
+            s.ProgramScript = programScript ?? string.Empty;
+            if (!seen) s.UseBuiltProgram = !string.IsNullOrEmpty(s.ProgramScript);
+            return s;
+        }
+
+        /// <summary>
+        /// The settings as the text of settings.txt. With <paramref name="includeLink"/> false this is
+        /// what the main PC sends to its second screens: everything except this PC's link settings.
+        /// The program itself travels separately (ProgramScript).
+        /// </summary>
+        public string ToText(bool includeLink)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("# Gym Interval Clock settings");
+            sb.AppendLine("# Edit with Notepad or use the in-app settings dialog (press S).");
+            sb.AppendLine("# Times are in seconds. rounds=0 means keep looping until stopped.");
+            sb.AppendLine();
+            sb.AppendLine("prep=" + PrepSeconds.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("work=" + WorkSeconds.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("rest=" + RestSeconds.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("rounds=" + Rounds.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine();
+            sb.AppendLine("# Optional variable structure. Blocks are work/rest x repeats,");
+            sb.AppendLine("# joined with +. Overrides work, rest and the round count above.");
+            sb.AppendLine("#   plan=45/15x2+50/10x4     two rounds of 45/15, then four of 50/10");
+            sb.AppendLine("# Leave blank for a plain uniform session.");
+            sb.AppendLine("plan=" + Plan);
+            sb.AppendLine("restafterfinalround=" + (RestAfterFinalRound ? "true" : "false"));
+            sb.AppendLine("sound=" + (SoundEnabled ? "true" : "false"));
+            sb.AppendLine("volume=" + Volume.ToString("0.00", CultureInfo.InvariantCulture));
+            sb.AppendLine("alwaysontop=" + (AlwaysOnTop ? "true" : "false"));
+            sb.AppendLine("showclock=" + (ShowClock ? "true" : "false"));
+            sb.AppendLine("clockformat=" + ClockFormat);
+            sb.AppendLine("worklabel=" + WorkLabel);
+            sb.AppendLine("restlabel=" + RestLabel);
+            sb.AppendLine();
+            sb.AppendLine("# Colours: #RRGGBB or a .NET colour name");
+            sb.AppendLine("workcolour=" + WorkColour);
+            sb.AppendLine("restcolour=" + RestColour);
+            sb.AppendLine("prepcolour=" + PrepColour);
+            sb.AppendLine("pausedcolour=" + PausedColour);
+            sb.AppendLine("donecolour=" + DoneColour);
+            sb.AppendLine("idlecolour=" + IdleColour);
+            sb.AppendLine();
+            sb.AppendLine("# Optional stations, shown one per work round, and in the on-screen table.");
+            sb.AppendLine("# Plain names:      stations=Burpees,Squats,Push-ups");
+            sb.AppendLine("# With instructions for each phase, Name|during work|during rest, joined by ;");
+            sb.AppendLine("#   stations=Exercise bike|80% resistance|no resistance;Skip rope|full pace|walk");
+            sb.AppendLine("stations=" + FormatStations(Stations));
+            sb.AppendLine();
+            sb.AppendLine("# Show the station list as a table down the left of the screen.");
+            sb.AppendLine("showstationstable=" + (ShowStationsTable ? "true" : "false"));
+            sb.AppendLine("# Linear session (true) - the whole class moves through stations together, and");
+            sb.AppendLine("# the table highlights whichever one is in progress. Rotating circuit (false) -");
+            sb.AppendLine("# every station is in use at once by a different group, so none is highlighted.");
+            sb.AppendLine("highlightcurrentstation=" + (HighlightCurrentStation ? "true" : "false"));
+            sb.AppendLine("# Show the station's own name as the big description instead of WORK/REST.");
+            sb.AppendLine("# Only takes effect for a linear session with stations defined.");
+            sb.AppendLine("showstationnameasdescription=" + (ShowStationNameAsDescription ? "true" : "false"));
+            sb.AppendLine();
+            sb.AppendLine("# Optional move phase between stations, after the rest (or straight after");
+            sb.AppendLine("# work if there is none). Skipped after the final round.");
+            sb.AppendLine("usemovetime=" + (UseMoveTime ? "true" : "false"));
+            sb.AppendLine("moveseconds=" + MoveSeconds.ToString(CultureInfo.InvariantCulture));
+            sb.AppendLine("movemessage=" + MoveMessage);
+            sb.AppendLine("movecolour=" + MoveColour);
+            sb.AppendLine();
+            sb.AppendLine("# Default colours for the newer block types a program can use.");
+            sb.AppendLine("recoverycolour=" + RecoveryColour);
+            sb.AppendLine("countdowncolour=" + CountdownColour);
+            sb.AppendLine("waterbreakcolour=" + WaterBreakColour);
+            sb.AppendLine("instructioncolour=" + InstructionColour);
+            sb.AppendLine("customcolour=" + CustomColour);
+            sb.AppendLine();
+            sb.AppendLine("# The current program now lives in its own file, editable in the Program");
+            sb.AppendLine("# Builder or with Notepad:");
+            sb.AppendLine("#   " + ProgramLibrary.CurrentProgramFilePath);
+
+            sb.AppendLine("# Which of the above is actually running - a built program, or the simple");
+            sb.AppendLine("# work/rest/rounds/plan fields. Keeping both around means switching never loses either.");
+            sb.AppendLine("usebuiltprogram=" + (UseBuiltProgram ? "true" : "false"));
+            if (includeLink)
+            {
+                sb.AppendLine();
+                sb.AppendLine("# Linked displays: off, lead (this is the main PC) or follow (this is a second screen).");
+                sb.AppendLine("linkrole=" + LinkRole);
+                sb.AppendLine("linkcode=" + LinkCode);
+                sb.AppendLine("# Second screen only: the main PC's address (blank = find automatically), sound on this");
+                sb.AppendLine("# screen, and which stations to show for Parallel programs (0 = all).");
+                sb.AppendLine("linkaddress=" + LinkAddress);
+                sb.AppendLine("linksound=" + (LinkSound ? "true" : "false"));
+                sb.AppendLine("linkstationsfrom=" + LinkStationsFrom.ToString(CultureInfo.InvariantCulture));
+                sb.AppendLine("linkstationsto=" + LinkStationsTo.ToString(CultureInfo.InvariantCulture));
+            }
+            sb.AppendLine();
+            sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
+            List<string> ps = new List<string>();
+            foreach (Preset p in Presets) ps.Add(p.ToString());
+            sb.AppendLine("presets=" + string.Join(",", ps.ToArray()));
+            return sb.ToString();
+        }
+
         public void Save()
         {
             try
@@ -541,83 +697,8 @@ namespace GymClock
                 string dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
 
-                StringBuilder sb = new StringBuilder();
-                sb.AppendLine("# Gym Interval Clock settings");
-                sb.AppendLine("# Edit with Notepad or use the in-app settings dialog (press S).");
-                sb.AppendLine("# Times are in seconds. rounds=0 means keep looping until stopped.");
-                sb.AppendLine();
-                sb.AppendLine("prep=" + PrepSeconds.ToString(CultureInfo.InvariantCulture));
-                sb.AppendLine("work=" + WorkSeconds.ToString(CultureInfo.InvariantCulture));
-                sb.AppendLine("rest=" + RestSeconds.ToString(CultureInfo.InvariantCulture));
-                sb.AppendLine("rounds=" + Rounds.ToString(CultureInfo.InvariantCulture));
-                sb.AppendLine();
-                sb.AppendLine("# Optional variable structure. Blocks are work/rest x repeats,");
-                sb.AppendLine("# joined with +. Overrides work, rest and the round count above.");
-                sb.AppendLine("#   plan=45/15x2+50/10x4     two rounds of 45/15, then four of 50/10");
-                sb.AppendLine("# Leave blank for a plain uniform session.");
-                sb.AppendLine("plan=" + Plan);
-                sb.AppendLine("restafterfinalround=" + (RestAfterFinalRound ? "true" : "false"));
-                sb.AppendLine("sound=" + (SoundEnabled ? "true" : "false"));
-                sb.AppendLine("volume=" + Volume.ToString("0.00", CultureInfo.InvariantCulture));
-                sb.AppendLine("alwaysontop=" + (AlwaysOnTop ? "true" : "false"));
-                sb.AppendLine("showclock=" + (ShowClock ? "true" : "false"));
-                sb.AppendLine("clockformat=" + ClockFormat);
-                sb.AppendLine("worklabel=" + WorkLabel);
-                sb.AppendLine("restlabel=" + RestLabel);
-                sb.AppendLine();
-                sb.AppendLine("# Colours: #RRGGBB or a .NET colour name");
-                sb.AppendLine("workcolour=" + WorkColour);
-                sb.AppendLine("restcolour=" + RestColour);
-                sb.AppendLine("prepcolour=" + PrepColour);
-                sb.AppendLine("pausedcolour=" + PausedColour);
-                sb.AppendLine("donecolour=" + DoneColour);
-                sb.AppendLine("idlecolour=" + IdleColour);
-                sb.AppendLine();
-                sb.AppendLine("# Optional stations, shown one per work round, and in the on-screen table.");
-                sb.AppendLine("# Plain names:      stations=Burpees,Squats,Push-ups");
-                sb.AppendLine("# With instructions for each phase, Name|during work|during rest, joined by ;");
-                sb.AppendLine("#   stations=Exercise bike|80% resistance|no resistance;Skip rope|full pace|walk");
-                sb.AppendLine("stations=" + FormatStations(Stations));
-                sb.AppendLine();
-                sb.AppendLine("# Show the station list as a table down the left of the screen.");
-                sb.AppendLine("showstationstable=" + (ShowStationsTable ? "true" : "false"));
-                sb.AppendLine("# Linear session (true) - the whole class moves through stations together, and");
-                sb.AppendLine("# the table highlights whichever one is in progress. Rotating circuit (false) -");
-                sb.AppendLine("# every station is in use at once by a different group, so none is highlighted.");
-                sb.AppendLine("highlightcurrentstation=" + (HighlightCurrentStation ? "true" : "false"));
-                sb.AppendLine("# Show the station's own name as the big description instead of WORK/REST.");
-                sb.AppendLine("# Only takes effect for a linear session with stations defined.");
-                sb.AppendLine("showstationnameasdescription=" + (ShowStationNameAsDescription ? "true" : "false"));
-                sb.AppendLine();
-                sb.AppendLine("# Optional move phase between stations, after the rest (or straight after");
-                sb.AppendLine("# work if there is none). Skipped after the final round.");
-                sb.AppendLine("usemovetime=" + (UseMoveTime ? "true" : "false"));
-                sb.AppendLine("moveseconds=" + MoveSeconds.ToString(CultureInfo.InvariantCulture));
-                sb.AppendLine("movemessage=" + MoveMessage);
-                sb.AppendLine("movecolour=" + MoveColour);
-                sb.AppendLine();
-                sb.AppendLine("# Default colours for the newer block types a program can use.");
-                sb.AppendLine("recoverycolour=" + RecoveryColour);
-                sb.AppendLine("countdowncolour=" + CountdownColour);
-                sb.AppendLine("waterbreakcolour=" + WaterBreakColour);
-                sb.AppendLine("instructioncolour=" + InstructionColour);
-                sb.AppendLine("customcolour=" + CustomColour);
-                sb.AppendLine();
-                sb.AppendLine("# The current program now lives in its own file, editable in the Program");
-                sb.AppendLine("# Builder or with Notepad:");
-                sb.AppendLine("#   " + ProgramLibrary.CurrentProgramFilePath);
-
                 ProgramLibrary.SaveCurrentProgramScript(ProgramScript);
-                sb.AppendLine("# Which of the above is actually running - a built program, or the simple");
-                sb.AppendLine("# work/rest/rounds/plan fields. Keeping both around means switching never loses either.");
-                sb.AppendLine("usebuiltprogram=" + (UseBuiltProgram ? "true" : "false"));
-                sb.AppendLine();
-                sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
-                List<string> ps = new List<string>();
-                foreach (Preset p in Presets) ps.Add(p.ToString());
-                sb.AppendLine("presets=" + string.Join(",", ps.ToArray()));
-
-                File.WriteAllText(path, sb.ToString());
+                File.WriteAllText(path, ToText(true));
             }
             catch
             {

@@ -7,6 +7,7 @@ using System.Drawing.Text;
 using System.Globalization;
 using System.Windows.Forms;
 using GymClock.AI;
+using GymClock.Link;
 
 namespace GymClock
 {
@@ -33,7 +34,7 @@ namespace GymClock
     /// station highlight working unchanged even though Shared Timing itself
     /// never highlights a station.
     /// </summary>
-    public class MainForm : Form
+    public partial class MainForm : Form
     {
         private TimerSettings _settings;
 
@@ -41,8 +42,9 @@ namespace GymClock
         private double _phaseLength;                       // seconds in the current phase
         private int _lastCueSecond = -1;
 
-        private readonly Stopwatch _phaseClock = new Stopwatch();
-        private readonly Stopwatch _sessionClock = new Stopwatch();
+        // RunClock = a Stopwatch that can also be set to a position (a second screen is put where the main PC is).
+        private readonly RunClock _phaseClock = new RunClock();
+        private readonly RunClock _sessionClock = new RunClock();
         private readonly System.Windows.Forms.Timer _ticker = new System.Windows.Forms.Timer();
 
         private bool _fullScreen;
@@ -81,9 +83,14 @@ namespace GymClock
         private static readonly Color InkSoft = Color.FromArgb(205, 255, 255, 255);
         private static readonly Color InkFaint = Color.FromArgb(140, 255, 255, 255);
 
-        public MainForm()
+        public MainForm() : this(TimerSettings.Load())
         {
-            _settings = TimerSettings.Load();
+        }
+
+        /// <summary>For tests: a clock window on the given settings instead of this PC's settings file.</summary>
+        public MainForm(TimerSettings settings)
+        {
+            _settings = settings ?? new TimerSettings();
 
             Text = "Gym Interval Clock Version " + AppVersion.Display;
             Icon = AppIconProvider.GetIcon();
@@ -121,7 +128,8 @@ namespace GymClock
 
             MouseDown += delegate(object sender, MouseEventArgs e)
             {
-                if (e.Button == MouseButtons.Left) TogglePause();
+                if (e.Button != MouseButtons.Left) return;
+                if (IsFollowing) FollowerControlBlocked(); else TogglePause();
             };
 
             ApplyAudioSettings();
@@ -138,6 +146,7 @@ namespace GymClock
             base.OnShown(e);
             SetFullScreen(true);
             _ticker.Start();
+            StartLink();
             _ = AiAssistantRuntime.StartWarmupIfNeeded();
             StartBackgroundChecks(false);
             OfferRenewalIfDue();
@@ -146,6 +155,7 @@ namespace GymClock
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _ticker.Stop();
+            StopLink(false);
             _settings.Save();
             UsageLog.End();
             base.OnFormClosing(e);
@@ -427,6 +437,12 @@ namespace GymClock
 
         private void Ticker_Tick(object sender, EventArgs e)
         {
+            RunTick();
+            LinkTick(); // main PC: tell the second screens where the session is
+        }
+
+        private void RunTick()
+        {
             if (IsParallelActive)
             {
                 // No single block to count down or cue here - each station's own
@@ -574,8 +590,9 @@ namespace GymClock
 
         private void ApplyAudioSettings()
         {
-            Beeper.Enabled = _settings.SoundEnabled;
-            Beeper.Volume = _settings.Volume;
+            // A second screen has its own sound switch (Link displays), off by default.
+            Beeper.Enabled = IsFollowing ? OwnSettings.LinkSound : _settings.SoundEnabled;
+            Beeper.Volume = OwnSettings.Volume;
         }
 
         /// <summary>
@@ -870,6 +887,64 @@ namespace GymClock
         {
             base.OnKeyDown(e);
 
+            if (e.KeyCode == Keys.L)
+            {
+                ShowLinkSettings();
+                e.Handled = true;
+                return;
+            }
+
+            // A second screen only displays: the session keys belong to the main PC.
+            if (IsFollowing)
+            {
+                switch (e.KeyCode)
+                {
+                    case Keys.M:
+                        OwnSettings.LinkSound = !OwnSettings.LinkSound;
+                        _settings.SoundEnabled = OwnSettings.LinkSound;
+                        ApplyAudioSettings();
+                        OwnSettings.Save();
+                        ShowToast(OwnSettings.LinkSound ? "SOUND ON FOR THIS SCREEN" : "SOUND OFF FOR THIS SCREEN", 3);
+                        break;
+                    case Keys.T:
+                        OwnSettings.AlwaysOnTop = !OwnSettings.AlwaysOnTop;
+                        _settings.AlwaysOnTop = OwnSettings.AlwaysOnTop;
+                        TopMost = OwnSettings.AlwaysOnTop;
+                        OwnSettings.Save();
+                        ShowHint(4);
+                        break;
+                    case Keys.F:
+                    case Keys.F11:
+                        SetFullScreen(!_fullScreen);
+                        break;
+                    case Keys.F6:
+                        MoveToNextScreen();
+                        break;
+                    case Keys.F3:
+                        ShowLicenceInfo();
+                        break;
+                    case Keys.H:
+                    case Keys.F1:
+                        ShowHint(15);
+                        break;
+                    case Keys.Escape:
+                        if (_fullScreen) SetFullScreen(false);
+                        break;
+                    case Keys.Q:
+                        Close();
+                        break;
+                    case Keys.ShiftKey:
+                    case Keys.ControlKey:
+                    case Keys.Menu:
+                        break;
+                    default:
+                        FollowerControlBlocked();
+                        break;
+                }
+                e.Handled = true;
+                return;
+            }
+
             int stationIndex = -1;
             if (e.KeyCode >= Keys.D1 && e.KeyCode <= Keys.D9) stationIndex = e.KeyCode - Keys.D1;
             else if (e.KeyCode >= Keys.NumPad1 && e.KeyCode <= Keys.NumPad9) stationIndex = e.KeyCode - Keys.NumPad1;
@@ -1141,6 +1216,14 @@ namespace GymClock
                     StringAlignment.Near, StringAlignment.Near);
             }
 
+            // ---- link status (linked displays), bottom centre between the licensee and the copyright
+            string linkBadge = LinkBadgeText(out Color linkColour);
+            if (linkBadge.Length > 0)
+            {
+                DrawFitted(g, linkBadge, _labelFamily, h * 0.026f, FontStyle.Bold, linkColour,
+                    new RectangleF(paneLeft + (paneWidth * 0.27f), h * 0.957f, paneWidth * 0.46f, h * 0.036f));
+            }
+
             // ---- toast confirmation (e.g. "PROGRAM READY: X" right after Quick Setup) - drawn last, on top of everything
             if (!string.IsNullOrEmpty(_toastMessage) && DateTime.Now < _toastHideAt)
             {
@@ -1167,8 +1250,16 @@ namespace GymClock
         private void PaintParallelDashboard(Graphics g, RectangleF area)
         {
             List<StationPosition> positions = ComputeParallelPositions();
-            int n = positions.Count;
-            if (n == 0 || area.Width < 10 || area.Height < 10) return;
+            if (positions.Count == 0 || area.Width < 10 || area.Height < 10) return;
+
+            // A second screen can be set to show only some stations (Link displays), with bigger tiles.
+            List<int> shown = new List<int>();
+            for (int i = 0; i < positions.Count; i++)
+            {
+                if (LinkShowsStation(i, positions.Count)) shown.Add(i);
+            }
+            int n = shown.Count;
+            if (n == 0) return;
 
             // Biases toward more columns than rows, since the display is normally
             // a wide projector/TV screen rather than a square one.
@@ -1190,7 +1281,7 @@ namespace GymClock
                     area.Y + gap + (row * (tileHeight + gap)),
                     tileWidth, tileHeight);
 
-                DrawStationTile(g, tile, i, positions[i]);
+                DrawStationTile(g, tile, shown[i], positions[shown[i]]);
             }
         }
 
@@ -1926,8 +2017,14 @@ namespace GymClock
 
         private string HintText()
         {
+            if (IsFollowing)
+            {
+                return "SECOND SCREEN - the main PC has the controls  -  L link settings  -  M sound on this screen  -  "
+                    + "F11 full screen  -  F6 next display  -  F3 licence  -  Q quit";
+            }
+
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("SPACE start/pause  -  R reset  -  A open AI assistant  -  S settings  -  ");
+            sb.Append("SPACE start/pause  -  R reset  -  A open AI assistant  -  S settings  -  L link displays  -  ");
 
             if (_program.Mode == ExecutionMode.Parallel)
             {
