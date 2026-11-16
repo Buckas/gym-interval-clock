@@ -290,6 +290,20 @@ namespace GymClock.Link
             _error.Text = string.Empty;
         }
 
+        /// <summary>Writes the chosen link settings (after OK) onto a settings object.</summary>
+        public void ApplyTo(TimerSettings target)
+        {
+            target.LinkRole = Role;
+            target.LinkCode = Code;
+            target.LinkAddress = Address;
+            target.LinkSound = FollowerSound;
+            target.LinkStationsFrom = StationsFrom;
+            target.LinkStationsTo = StationsTo;
+            target.LinkBluetooth = Bluetooth;
+            target.LinkBluetoothAddress = BluetoothAddress;
+            target.LinkBluetoothName = BluetoothName;
+        }
+
         private void Ok_Click(object sender, EventArgs e)
         {
             string role = _lead.Checked ? "lead" : _follow.Checked ? "follow" : "off";

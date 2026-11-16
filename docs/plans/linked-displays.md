@@ -23,12 +23,12 @@ Linked displays is the headline feature of **version 4.0**. The work is kept apa
 **Version numbers**
 
 - While in progress, the version is `4.0.0-preview.N`. The window title shows "Gym Interval Clock Version 4.0 Preview N", so a test PC is easy to recognise.
-- `<AssemblyVersion>` and `<FileVersion>` stay `4.0.0.0`; only `<Version>` carries the preview suffix.
-- Bump N each time a build goes to the gym for testing.
+- `<AssemblyVersion>` and `<FileVersion>` are `3.99.N.0` for preview N, which is just below 4.0.0. The update check compares the assembly version, so a test PC running a preview is still offered the real 4.0.0 when it is released.
+- Bump N in all three (`<Version>`, `<AssemblyVersion>`, `<FileVersion>`) each time a build goes to the gym for testing.
 
 **Test builds for the gym (pre-releases)**
 
-1. Set `<Version>` to the next `4.0.0-preview.N` and commit on `version-4`.
+1. Set `<Version>` to the next `4.0.0-preview.N`, and `<AssemblyVersion>` and `<FileVersion>` to `3.99.N.0`. Commit on `version-4`.
 2. Tag it: `git tag -a v4.0.0-preview.N -m "Gym Interval Clock v4.0.0-preview.N"`.
 3. Push: `git push`, then `git push origin v4.0.0-preview.N`.
 4. GitHub Actions publishes a **pre-release** with `GymClock.zip` attached. Any tag with a `-` in it is a pre-release, so it is never shown as the latest version.
@@ -39,11 +39,10 @@ For quick local tests, a single-file exe can be published to `%USERPROFILE%\Down
 
 1. Make sure all tests pass on `version-4` and the gym testing in section 7 is done.
 2. Merge into `main`: `git checkout main`, `git merge version-4`.
-3. Set `<Version>4.0.0</Version>` on `main`, commit, tag `v4.0.0` ("Gym Interval Clock v4.0.0") and push the commit and the tag.
+3. On `main`, set `<Version>4.0.0</Version>` and `<AssemblyVersion>` and `<FileVersion>` to `4.0.0.0`. Commit, tag `v4.0.0` ("Gym Interval Clock v4.0.0") and push the commit and the tag.
 4. The release workflow publishes it as the latest release.
 5. After that, `main` carries 4.x and the `version-4` branch can be deleted.
-
-Note: a PC running a preview has assembly version 4.0.0.0, which is the same as the final 4.0.0, so its update check won't offer 4.0.0. Install the final release on test PCs by hand.
+6. Update `version.txt` on the licence site to `4.0.0`. Every PC on 3.x, and every test PC on a preview, is then told the new version is available.
 
 **Scope of version 4.0**
 
@@ -266,7 +265,8 @@ The main PC keeps accepting network second screens at the same time. If Bluetoot
 - **No `RunState` refactor of `MainForm`.** The two session clocks became `RunClock` (a stopwatch that can be set to a position). The main PC's state is read from the existing fields each tick and sent when something changes, or every 250 ms.
 - **`PROGRAM` carries the settings as well as the script** (`TimerSettings.ToText(false)` plus `ProgramScript`), so colours, labels, prep time and the simple (non-program) session all mirror. Link settings are never sent or accepted.
 - **Signing:** every line is `HEX(HMAC-SHA256) + space + JSON`, with the key derived from the link code. Announcements are unsigned but carry a tag only a PC with the same code can produce, so a second screen ignores other main PCs on the network.
-- **The link window is opened with L** from the clock screen (not yet a section of the settings window).
+- **The link window is opened with L** from the clock screen, or with the "Link displays..." button in the settings window. Changes made from the settings window take effect when that window is closed with OK.
+- **How well in step:** while the key hints are showing (press **H**), a second screen's status line reads `FOLLOWING <main PC> - IN STEP WITHIN 15 MS (PING 8)`. The figure is the largest recent difference from the main PC's countdown plus half the ping, which is the uncertainty in matching the two PCs' clocks.
 - **Transports:** the main PC and second-screen code only see a stream (`ILinkConnection`, `ILinkListener` in `LinkTransport.cs`). TCP and Bluetooth are two implementations, so everything above the connection (link code, signing, clock matching, mirroring) is shared.
 - **Bluetooth** (`BluetoothLink.cs`) uses Windows' own Bluetooth sockets (RFCOMM through `ws2_32`) and paired-device list (`BluetoothApis`) directly, with no extra library. The main PC advertises the service id `6f0c7a52-3b1e-4d7a-9a57-47796d436c6b`; a second screen connects to the paired main PC by that id. There is no searching over Bluetooth: the teacher picks the paired main PC.
 - Link code is in `src/GymClock/Link/` and `src/GymClock/MainForm.Link.cs`. Tests are `LinkCoreTests`, `LinkNetworkTests` and `LinkBluetoothTests`.
@@ -274,8 +274,7 @@ The main PC keeps accepting network second screens at the same time. If Bluetoot
 **Still to do before 4.0.0**
 
 - Repeat the two-PC tests on each network the gym will use (school Wi-Fi, phone hotspot) and record the RESULT lines in 6.1. Try real programs in all four modes.
-- Measure the real screen-to-screen difference on Wi-Fi (the 100 ms target has only been checked on one PC).
-- Decide whether the link window should also be reachable from the settings window.
+- Record the real screen-to-screen difference: on the second PC press **H** during a session and note the `IN STEP WITHIN ... MS` figure, on each network and over Bluetooth. The target is 100 ms.
 - Sound on a second screen has not been listened to on real hardware.
 - **Bluetooth:** find out whether the Personal Area Network step is needed (see the end of 6.3). Still unchecked: how long connecting takes, whether the screens stay within 100 ms, what happens when one PC goes out of range and comes back, and whether school-managed PCs allow it.
 

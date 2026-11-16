@@ -253,6 +253,14 @@ END STATION
                     PumpFor(main, second, 600);
                     Assert.InRange(PhaseSeconds(second) - PhaseSeconds(main), -0.1, 0.1);
 
+                    // ---- the second screen's status line reports how well in step it is (shown with the key hints)
+                    object[] badgeArgs = { true, null };
+                    string badge = (string)typeof(MainForm).GetMethod("LinkBadgeText", Private).Invoke(second, badgeArgs);
+                    Assert.StartsWith("FOLLOWING " + Environment.MachineName.ToUpperInvariant() + "  -  IN STEP WITHIN ", badge);
+                    Assert.InRange(Field<double>(second, "_linkDriftPeakMs"), 0, 100);
+                    Assert.Equal("FOLLOWING " + Environment.MachineName.ToUpperInvariant(),
+                        (string)typeof(MainForm).GetMethod("LinkBadgeText", Private).Invoke(second, new object[] { false, null }));
+
                     // ---- pause: both stop at the same point
                     Call(main, "TogglePause");
                     Assert.True(Pump(main, second, () => !Field<RunClock>(second, "_phaseClock").IsRunning), "pause did not mirror");

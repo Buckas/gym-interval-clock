@@ -644,10 +644,12 @@ namespace GymClock
                     bool justActivatedProgram = dialog.Result.UseBuiltProgram
                         && (!_settings.UseBuiltProgram || _settings.ProgramScript != dialog.Result.ProgramScript);
 
+                    string linkBefore = _settings.LinkKey();
                     _settings = dialog.Result;
                     _settings.Save();
                     ApplySettingsLive();
                     ResetSession();
+                    if (_settings.LinkKey() != linkBefore) StartLink(); // "Link displays..." was used in the settings window
 
                     if (justActivatedProgram)
                     {
@@ -1217,7 +1219,7 @@ namespace GymClock
             }
 
             // ---- link status (linked displays), bottom centre between the licensee and the copyright
-            string linkBadge = LinkBadgeText(out Color linkColour);
+            string linkBadge = LinkBadgeText(showHint, out Color linkColour); // timing detail only while the key hints show (H)
             if (linkBadge.Length > 0)
             {
                 // Fitted into the space actually left between the two texts either side of it.

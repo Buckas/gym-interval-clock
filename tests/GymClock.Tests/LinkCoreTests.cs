@@ -223,6 +223,16 @@ namespace GymClock.Tests
             Assert.Equal("00:1A:7D:DA:71:13", clone.LinkBluetoothAddress);
             Assert.Equal("GYM-PC-1", clone.LinkBluetoothName);
             Assert.Contains("linkbluetoothaddress=00:1A:7D:DA:71:13", main.ToText(true));
+
+            // LinkKey changes when any link setting does (the settings window uses it to restart the link)...
+            Assert.Equal(main.LinkKey(), clone.LinkKey());
+            clone.LinkCode = "9999";
+            Assert.NotEqual(main.LinkKey(), clone.LinkKey());
+            // ...and CopyLinkFrom carries the link settings and nothing else.
+            TimerSettings other = new TimerSettings { WorkLabel = "KEEP" };
+            other.CopyLinkFrom(main);
+            Assert.Equal(main.LinkKey(), other.LinkKey());
+            Assert.Equal("KEEP", other.WorkLabel);
         }
     }
 }

@@ -251,6 +251,28 @@ namespace GymClock
         public string LinkBluetoothAddress = string.Empty;
         public string LinkBluetoothName = string.Empty;
 
+        /// <summary>Copies this PC's link settings (and nothing else) from another settings object.</summary>
+        public void CopyLinkFrom(TimerSettings other)
+        {
+            LinkRole = other.LinkRole;
+            LinkCode = other.LinkCode;
+            LinkAddress = other.LinkAddress;
+            LinkSound = other.LinkSound;
+            LinkStationsFrom = other.LinkStationsFrom;
+            LinkStationsTo = other.LinkStationsTo;
+            LinkBluetooth = other.LinkBluetooth;
+            LinkBluetoothAddress = other.LinkBluetoothAddress;
+            LinkBluetoothName = other.LinkBluetoothName;
+        }
+
+        /// <summary>All the link settings as one string, to tell whether any of them changed.</summary>
+        public string LinkKey()
+        {
+            return string.Join("|", LinkRole, LinkCode, LinkAddress, LinkSound ? "1" : "0",
+                LinkStationsFrom.ToString(CultureInfo.InvariantCulture), LinkStationsTo.ToString(CultureInfo.InvariantCulture),
+                LinkBluetooth ? "1" : "0", LinkBluetoothAddress, LinkBluetoothName);
+        }
+
         public bool IsLinkLeader { get { return string.Equals(LinkRole, "lead", StringComparison.OrdinalIgnoreCase); } }
         public bool IsLinkFollower { get { return string.Equals(LinkRole, "follow", StringComparison.OrdinalIgnoreCase); } }
 
@@ -410,15 +432,7 @@ namespace GymClock
             c.CustomColour = CustomColour;
             c.ProgramScript = ProgramScript;
             c.UseBuiltProgram = UseBuiltProgram;
-            c.LinkRole = LinkRole;
-            c.LinkCode = LinkCode;
-            c.LinkAddress = LinkAddress;
-            c.LinkSound = LinkSound;
-            c.LinkStationsFrom = LinkStationsFrom;
-            c.LinkStationsTo = LinkStationsTo;
-            c.LinkBluetooth = LinkBluetooth;
-            c.LinkBluetoothAddress = LinkBluetoothAddress;
-            c.LinkBluetoothName = LinkBluetoothName;
+            c.CopyLinkFrom(this);
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;

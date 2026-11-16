@@ -78,13 +78,42 @@ namespace GymClock
                 using (ExercisesForm form = new ExercisesForm()) form.ShowDialog(this);
             };
             _builtPanel.Controls.Add(exercisesButton);
+
+            // Linked displays (version 4): the same window as the L key on the clock screen.
+            Button linkButton = new Button
+            {
+                Text = "Link displays...",
+                Location = new Point(exercisesButton.Right + 6, _exportButton.Top),
+                Size = new Size(124, _exportButton.Height)
+            };
+            linkButton.Click += (s, e) =>
+            {
+                if (_link == null) return;
+                using (GymClock.Link.LinkSettingsForm form = new GymClock.Link.LinkSettingsForm(_link))
+                {
+                    if (form.ShowDialog(this) != DialogResult.OK) return;
+                    form.ApplyTo(_link);
+                    _saveStatusLabel.Text = "Link settings changed. They take effect when you press OK.";
+                }
+            };
+            _builtPanel.Controls.Add(linkButton);
+
+            // The AI status text used to start where this button now is: keep it to the space on the right.
+            int statusRight = _aiWarmupStatusLabel.Right;
+            _aiWarmupStatusLabel.Left = linkButton.Right + 8;
+            _aiWarmupStatusLabel.Width = Math.Max(60, statusRight - _aiWarmupStatusLabel.Left);
+            _aiWarmupStatusLabel.AutoEllipsis = true;
         }
+
+        /// <summary>The link settings as edited in this window (applied to the result on OK / Save).</summary>
+        private TimerSettings _link;
 
         public ProgramEditorForm(TimerSettings settings)
             : this()
         {
             _original = settings;
             Result = settings.Clone();
+            _link = settings.Clone();
 
             _scriptSyncTimer.Tick += ScriptSyncTimer_Tick;
             AiAssistantRuntime.EnsureInitialized();
@@ -1221,6 +1250,9 @@ namespace GymClock
             // switching back and forth never loses either one.
             target.ProgramScript = ProgramScriptFormat.ToScript(_program);
             target.UseBuiltProgram = _sourceBuilt.Checked;
+
+            // Link displays, tracked via its own window
+            if (_link != null) target.CopyLinkFrom(_link);
 
             // General settings, tracked via the separate window
             target.PrepSeconds = _gPrepSeconds;

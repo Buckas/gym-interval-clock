@@ -42,6 +42,12 @@ namespace GymClock
         private bool _hasLeaderProgram;
         private bool _snapOnNextState;
 
+        /// <summary>
+        /// Second screen: the largest recent difference from the main PC's countdown, in milliseconds
+        /// (before correction). Fades over a few seconds, so it shows how well in step the screens are now.
+        /// </summary>
+        private double _linkDriftPeakMs;
+
         /// <summary>The settings that belong to this PC (and are saved to its settings file).</summary>
         private TimerSettings OwnSettings
         {
@@ -136,6 +142,7 @@ namespace GymClock
             _lastStateSentMs = -100000;
             _receivedProgramKey = null;
             _hasLeaderProgram = false;
+            _linkDriftPeakMs = 0;
 
             if (_ownSettings != null)
             {
@@ -157,15 +164,7 @@ namespace GymClock
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
 
                 TimerSettings own = OwnSettings;
-                own.LinkRole = dialog.Role;
-                own.LinkCode = dialog.Code;
-                own.LinkAddress = dialog.Address;
-                own.LinkSound = dialog.FollowerSound;
-                own.LinkStationsFrom = dialog.StationsFrom;
-                own.LinkStationsTo = dialog.StationsTo;
-                own.LinkBluetooth = dialog.Bluetooth;
-                own.LinkBluetoothAddress = dialog.BluetoothAddress;
-                own.LinkBluetoothName = dialog.BluetoothName;
+                dialog.ApplyTo(own);
                 own.Save();
 
                 StartLink();
@@ -273,15 +272,7 @@ namespace GymClock
             leaderSettings.SoundEnabled = own.LinkSound;
             leaderSettings.Volume = own.Volume;
             leaderSettings.AlwaysOnTop = own.AlwaysOnTop;
-            leaderSettings.LinkRole = own.LinkRole;
-            leaderSettings.LinkCode = own.LinkCode;
-            leaderSettings.LinkAddress = own.LinkAddress;
-            leaderSettings.LinkSound = own.LinkSound;
-            leaderSettings.LinkStationsFrom = own.LinkStationsFrom;
-            leaderSettings.LinkStationsTo = own.LinkStationsTo;
-            leaderSettings.LinkBluetooth = own.LinkBluetooth;
-            leaderSettings.LinkBluetoothAddress = own.LinkBluetoothAddress;
-            leaderSettings.LinkBluetoothName = own.LinkBluetoothName;
+            leaderSettings.CopyLinkFrom(own);
 
             if (_ownSettings == null) _ownSettings = _settings;
             _settings = leaderSettings;
@@ -327,6 +318,7 @@ namespace GymClock
                 if (!leaderTimed) return;
 
                 double local = _phaseClock.Elapsed.TotalSeconds;
+                _linkDriftPeakMs = Math.Max(Math.Abs(leaderElapsed - local) * 1000.0, _linkDriftPeakMs * 0.97);
                 if (leaderPaused)
                 {
                     if (Math.Abs(leaderElapsed - local) > 0.05) _phaseClock.Set(TimeSpan.FromSeconds(leaderElapsed), false);
@@ -496,7 +488,7 @@ namespace GymClock
         }
 
         /// <summary>The small link status line at the bottom of the screen, or empty when the link is off.</summary>
-        private string LinkBadgeText(out Color colour)
+        private string LinkBadgeText(bool detail, out Color colour)
         {
             Color quiet = Color.FromArgb(130, 255, 255, 255);
             Color warning = Color.FromArgb(235, 255, 200, 90);
@@ -519,7 +511,17 @@ namespace GymClock
                 switch (follower.Status)
                 {
                     case FollowerStatus.Connected:
-                        return "FOLLOWING " + (follower.LeaderName.Length > 0 ? follower.LeaderName.ToUpperInvariant() : "THE MAIN PC");
+                    {
+                        string following = "FOLLOWING " + (follower.LeaderName.Length > 0 ? follower.LeaderName.ToUpperInvariant() : "THE MAIN PC");
+                        if (!detail || !follower.TryLeaderNow(out _)) return following;
+
+                        // How far apart the two screens can be: the drift seen, plus half the ping
+                        // (the uncertainty in matching the two PCs' clocks).
+                        long ping = follower.RoundTripMs;
+                        if (!InTimedPhase) return following + "  -  PING " + ping + " MS"; // nothing counting down to compare yet
+                        long within = (long)Math.Ceiling(_linkDriftPeakMs + (ping / 2.0));
+                        return following + "  -  IN STEP WITHIN " + within + " MS  (PING " + ping + ")";
+                    }
                     case FollowerStatus.Reconnecting:
                         colour = warning;
                         return "RECONNECTING TO THE MAIN PC...";
