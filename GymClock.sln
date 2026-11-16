@@ -14,6 +14,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "docs", "docs", "{6ECBC853-9E06-4185-905B-BA705A81684D}"
 	ProjectSection(SolutionItems) = preProject
 		docs\plans\linked-displays.md = docs\plans\linked-displays.md
+		docs\plansersion-5-modern-ui.md = docs\plansersion-5-modern-ui.md
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "data", "data", "{4DF1394F-AF79-429D-87F3-B47D062A03D1}"
