@@ -1,6 +1,6 @@
 # Plan: Linked displays (two or more PCs in sync)
 
-**Status:** agreed, being built as **Gym Interval Clock version 4** (on the `version-4` branch). Phase 0 test tool built; waiting on the gym network test (section 6.1).
+**Status:** being built as **Gym Interval Clock version 4** (on the `version-4` branch). Phases 0–3 are built and pass their tests on one PC; nothing has been tried on two PCs or on the gym network yet (sections 6.1 and 6.2).
 **Goal:** run one session from a "leader" PC and show it, in sync, on one or more "follower" PCs, each driving its own screen or projector, with no video streaming and no internet needed.
 
 ---
@@ -167,6 +167,16 @@ The first time the app runs as leader, Windows asks to allow it through the fire
 | **3. Resilience** | Reconnect, keep counting while offline, mid-session join (follower starts at the current point) | Unplug Wi-Fi for 30 s: the follower keeps time, then resyncs without a visible jump |
 | **4. Bluetooth (optional)** | RFCOMM transport behind the same message interface, for venues with no usable network | Two paired laptops sync with Wi-Fi off |
 
+**Progress (16 Nov 2026)**
+
+| Phase | State |
+|---|---|
+| 0. Spike | Tool built (`src/GymClock.LinkTest`). **Waiting on the two-PC test** in the gym (6.1). |
+| 1. Mirror | Built. Automated tests link two clock windows on one PC and check start, pause, skip, back, reset and a program change mirror within 100 ms. |
+| 2. Display roles | Built. One-clock programs mirror; for Parallel a second screen can show a chosen station range. |
+| 3. Resilience | Built. A second screen keeps counting alone, reconnects by itself, and can join mid-session. The "unplug Wi-Fi for 30 s" check on real PCs is still to do. |
+| 4. Bluetooth | Not started (optional). |
+
 ### 6.1 Phase 0: running the network test
 
 The test tool is `src/GymClock.LinkTest` (a console app, separate from the main app and not part of a release). It uses the ports and message style from section 3: announcements on UDP 47215, and a TCP connection on 47216 carrying 4 heartbeats a second plus ping/pong timing.
@@ -201,6 +211,40 @@ Results (fill in after testing):
 |---|---|---|---|---|
 | School Wi-Fi | | | | |
 | Phone hotspot | | | | |
+
+### 6.2 Trying linked displays in the app
+
+Use a version 4 preview build on both PCs (section 0), on the same network.
+
+1. **Main PC:** press **L**, choose "This is the MAIN PC" and press OK. The bottom of the screen shows `LINK ON - CODE 1234 - NO SECOND SCREEN YET`. If Windows asks about the firewall, choose Allow.
+2. **Second PC:** press **L**, choose "This is a SECOND SCREEN", type the code from the main PC and press OK. Leave the address blank to find the main PC automatically. If Windows asks about the firewall, choose Allow.
+3. The second PC shows `FOLLOWING <main PC>` and the main PC shows `LINKED - 1 SECOND SCREEN`. The second screen now shows the main PC's program.
+4. Run the session from the main PC as normal. Start, pause, skip, back and reset all show on the second screen.
+
+If the second PC stays on `LOOKING FOR THE MAIN PC...`: press **L** on the main PC to see its address, then press **L** on the second PC and type it in "Main PC's address". If that also fails, the network is blocking PC-to-PC traffic (section 5).
+
+On a second screen:
+
+- The session keys do nothing (the main PC has the controls). **L** (link settings), **M** (sound on this screen), **F11**, **F6**, **F3** and **Q** still work.
+- Sound is off unless "Play the sounds on this screen too" is ticked (or press **M**).
+- "Show stations 3 to 4" applies to Parallel programs only. Other programs always mirror the main PC.
+- Choosing "Not linked" returns it to its own program and settings, which are never changed by following.
+
+### 6.3 How it was built (differences from sections 3 and 4)
+
+- **A second screen runs the normal timing engine itself.** It is not a passive display fed a `RunState` object. Each `STATE` message corrects it: a drift under 0.25 s is eased out (a quarter of the gap per message), anything larger snaps to the main PC's position. This is why it keeps counting when the link drops, and why joining mid-session works: both came with the design instead of needing Phase 3 work.
+- **No `RunState` refactor of `MainForm`.** The two session clocks became `RunClock` (a stopwatch that can be set to a position). The main PC's state is read from the existing fields each tick and sent when something changes, or every 250 ms.
+- **`PROGRAM` carries the settings as well as the script** (`TimerSettings.ToText(false)` plus `ProgramScript`), so colours, labels, prep time and the simple (non-program) session all mirror. Link settings are never sent or accepted.
+- **Signing:** every line is `HEX(HMAC-SHA256) + space + JSON`, with the key derived from the link code. Announcements are unsigned but carry a tag only a PC with the same code can produce, so a second screen ignores other main PCs on the network.
+- **The link window is opened with L** from the clock screen (not yet a section of the settings window).
+- Link code is in `src/GymClock/Link/` and `src/GymClock/MainForm.Link.cs`. Tests are `LinkCoreTests` and `LinkNetworkTests`.
+
+**Still to do before 4.0.0**
+
+- The two-PC tests: 6.1 on each network, then 6.2 with real programs in all four modes.
+- Measure the real screen-to-screen difference on Wi-Fi (the 100 ms target has only been checked on one PC).
+- Decide whether the link window should also be reachable from the settings window.
+- Sound on a second screen has not been listened to on real hardware.
 
 ## 7. Testing
 

@@ -1220,8 +1220,16 @@ namespace GymClock
             string linkBadge = LinkBadgeText(out Color linkColour);
             if (linkBadge.Length > 0)
             {
-                DrawFitted(g, linkBadge, _labelFamily, h * 0.026f, FontStyle.Bold, linkColour,
-                    new RectangleF(paneLeft + (paneWidth * 0.27f), h * 0.957f, paneWidth * 0.46f, h * 0.036f));
+                // Fitted into the space actually left between the two texts either side of it.
+                Font small = GetFont(_labelFamily, h * 0.026f, FontStyle.Regular);
+                float gap = h * 0.03f;
+                float left = paneLeft + margin + (licensee.Length > 0 ? g.MeasureString(licensee, small).Width + gap : 0f);
+                float right = paneLeft + paneWidth - margin - g.MeasureString(Licensing.ShortCopyright, small).Width - gap;
+                if (right - left > h * 0.2f)
+                {
+                    DrawFitted(g, linkBadge, _labelFamily, h * 0.026f, FontStyle.Bold, linkColour,
+                        new RectangleF(left, h * 0.957f, right - left, h * 0.036f));
+                }
             }
 
             // ---- toast confirmation (e.g. "PROGRAM READY: X" right after Quick Setup) - drawn last, on top of everything
@@ -1965,9 +1973,11 @@ namespace GymClock
             switch (_phase)
             {
                 case Phase.Idle:
+                    if (IsFollowing) return _hasLeaderProgram ? "Ready - the session starts from the main PC" : "Waiting for the main PC...";
                     return "Press SPACE to start   -   press S to change the times";
 
                 case Phase.Finished:
+                    if (IsFollowing) return "Session finished";
                     return "Press SPACE to run it again   -   R to reset";
 
                 case Phase.Prep:

@@ -214,6 +214,7 @@ namespace GymClock.Link
                                         _sync.AddSample(message.T0.Value, message.LeaderTimeMs.Value, received);
                                     break;
                                 case LinkMessage.Program:
+                                    if (!string.IsNullOrWhiteSpace(message.Name)) LeaderName = message.Name; // known even when connected by address
                                     ProgramReceived?.Invoke(message.Settings ?? string.Empty, message.Script ?? string.Empty);
                                     break;
                                 case LinkMessage.State:

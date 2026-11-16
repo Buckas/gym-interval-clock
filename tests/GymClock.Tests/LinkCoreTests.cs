@@ -153,6 +153,24 @@ namespace GymClock.Tests
             }
         }
 
+        // ---------------------------------------------------------------- which stations a second screen shows
+
+        [Theory]
+        [InlineData(0, 0, new[] { 1, 2, 3, 4 })]   // not set: everything
+        [InlineData(3, 4, new[] { 3, 4 })]         // "show stations 3 to 4"
+        [InlineData(1, 2, new[] { 1, 2 })]
+        [InlineData(3, 0, new[] { 3, 4 })]         // from 3 onwards
+        [InlineData(0, 2, new[] { 1, 2 })]         // up to 2
+        [InlineData(4, 3, new[] { 3, 4 })]         // typed the wrong way round
+        [InlineData(3, 9, new[] { 3, 4 })]         // runs past the end
+        [InlineData(7, 8, new[] { 1, 2, 3, 4 })]   // doesn't fit this program: show all, never a blank screen
+        public void StationRange_ForASecondScreen(int from, int to, int[] expected)
+        {
+            var shown = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < 4; i++) if (MainForm.StationInRange(i, 4, from, to)) shown.Add(i + 1);
+            Assert.Equal(expected, shown.ToArray());
+        }
+
         // ---------------------------------------------------------------- settings sent to a second screen
 
         [Fact]

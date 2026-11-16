@@ -188,7 +188,7 @@ namespace GymClock
                 if (key != _sentProgramKey)
                 {
                     _sentProgramKey = key;
-                    leader.Broadcast(new LinkMessage { Type = LinkMessage.Program, Settings = settingsText, Script = script });
+                    leader.Broadcast(new LinkMessage { Type = LinkMessage.Program, Name = Environment.MachineName, Settings = settingsText, Script = script });
                     _lastStateSentMs = -100000; // follow it with the state straight away
                 }
             }
@@ -447,13 +447,20 @@ namespace GymClock
         private bool LinkShowsStation(int stationIndex, int stationCount)
         {
             if (!IsFollowing) return true;
-            TimerSettings own = OwnSettings;
-            int from = own.LinkStationsFrom, to = own.LinkStationsTo;
+            return StationInRange(stationIndex, stationCount, OwnSettings.LinkStationsFrom, OwnSettings.LinkStationsTo);
+        }
+
+        /// <summary>
+        /// Is the station (0-based) inside "show stations FROM to TO" (1-based, 0 = not set)?
+        /// A range that doesn't fit the program at all shows everything rather than a blank screen.
+        /// </summary>
+        public static bool StationInRange(int stationIndex, int stationCount, int from, int to)
+        {
             if (from <= 0 && to <= 0) return true;
             if (from <= 0) from = 1;
             if (to <= 0) to = stationCount;
             if (from > to) { int swap = from; from = to; to = swap; }
-            if (from > stationCount) return true; // the range doesn't fit this program: show everything
+            if (from > stationCount) return true;
             int number = stationIndex + 1;
             return number >= from && number <= to;
         }
@@ -471,9 +478,8 @@ namespace GymClock
                 int count = leader.FollowerNames.Count;
                 if (count > 0) return "LINKED  -  " + count + (count == 1 ? " SECOND SCREEN" : " SECOND SCREENS");
 
-                string address = LinkProtocol.LocalAddresses().Select(a => a.Address.ToString()).FirstOrDefault();
-                return "LINK ON  -  CODE " + OwnSettings.LinkCode + (address != null ? "  -  ADDRESS " + address : string.Empty)
-                    + "  -  NO SECOND SCREEN YET";
+                // The address (only needed when a second screen can't find this PC) is in the Link displays window.
+                return "LINK ON  -  CODE " + OwnSettings.LinkCode + "  -  NO SECOND SCREEN YET";
             }
 
             LinkFollower follower = _linkFollower;
