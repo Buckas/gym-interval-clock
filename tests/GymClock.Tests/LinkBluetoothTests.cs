@@ -176,6 +176,38 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public void SetupHelp_CoversPairingThePanAndBothPcs_AndTheWindowsOpen()
+        {
+            // The steps a teacher follows (also written in the plan, section 6.3).
+            string all = string.Join(" ", System.Linq.Enumerable.SelectMany(BluetoothHelpForm.Steps, step => step));
+            Assert.Equal(5, BluetoothHelpForm.Steps.Length);
+            Assert.Contains("Bluetooth & devices", all);
+            Assert.Contains("Add device", all);
+            Assert.Contains("Join a Personal Area Network", all);
+            Assert.Contains("Direct connection", all);
+            Assert.Contains("Also accept second screens over Bluetooth", all);            // the main PC's tick box, word for word
+            Assert.Contains("Connect by Bluetooth instead of the network", all);          // the second PC's tick box
+
+            Exception error = null;
+            Thread t = new Thread(() =>
+            {
+                try
+                {
+                    using (BluetoothHelpForm help = new BluetoothHelpForm()) { IntPtr h = help.Handle; }
+                    using (LinkSettingsForm link = new LinkSettingsForm(new TimerSettings { LinkRole = "follow", LinkCode = "4821", LinkBluetooth = true }))
+                    {
+                        IntPtr h = link.Handle;
+                    }
+                }
+                catch (Exception ex) { error = ex; }
+            });
+            t.SetApartmentState(ApartmentState.STA);
+            t.Start();
+            t.Join();
+            Assert.Null(error);
+        }
+
+        [Fact]
         public void WindowsStructures_AreTheSizesWindowsExpects()
         {
             Assert.Equal(30, BluetoothLink.SocketAddressSize);  // SOCKADDR_BTH (1-byte packed)

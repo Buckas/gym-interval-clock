@@ -163,6 +163,17 @@ namespace GymClock.Link
             root.Controls.Add(_follow);
             root.Controls.Add(_followPanel);
 
+            LinkLabel bluetoothHelp = new LinkLabel
+            {
+                Text = "How to set up Bluetooth between two PCs...", AutoSize = true, Margin = new Padding(3, 12, 3, 0)
+            };
+            bluetoothHelp.LinkClicked += delegate
+            {
+                using (BluetoothHelpForm help = new BluetoothHelpForm()) help.ShowDialog(this);
+                RefreshBluetoothDevices(); // the PCs may have just been paired
+            };
+            root.Controls.Add(bluetoothHelp);
+
             _error.AutoSize = true;
             _error.ForeColor = Color.FromArgb(170, 40, 30);
             _error.Margin = new Padding(3, 8, 3, 0);
@@ -192,23 +203,9 @@ namespace GymClock.Link
             _stationsFrom.Text = settings.LinkStationsFrom > 0 ? settings.LinkStationsFrom.ToString(CultureInfo.InvariantCulture) : string.Empty;
             _stationsTo.Text = settings.LinkStationsTo > 0 ? settings.LinkStationsTo.ToString(CultureInfo.InvariantCulture) : string.Empty;
 
-            // Paired Bluetooth devices, computers first; keep a saved main PC in the list even if it isn't visible now.
-            foreach (BluetoothDevice device in BluetoothLink.PairedDevices()) _bluetoothDevices.Items.Add(device);
-            if (BluetoothLink.TryParseAddress(settings.LinkBluetoothAddress, out ulong savedAddress))
-            {
-                BluetoothDevice saved = null;
-                foreach (BluetoothDevice device in _bluetoothDevices.Items) if (device.Address == savedAddress) saved = device;
-                if (saved == null)
-                {
-                    saved = new BluetoothDevice { Address = savedAddress, Name = settings.LinkBluetoothName, IsComputer = true };
-                    _bluetoothDevices.Items.Add(saved);
-                }
-                _bluetoothDevices.SelectedItem = saved;
-            }
-            else if (_bluetoothDevices.Items.Count == 1)
-            {
-                _bluetoothDevices.SelectedIndex = 0;
-            }
+            _savedBluetoothAddress = settings.LinkBluetoothAddress;
+            _savedBluetoothName = settings.LinkBluetoothName;
+            RefreshBluetoothDevices();
             _leadBluetooth.Checked = _hasBluetooth && settings.LinkBluetooth && settings.IsLinkLeader;
             _followBluetooth.Checked = _hasBluetooth && settings.LinkBluetooth && settings.IsLinkFollower;
 
@@ -221,6 +218,47 @@ namespace GymClock.Link
             else if (settings.IsLinkFollower) _follow.Checked = true;
             else _off.Checked = true;
             UpdateEnabled();
+        }
+
+        private string _savedBluetoothAddress = string.Empty;
+        private string _savedBluetoothName = string.Empty;
+
+        /// <summary>Paired Bluetooth devices, computers first; the chosen (or saved) main PC stays selected.</summary>
+        private void RefreshBluetoothDevices()
+        {
+            BluetoothDevice current = _bluetoothDevices.SelectedItem as BluetoothDevice;
+            ulong wanted = 0;
+            string wantedName = _savedBluetoothName;
+            if (current != null) { wanted = current.Address; wantedName = current.Name; }
+            else BluetoothLink.TryParseAddress(_savedBluetoothAddress, out wanted);
+
+            _bluetoothDevices.Items.Clear();
+            foreach (BluetoothDevice device in BluetoothLink.PairedDevices()) _bluetoothDevices.Items.Add(device);
+
+            if (wanted != 0)
+            {
+                BluetoothDevice match = null;
+                foreach (BluetoothDevice device in _bluetoothDevices.Items) if (device.Address == wanted) match = device;
+                if (match == null)
+                {
+                    // Keep a saved main PC in the list even if Windows doesn't report it right now.
+                    match = new BluetoothDevice { Address = wanted, Name = wantedName, IsComputer = true };
+                    _bluetoothDevices.Items.Add(match);
+                }
+                _bluetoothDevices.SelectedItem = match;
+            }
+            else
+            {
+                // Nothing chosen yet: if exactly one paired device is a computer, that is the main PC.
+                BluetoothDevice onlyComputer = null;
+                int computers = 0;
+                foreach (BluetoothDevice device in _bluetoothDevices.Items)
+                {
+                    if (device.IsComputer) { computers++; onlyComputer = device; }
+                }
+                if (computers == 1) _bluetoothDevices.SelectedItem = onlyComputer;
+                else if (_bluetoothDevices.Items.Count == 1) _bluetoothDevices.SelectedIndex = 0;
+            }
         }
 
         private Label Paragraph(string text)
@@ -282,7 +320,7 @@ namespace GymClock.Link
             if (role == "follow" && bluetooth && mainPc == null)
             {
                 _error.Text = _bluetoothDevices.Items.Count == 0
-                    ? "No paired Bluetooth devices were found. Pair this PC with the main PC in Windows Bluetooth settings, then open this window again."
+                    ? "No paired Bluetooth devices were found. Pair this PC with the main PC first - see \"How to set up Bluetooth between two PCs\" below."
                     : "Choose the main PC from the list of paired Bluetooth devices.";
                 return;
             }

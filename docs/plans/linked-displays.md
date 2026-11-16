@@ -1,6 +1,6 @@
 # Plan: Linked displays (two or more PCs in sync)
 
-**Status:** being built as **Gym Interval Clock version 4** (on the `version-4` branch). Phases 0–4 are built and pass their tests on one PC. Nothing has been tried between two PCs yet: not the network link, and not Bluetooth (sections 6.1, 6.2 and 6.3).
+**Status:** being built as **Gym Interval Clock version 4** (on the `version-4` branch). Phases 0–4 are built. Chris ran the first two-PC tests on 16–17 Nov 2026: the network test and linked displays both worked, and the Bluetooth link worked once the PCs were paired and joined by a Personal Area Network (section 6.3). Timing has not been measured on two PCs yet.
 **Goal:** run one session from a "leader" PC and show it, in sync, on one or more "follower" PCs, each driving its own screen or projector, with no video streaming and no internet needed.
 
 ---
@@ -167,15 +167,15 @@ The first time the app runs as leader, Windows asks to allow it through the fire
 | **3. Resilience** | Reconnect, keep counting while offline, mid-session join (follower starts at the current point) | Unplug Wi-Fi for 30 s: the follower keeps time, then resyncs without a visible jump |
 | **4. Bluetooth (optional)** | RFCOMM transport behind the same message interface, for venues with no usable network | Two paired laptops sync with Wi-Fi off |
 
-**Progress (16 Nov 2026)**
+**Progress (17 Nov 2026)**
 
 | Phase | State |
 |---|---|
-| 0. Spike | Tool built (`src/GymClock.LinkTest`). **Waiting on the two-PC test** in the gym (6.1). |
-| 1. Mirror | Built. Automated tests link two clock windows on one PC and check start, pause, skip, back, reset and a program change mirror within 100 ms. |
+| 0. Spike | Done. Tool built (`src/GymClock.LinkTest`); Chris ran it on two PCs and it worked. The RESULT lines were not recorded (6.1). |
+| 1. Mirror | Built and **worked on two PCs** (Chris, 16–17 Nov 2026). Automated tests also link two clock windows on one PC and check start, pause, skip, back, reset and a program change mirror within 100 ms. |
 | 2. Display roles | Built. One-clock programs mirror; for Parallel a second screen can show a chosen station range. |
 | 3. Resilience | Built. A second screen keeps counting alone, reconnects by itself, and can join mid-session. The "unplug Wi-Fi for 30 s" check on real PCs is still to do. |
-| 4. Bluetooth | Built, **never connected for real** (16 Nov 2026). The transport layer is tested with a stand-in; on a PC with Bluetooth the main PC's side opens and advertises its channel. A connection between two paired PCs has not been made (6.4). |
+| 4. Bluetooth | Built and **worked on two PCs** (Chris, 16–17 Nov 2026), after pairing them and joining the second PC to the main PC's Personal Area Network. Whether the PAN step is needed is not known (6.3). |
 
 ### 6.1 Phase 0: running the network test
 
@@ -205,7 +205,7 @@ What the result means:
 | **USABLE** | It works, but slower or less steady than the 100 ms target. |
 | **POOR / NOT WORKING** | Use a hotspot or cable, or ask IT about UDP 47215 and TCP 47216 (section 5). |
 
-Results (fill in after testing):
+Results. Chris reported on 17 Nov 2026 that the test worked on two PCs; which network it was on, and the RESULT lines, were not recorded. Fill these in next time it is run:
 
 | Network | Find | Connect | Average ping | Result |
 |---|---|---|---|---|
@@ -232,14 +232,33 @@ On a second screen:
 
 ### 6.3 Linking over Bluetooth (Phase 4)
 
-For a venue with no usable network. Bluetooth range is about 10 m and walls reduce it, so the two PCs need to be in the same room.
+For a venue with no network the two PCs can share. Bluetooth reaches about 10 m and walls reduce it, so keep the two PCs in the same room.
 
-1. **Pair the two PCs** in Windows: Settings > Bluetooth & devices > Add device, on one PC, and accept on the other. This is done once.
-2. **Main PC:** press **L**, choose "This is the MAIN PC" and tick "Also accept second screens over Bluetooth". The bottom line shows `LINK ON (NETWORK + BLUETOOTH) - CODE 1234`.
-3. **Second PC:** press **L**, choose "This is a SECOND SCREEN", type the code, tick "Connect by Bluetooth instead of the network" and choose the main PC from the list of paired devices.
-4. The second PC shows `CONNECTING TO THE MAIN PC BY BLUETOOTH...` (this can take several seconds), then `FOLLOWING <main PC>`.
+The same steps are in the app: press **L**, then "How to set up Bluetooth between two PCs...". That window also has buttons that open the two Windows screens used below.
+
+**In Windows**
+
+1. **Turn Bluetooth on (both PCs).** Open Settings > Bluetooth & devices and switch Bluetooth on. Leave this Settings page open on both PCs while pairing: a PC can only be found while it is open.
+2. **Pair the two PCs (once only).** On the second PC choose Add device > Bluetooth, then pick the main PC's name. A number appears on both screens. Check they match, then choose Connect on one PC and Yes on the other.
+   - If the main PC is not in the list: on the second PC, scroll down in Bluetooth & devices > Devices, set "Bluetooth devices discovery" to Advanced, and try Add device again.
+3. **Join the Personal Area Network (second PC).** Right-click the Bluetooth icon near the clock and choose "Join a Personal Area Network". Click the main PC, then choose Connect using > Direct connection. Do this each time the PCs are switched on.
+
+**In Gym Interval Clock**
+
+4. **Main PC:** press **L**, choose "This is the MAIN PC" and tick "Also accept second screens over Bluetooth". The bottom line shows `LINK ON (NETWORK + BLUETOOTH) - CODE 1234`.
+5. **Second PC:** press **L**, choose "This is a SECOND SCREEN", type the code, tick "Connect by Bluetooth instead of the network" and choose the main PC from the list of paired devices. If exactly one paired device is a computer, it is already selected.
+6. The second PC shows `CONNECTING TO THE MAIN PC BY BLUETOOTH...` (this can take several seconds), then `FOLLOWING <main PC>`.
 
 The main PC keeps accepting network second screens at the same time. If Bluetooth can't start on the main PC, the network link still runs and a message says why.
+
+**If it will not connect:** check Bluetooth is on at both PCs, that each PC lists the other as Paired, and that the main PC's screen says `(NETWORK + BLUETOOTH)`.
+
+**What the two-PC test showed, and what it didn't (17 Nov 2026)**
+
+- With the PCs paired and the second PC joined to the Personal Area Network, the link worked in the app.
+- The PAN was joined before the app was tried, so **it is not known whether step 3 is needed.** The app's own Bluetooth connection (RFCOMM) should need only pairing. Step 3 is in the instructions because it is the setup known to work.
+- A joined PAN is also an ordinary network between the two PCs, so the link may have run over it as a network link instead of the app's Bluetooth connection. Chris could not recall whether "Connect by Bluetooth" was ticked.
+- To settle both: pair the PCs, skip step 3, tick "Connect by Bluetooth" on the second PC and see whether it links. If it does, step 3 can be dropped from the instructions and the help window.
 
 ### 6.4 How it was built (differences from sections 3 and 4)
 
@@ -254,11 +273,11 @@ The main PC keeps accepting network second screens at the same time. If Bluetoot
 
 **Still to do before 4.0.0**
 
-- The two-PC tests: 6.1 on each network, then 6.2 with real programs in all four modes.
+- Repeat the two-PC tests on each network the gym will use (school Wi-Fi, phone hotspot) and record the RESULT lines in 6.1. Try real programs in all four modes.
 - Measure the real screen-to-screen difference on Wi-Fi (the 100 ms target has only been checked on one PC).
 - Decide whether the link window should also be reachable from the settings window.
 - Sound on a second screen has not been listened to on real hardware.
-- **Bluetooth, on two paired PCs (6.3):** does it connect at all, how long connecting takes, whether the screens stay within 100 ms, what happens when one PC walks out of range and back, and whether a school-managed PC allows it. None of this could be tested with one PC. If connecting fails, the first things to check are that the PCs are paired both ways and that the main PC shows `(NETWORK + BLUETOOTH)`.
+- **Bluetooth:** find out whether the Personal Area Network step is needed (see the end of 6.3). Still unchecked: how long connecting takes, whether the screens stay within 100 ms, what happens when one PC goes out of range and comes back, and whether school-managed PCs allow it.
 
 ## 7. Testing
 
