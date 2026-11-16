@@ -41,7 +41,8 @@ namespace GymClock.Link
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private readonly ClockSync _sync = new ClockSync();
         private readonly CancellationTokenSource _stop = new CancellationTokenSource();
-        private TcpClient _client;
+        private readonly Func<CancellationToken, ILinkConnection> _connect; // set = a fixed transport (Bluetooth), no searching
+        private ILinkConnection _connection;
         private bool _everConnected;
 
         /// <summary>The main PC's settings text and program script (sent on connect and whenever they change).</summary>
@@ -62,6 +63,17 @@ namespace GymClock.Link
             _address = (address ?? string.Empty).Trim();
             _dataPort = dataPort;
             _discoveryPort = discoveryPort;
+        }
+
+        /// <summary>
+        /// A second screen that reaches the main PC over a given transport instead of the local
+        /// network - Bluetooth, where there is nothing to search for: <paramref name="connect"/> opens
+        /// the connection (or returns null / throws when the main PC can't be reached yet).
+        /// </summary>
+        public LinkFollower(string name, string code, Func<CancellationToken, ILinkConnection> connect)
+            : this(name, code, string.Empty)
+        {
+            _connect = connect;
         }
 
         public void Start()
@@ -101,11 +113,22 @@ namespace GymClock.Link
                         SetStatus(_everConnected ? FollowerStatus.Reconnecting : FollowerStatus.Searching);
                     }
 
-                    IPEndPoint leader = FindLeader();
-                    if (leader == null) continue; // nothing heard yet - keep listening
+                    ILinkConnection connection;
+                    if (_connect != null)
+                    {
+                        if (Status == FollowerStatus.Searching) SetStatus(FollowerStatus.Connecting);
+                        connection = _connect(_stop.Token);
+                    }
+                    else
+                    {
+                        IPEndPoint leader = FindLeader();
+                        if (leader == null) continue; // nothing heard yet - keep listening
 
-                    if (Status == FollowerStatus.Searching) SetStatus(FollowerStatus.Connecting);
-                    Session(leader);
+                        if (Status == FollowerStatus.Searching) SetStatus(FollowerStatus.Connecting);
+                        connection = TcpLinkConnection.Connect(leader, 4000, _stop.Token);
+                    }
+
+                    if (connection != null) Session(connection);
                 }
                 catch { /* any network failure: wait a moment and try again */ }
 
@@ -150,14 +173,13 @@ namespace GymClock.Link
             return null;
         }
 
-        private void Session(IPEndPoint leader)
+        private void Session(ILinkConnection connection)
         {
-            using (TcpClient client = new TcpClient(AddressFamily.InterNetwork) { NoDelay = true })
+            using (connection)
             {
-                if (!client.ConnectAsync(leader.Address, leader.Port).Wait(4000, _stop.Token)) return;
-                _client = client;
+                _connection = connection;
 
-                StreamWriter writer = new StreamWriter(client.GetStream(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
+                StreamWriter writer = new StreamWriter(connection.Stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" };
                 object sendLock = new object();
                 bool alive = true;
 
@@ -187,8 +209,8 @@ namespace GymClock.Link
                 try
                 {
                     // The main PC sends state about 4 times a second; 5 s of silence means the link is gone.
-                    client.ReceiveTimeout = 5000;
-                    using (StreamReader reader = new StreamReader(client.GetStream(), Encoding.UTF8))
+                    connection.SetReceiveTimeout(5000);
+                    using (StreamReader reader = new StreamReader(connection.Stream, Encoding.UTF8))
                     {
                         string line;
                         while (!_stop.IsCancellationRequested && (line = reader.ReadLine()) != null)
@@ -229,7 +251,7 @@ namespace GymClock.Link
                 finally
                 {
                     alive = false;
-                    _client = null;
+                    _connection = null;
                 }
             }
         }
@@ -238,7 +260,7 @@ namespace GymClock.Link
         {
             if (_stop.IsCancellationRequested) return;
             _stop.Cancel();
-            try { _client?.Close(); } catch { }
+            try { _connection?.Dispose(); } catch { }
         }
     }
 }

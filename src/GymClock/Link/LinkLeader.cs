@@ -16,6 +16,10 @@ namespace GymClock.Link
     /// MainForm broadcasts (PROGRAM and STATE). Second screens never control anything - the only
     /// messages read from them are HELLO, PING and BYE.
     ///
+    /// Second screens can arrive over more than one transport at once (see LinkTransport.cs): the
+    /// local network always, and Bluetooth when it is switched on. After the connection is open
+    /// they are treated identically.
+    ///
     /// Everything runs on background threads; events are raised on those threads.
     /// </summary>
     public sealed class LinkLeader : IDisposable
@@ -23,7 +27,7 @@ namespace GymClock.Link
         private sealed class Follower
         {
             public string Name = "?";
-            public TcpClient Client;
+            public ILinkConnection Connection;
             public StreamWriter Writer;
             public readonly object SendLock = new object();
             public volatile bool Alive = true;
@@ -35,8 +39,9 @@ namespace GymClock.Link
         private readonly int _discoveryPort;
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private readonly List<Follower> _followers = new List<Follower>();
+        private readonly List<ILinkListener> _listeners = new List<ILinkListener>();
+        private readonly List<ILinkListener> _extraListeners = new List<ILinkListener>();
         private readonly CancellationTokenSource _stop = new CancellationTokenSource();
-        private TcpListener _listener;
         private long _seq;
 
         /// <summary>A second screen connected with the right code (its name).</summary>
@@ -47,12 +52,28 @@ namespace GymClock.Link
         /// <summary>Why the link could not start (e.g. the port is in use), or null.</summary>
         public string StartError { get; private set; }
 
+        /// <summary>Problems with optional transports (e.g. "Bluetooth: no radio"). The link still runs without them.</summary>
+        public IReadOnlyList<string> Warnings { get { return _warnings; } }
+        private readonly List<string> _warnings = new List<string>();
+
+        /// <summary>The transports actually listening, e.g. "network", "Bluetooth".</summary>
+        public IReadOnlyList<string> ActiveTransports
+        {
+            get { lock (_listeners) return _listeners.Select(l => l.Kind).ToList(); }
+        }
+
         public LinkLeader(string name, string code, int dataPort = LinkProtocol.DataPort, int discoveryPort = LinkProtocol.DiscoveryPort)
         {
             _name = string.IsNullOrWhiteSpace(name) ? "Main PC" : name;
             _key = LinkProtocol.KeyFromCode(code);
             _dataPort = dataPort;
             _discoveryPort = discoveryPort;
+        }
+
+        /// <summary>Adds another way for second screens to connect (e.g. Bluetooth). Call before Start.</summary>
+        public void AddListener(ILinkListener listener)
+        {
+            _extraListeners.Add(listener);
         }
 
         /// <summary>Milliseconds on the main PC's link clock - the time base every STATE message uses.</summary>
@@ -68,18 +89,37 @@ namespace GymClock.Link
 
         public bool Start()
         {
-            try
+            // The local network is the main route: without it the link does not start.
+            TcpLinkListener network = new TcpLinkListener(_dataPort);
+            if (!network.Start(out string error))
             {
-                _listener = new TcpListener(IPAddress.Any, _dataPort);
-                _listener.Start();
-            }
-            catch (SocketException ex)
-            {
-                StartError = "Port " + _dataPort + " could not be opened (" + ex.SocketErrorCode + ").";
+                StartError = error;
+                network.Dispose();
                 return false;
             }
+            lock (_listeners) _listeners.Add(network);
 
-            new Thread(AcceptLoop) { IsBackground = true, Name = "GymClock link accept" }.Start();
+            // Extra transports are optional: note the problem and carry on without them.
+            foreach (ILinkListener extra in _extraListeners)
+            {
+                if (extra.Start(out string extraError))
+                {
+                    lock (_listeners) _listeners.Add(extra);
+                }
+                else
+                {
+                    _warnings.Add(extra.Kind + ": " + extraError);
+                    extra.Dispose();
+                }
+            }
+
+            ILinkListener[] started;
+            lock (_listeners) started = _listeners.ToArray();
+            foreach (ILinkListener listener in started)
+            {
+                ILinkListener current = listener;
+                new Thread(() => AcceptLoop(current)) { IsBackground = true, Name = "GymClock link accept (" + current.Kind + ")" }.Start();
+            }
             new Thread(AnnounceLoop) { IsBackground = true, Name = "GymClock link announce" }.Start();
             return true;
         }
@@ -121,19 +161,19 @@ namespace GymClock.Link
             catch { /* announcing is best effort - a second screen can still connect by address */ }
         }
 
-        private void AcceptLoop()
+        private void AcceptLoop(ILinkListener listener)
         {
             while (!_stop.IsCancellationRequested)
             {
-                TcpClient client;
-                try { client = _listener.AcceptTcpClient(); }
+                ILinkConnection connection;
+                try { connection = listener.Accept(); }
                 catch { break; }
+                if (connection == null) break;
 
-                client.NoDelay = true;
                 Follower follower = new Follower
                 {
-                    Client = client,
-                    Writer = new StreamWriter(client.GetStream(), new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" }
+                    Connection = connection,
+                    Writer = new StreamWriter(connection.Stream, new UTF8Encoding(false)) { AutoFlush = true, NewLine = "\n" }
                 };
                 new Thread(() => Serve(follower)) { IsBackground = true, Name = "GymClock link follower" }.Start();
             }
@@ -145,8 +185,8 @@ namespace GymClock.Link
             try
             {
                 // The first line must be a HELLO signed with our link code, and promptly.
-                follower.Client.ReceiveTimeout = 5000;
-                using (StreamReader reader = new StreamReader(follower.Client.GetStream(), Encoding.UTF8))
+                follower.Connection.SetReceiveTimeout(5000);
+                using (StreamReader reader = new StreamReader(follower.Connection.Stream, Encoding.UTF8))
                 {
                     string first = reader.ReadLine();
                     if (!LinkProtocol.TryDecode(first, _key, out LinkMessage hello) || hello.Type != LinkMessage.Hello)
@@ -162,7 +202,7 @@ namespace GymClock.Link
                     FollowersChanged?.Invoke();
 
                     // Pings arrive every second or so; a long silence means the screen has gone.
-                    follower.Client.ReceiveTimeout = 15000;
+                    follower.Connection.SetReceiveTimeout(15000);
                     string line;
                     while ((line = reader.ReadLine()) != null)
                     {
@@ -187,7 +227,7 @@ namespace GymClock.Link
             finally
             {
                 follower.Alive = false;
-                try { follower.Client.Close(); } catch { }
+                try { follower.Connection.Dispose(); } catch { }
                 if (joined)
                 {
                     lock (_followers) _followers.Remove(follower);
@@ -206,7 +246,7 @@ namespace GymClock.Link
             catch
             {
                 follower.Alive = false;
-                try { follower.Client.Close(); } catch { }
+                try { follower.Connection.Dispose(); } catch { }
             }
         }
 
@@ -219,10 +259,14 @@ namespace GymClock.Link
             }
             catch { }
             _stop.Cancel();
-            try { _listener?.Stop(); } catch { }
+            lock (_listeners)
+            {
+                foreach (ILinkListener listener in _listeners) { try { listener.Dispose(); } catch { } }
+                _listeners.Clear();
+            }
             lock (_followers)
             {
-                foreach (Follower follower in _followers) { try { follower.Client.Close(); } catch { } }
+                foreach (Follower follower in _followers) { try { follower.Connection.Dispose(); } catch { } }
                 _followers.Clear();
             }
         }

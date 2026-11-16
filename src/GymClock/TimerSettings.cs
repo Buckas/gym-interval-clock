@@ -245,6 +245,11 @@ namespace GymClock
         /// <summary>Follower, Parallel programs: first and last station to show (1-based). 0 = all stations.</summary>
         public int LinkStationsFrom = 0;
         public int LinkStationsTo = 0;
+        /// <summary>Main PC: also accept second screens over Bluetooth. Second screen: connect over Bluetooth instead of the network.</summary>
+        public bool LinkBluetooth = false;
+        /// <summary>Second screen: the paired main PC's Bluetooth address ("00:1A:7D:DA:71:13") and its name, for display.</summary>
+        public string LinkBluetoothAddress = string.Empty;
+        public string LinkBluetoothName = string.Empty;
 
         public bool IsLinkLeader { get { return string.Equals(LinkRole, "lead", StringComparison.OrdinalIgnoreCase); } }
         public bool IsLinkFollower { get { return string.Equals(LinkRole, "follow", StringComparison.OrdinalIgnoreCase); } }
@@ -411,6 +416,9 @@ namespace GymClock
             c.LinkSound = LinkSound;
             c.LinkStationsFrom = LinkStationsFrom;
             c.LinkStationsTo = LinkStationsTo;
+            c.LinkBluetooth = LinkBluetooth;
+            c.LinkBluetoothAddress = LinkBluetoothAddress;
+            c.LinkBluetoothName = LinkBluetoothName;
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
@@ -555,6 +563,9 @@ namespace GymClock
                     case "linksound": if (includeLink) s.LinkSound = ReadBool(value, s.LinkSound); break;
                     case "linkstationsfrom": if (includeLink) s.LinkStationsFrom = ReadInt(value, 0, 0, 99); break;
                     case "linkstationsto": if (includeLink) s.LinkStationsTo = ReadInt(value, 0, 0, 99); break;
+                    case "linkbluetooth": if (includeLink) s.LinkBluetooth = ReadBool(value, s.LinkBluetooth); break;
+                    case "linkbluetoothaddress": if (includeLink) s.LinkBluetoothAddress = value; break;
+                    case "linkbluetoothname": if (includeLink) s.LinkBluetoothName = value; break;
                     case "presets":
                         List<Preset> parsed = new List<Preset>();
                         foreach (string item in SplitList(value))
@@ -680,6 +691,11 @@ namespace GymClock
                 sb.AppendLine("linksound=" + (LinkSound ? "true" : "false"));
                 sb.AppendLine("linkstationsfrom=" + LinkStationsFrom.ToString(CultureInfo.InvariantCulture));
                 sb.AppendLine("linkstationsto=" + LinkStationsTo.ToString(CultureInfo.InvariantCulture));
+                sb.AppendLine("# Bluetooth, for places with no usable network (pair the PCs in Windows first). Main PC: also");
+                sb.AppendLine("# accept Bluetooth second screens. Second screen: connect to this paired main PC by Bluetooth.");
+                sb.AppendLine("linkbluetooth=" + (LinkBluetooth ? "true" : "false"));
+                sb.AppendLine("linkbluetoothaddress=" + LinkBluetoothAddress);
+                sb.AppendLine("linkbluetoothname=" + LinkBluetoothName);
             }
             sb.AppendLine();
             sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");

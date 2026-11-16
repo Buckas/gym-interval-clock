@@ -180,13 +180,16 @@ namespace GymClock.Tests
             {
                 PrepSeconds = 7, WorkSeconds = 50, RestSeconds = 20, Rounds = 6, WorkLabel = "GO", WorkColour = "#112233",
                 ShowStationsTable = false, UseBuiltProgram = true,
-                LinkRole = "lead", LinkCode = "4821", LinkAddress = "10.0.0.9", LinkSound = true, LinkStationsFrom = 2, LinkStationsTo = 3
+                LinkRole = "lead", LinkCode = "4821", LinkAddress = "10.0.0.9", LinkSound = true, LinkStationsFrom = 2, LinkStationsTo = 3,
+                LinkBluetooth = true, LinkBluetoothAddress = "00:1A:7D:DA:71:13", LinkBluetoothName = "GYM-PC-1"
             };
             main.Stations.Add(new Station("Bike", "fast", "easy"));
 
             string sent = main.ToText(false);
             Assert.DoesNotContain("4821", sent);
             Assert.DoesNotContain("linkrole", sent);
+            Assert.DoesNotContain("00:1A:7D", sent);
+            Assert.DoesNotContain("linkbluetooth", sent);
 
             TimerSettings second = TimerSettings.FromText(sent, "PROGRAM \"X\"\nWORK 30s");
             Assert.Equal(7, second.PrepSeconds);
@@ -204,6 +207,8 @@ namespace GymClock.Tests
             Assert.Equal("off", second.LinkRole);
             Assert.Equal(string.Empty, second.LinkCode);
             Assert.False(second.LinkSound);
+            Assert.False(second.LinkBluetooth);
+            Assert.Equal(string.Empty, second.LinkBluetoothAddress);
 
             // This PC's own file does keep them, and Clone (used by the settings window) carries them.
             Assert.Contains("linkcode=4821", main.ToText(true));
@@ -214,6 +219,10 @@ namespace GymClock.Tests
             Assert.True(clone.LinkSound);
             Assert.Equal(2, clone.LinkStationsFrom);
             Assert.Equal(3, clone.LinkStationsTo);
+            Assert.True(clone.LinkBluetooth);
+            Assert.Equal("00:1A:7D:DA:71:13", clone.LinkBluetoothAddress);
+            Assert.Equal("GYM-PC-1", clone.LinkBluetoothName);
+            Assert.Contains("linkbluetoothaddress=00:1A:7D:DA:71:13", main.ToText(true));
         }
     }
 }

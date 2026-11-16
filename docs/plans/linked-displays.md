@@ -1,6 +1,6 @@
 # Plan: Linked displays (two or more PCs in sync)
 
-**Status:** being built as **Gym Interval Clock version 4** (on the `version-4` branch). Phases 0–3 are built and pass their tests on one PC; nothing has been tried on two PCs or on the gym network yet (sections 6.1 and 6.2).
+**Status:** being built as **Gym Interval Clock version 4** (on the `version-4` branch). Phases 0–4 are built and pass their tests on one PC. Nothing has been tried between two PCs yet: not the network link, and not Bluetooth (sections 6.1, 6.2 and 6.3).
 **Goal:** run one session from a "leader" PC and show it, in sync, on one or more "follower" PCs, each driving its own screen or projector, with no video streaming and no internet needed.
 
 ---
@@ -175,7 +175,7 @@ The first time the app runs as leader, Windows asks to allow it through the fire
 | 1. Mirror | Built. Automated tests link two clock windows on one PC and check start, pause, skip, back, reset and a program change mirror within 100 ms. |
 | 2. Display roles | Built. One-clock programs mirror; for Parallel a second screen can show a chosen station range. |
 | 3. Resilience | Built. A second screen keeps counting alone, reconnects by itself, and can join mid-session. The "unplug Wi-Fi for 30 s" check on real PCs is still to do. |
-| 4. Bluetooth | Not started (optional). |
+| 4. Bluetooth | Built, **never connected for real** (16 Nov 2026). The transport layer is tested with a stand-in; on a PC with Bluetooth the main PC's side opens and advertises its channel. A connection between two paired PCs has not been made (6.4). |
 
 ### 6.1 Phase 0: running the network test
 
@@ -230,14 +230,27 @@ On a second screen:
 - "Show stations 3 to 4" applies to Parallel programs only. Other programs always mirror the main PC.
 - Choosing "Not linked" returns it to its own program and settings, which are never changed by following.
 
-### 6.3 How it was built (differences from sections 3 and 4)
+### 6.3 Linking over Bluetooth (Phase 4)
+
+For a venue with no usable network. Bluetooth range is about 10 m and walls reduce it, so the two PCs need to be in the same room.
+
+1. **Pair the two PCs** in Windows: Settings > Bluetooth & devices > Add device, on one PC, and accept on the other. This is done once.
+2. **Main PC:** press **L**, choose "This is the MAIN PC" and tick "Also accept second screens over Bluetooth". The bottom line shows `LINK ON (NETWORK + BLUETOOTH) - CODE 1234`.
+3. **Second PC:** press **L**, choose "This is a SECOND SCREEN", type the code, tick "Connect by Bluetooth instead of the network" and choose the main PC from the list of paired devices.
+4. The second PC shows `CONNECTING TO THE MAIN PC BY BLUETOOTH...` (this can take several seconds), then `FOLLOWING <main PC>`.
+
+The main PC keeps accepting network second screens at the same time. If Bluetooth can't start on the main PC, the network link still runs and a message says why.
+
+### 6.4 How it was built (differences from sections 3 and 4)
 
 - **A second screen runs the normal timing engine itself.** It is not a passive display fed a `RunState` object. Each `STATE` message corrects it: a drift under 0.25 s is eased out (a quarter of the gap per message), anything larger snaps to the main PC's position. This is why it keeps counting when the link drops, and why joining mid-session works: both came with the design instead of needing Phase 3 work.
 - **No `RunState` refactor of `MainForm`.** The two session clocks became `RunClock` (a stopwatch that can be set to a position). The main PC's state is read from the existing fields each tick and sent when something changes, or every 250 ms.
 - **`PROGRAM` carries the settings as well as the script** (`TimerSettings.ToText(false)` plus `ProgramScript`), so colours, labels, prep time and the simple (non-program) session all mirror. Link settings are never sent or accepted.
 - **Signing:** every line is `HEX(HMAC-SHA256) + space + JSON`, with the key derived from the link code. Announcements are unsigned but carry a tag only a PC with the same code can produce, so a second screen ignores other main PCs on the network.
 - **The link window is opened with L** from the clock screen (not yet a section of the settings window).
-- Link code is in `src/GymClock/Link/` and `src/GymClock/MainForm.Link.cs`. Tests are `LinkCoreTests` and `LinkNetworkTests`.
+- **Transports:** the main PC and second-screen code only see a stream (`ILinkConnection`, `ILinkListener` in `LinkTransport.cs`). TCP and Bluetooth are two implementations, so everything above the connection (link code, signing, clock matching, mirroring) is shared.
+- **Bluetooth** (`BluetoothLink.cs`) uses Windows' own Bluetooth sockets (RFCOMM through `ws2_32`) and paired-device list (`BluetoothApis`) directly, with no extra library. The main PC advertises the service id `6f0c7a52-3b1e-4d7a-9a57-47796d436c6b`; a second screen connects to the paired main PC by that id. There is no searching over Bluetooth: the teacher picks the paired main PC.
+- Link code is in `src/GymClock/Link/` and `src/GymClock/MainForm.Link.cs`. Tests are `LinkCoreTests`, `LinkNetworkTests` and `LinkBluetoothTests`.
 
 **Still to do before 4.0.0**
 
@@ -245,6 +258,7 @@ On a second screen:
 - Measure the real screen-to-screen difference on Wi-Fi (the 100 ms target has only been checked on one PC).
 - Decide whether the link window should also be reachable from the settings window.
 - Sound on a second screen has not been listened to on real hardware.
+- **Bluetooth, on two paired PCs (6.3):** does it connect at all, how long connecting takes, whether the screens stay within 100 ms, what happens when one PC walks out of range and back, and whether a school-managed PC allows it. None of this could be tested with one PC. If connecting fails, the first things to check are that the PCs are paired both ways and that the main PC shows `(NETWORK + BLUETOOTH)`.
 
 ## 7. Testing
 

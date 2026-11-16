@@ -25,6 +25,11 @@ namespace GymClock.Link
         private readonly TextBox _stationsFrom = new TextBox();
         private readonly TextBox _stationsTo = new TextBox();
 
+        private readonly CheckBox _leadBluetooth = new CheckBox();
+        private readonly CheckBox _followBluetooth = new CheckBox();
+        private readonly ComboBox _bluetoothDevices = new ComboBox();
+        private readonly bool _hasBluetooth;
+
         private readonly TableLayoutPanel _leadPanel = new TableLayoutPanel();
         private readonly TableLayoutPanel _followPanel = new TableLayoutPanel();
         private readonly Label _error = new Label();
@@ -35,6 +40,9 @@ namespace GymClock.Link
         public bool FollowerSound { get; private set; }
         public int StationsFrom { get; private set; }
         public int StationsTo { get; private set; }
+        public bool Bluetooth { get; private set; }
+        public string BluetoothAddress { get; private set; }
+        public string BluetoothName { get; private set; }
 
         public LinkSettingsForm(TimerSettings settings)
         {
@@ -55,7 +63,7 @@ namespace GymClock.Link
             TableLayoutPanel root = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 1, Dock = DockStyle.Fill };
 
             root.Controls.Add(Paragraph("Show one session on two or more PCs, in step. The main PC runs the session; "
-                + "second screens only display it. All PCs must be on the same network."));
+                + "second screens only display it. The PCs must be on the same network, or paired by Bluetooth."));
 
             _off.Text = "Not linked";
             _lead.Text = "This is the MAIN PC (it runs the session)";
@@ -84,6 +92,19 @@ namespace GymClock.Link
             _leadPanel.Controls.Add(_leadAddresses, 0, 1);
             _leadPanel.SetColumnSpan(_leadAddresses, 3);
 
+            _hasBluetooth = BluetoothLink.HasRadio();
+            _leadBluetooth.Text = "Also accept second screens over Bluetooth";
+            _leadBluetooth.AutoSize = true;
+            _leadBluetooth.Margin = new Padding(3, 8, 3, 2);
+            _leadBluetooth.Enabled = _hasBluetooth;
+            _leadPanel.Controls.Add(_leadBluetooth, 0, 2);
+            _leadPanel.SetColumnSpan(_leadBluetooth, 3);
+            Label leadBluetoothHelp = Hint(_hasBluetooth
+                ? "For places with no usable network. Pair the two PCs in Windows Bluetooth settings first."
+                : "This PC has no Bluetooth, or it is switched off.");
+            _leadPanel.Controls.Add(leadBluetoothHelp, 0, 3);
+            _leadPanel.SetColumnSpan(leadBluetoothHelp, 3);
+
             // ---- second screen
             _followPanel.AutoSize = true;
             _followPanel.ColumnCount = 2;
@@ -99,10 +120,28 @@ namespace GymClock.Link
             _followPanel.Controls.Add(addressHelp, 0, 2);
             _followPanel.SetColumnSpan(addressHelp, 2);
 
+            _followBluetooth.Text = "Connect by Bluetooth instead of the network";
+            _followBluetooth.AutoSize = true;
+            _followBluetooth.Margin = new Padding(3, 8, 3, 2);
+            _followBluetooth.Enabled = _hasBluetooth;
+            _followBluetooth.CheckedChanged += delegate { UpdateEnabled(); };
+            _followPanel.Controls.Add(_followBluetooth, 0, 3);
+            _followPanel.SetColumnSpan(_followBluetooth, 2);
+
+            _bluetoothDevices.DropDownStyle = ComboBoxStyle.DropDownList;
+            _bluetoothDevices.Width = Font.Height * 16;
+            _followPanel.Controls.Add(FieldLabel("Main PC (paired with this PC):"), 0, 4);
+            _followPanel.Controls.Add(_bluetoothDevices, 1, 4);
+            Label followBluetoothHelp = Hint(_hasBluetooth
+                ? "For places with no usable network. Pair the two PCs in Windows Bluetooth settings first; the main PC must have Bluetooth second screens switched on."
+                : "This PC has no Bluetooth, or it is switched off.");
+            _followPanel.Controls.Add(followBluetoothHelp, 0, 5);
+            _followPanel.SetColumnSpan(followBluetoothHelp, 2);
+
             _sound.Text = "Play the sounds on this screen too";
             _sound.AutoSize = true;
             _sound.Margin = new Padding(3, 8, 3, 2);
-            _followPanel.Controls.Add(_sound, 0, 3);
+            _followPanel.Controls.Add(_sound, 0, 6);
             _followPanel.SetColumnSpan(_sound, 2);
 
             FlowLayoutPanel stations = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
@@ -112,10 +151,10 @@ namespace GymClock.Link
             stations.Controls.Add(_stationsFrom);
             stations.Controls.Add(FieldLabel("to"));
             stations.Controls.Add(_stationsTo);
-            _followPanel.Controls.Add(stations, 0, 4);
+            _followPanel.Controls.Add(stations, 0, 7);
             _followPanel.SetColumnSpan(stations, 2);
             Label stationsHelp = Hint("Only for programs where each station has its own clock (Parallel). Leave blank to show them all.");
-            _followPanel.Controls.Add(stationsHelp, 0, 5);
+            _followPanel.Controls.Add(stationsHelp, 0, 8);
             _followPanel.SetColumnSpan(stationsHelp, 2);
 
             root.Controls.Add(_off);
@@ -153,6 +192,26 @@ namespace GymClock.Link
             _stationsFrom.Text = settings.LinkStationsFrom > 0 ? settings.LinkStationsFrom.ToString(CultureInfo.InvariantCulture) : string.Empty;
             _stationsTo.Text = settings.LinkStationsTo > 0 ? settings.LinkStationsTo.ToString(CultureInfo.InvariantCulture) : string.Empty;
 
+            // Paired Bluetooth devices, computers first; keep a saved main PC in the list even if it isn't visible now.
+            foreach (BluetoothDevice device in BluetoothLink.PairedDevices()) _bluetoothDevices.Items.Add(device);
+            if (BluetoothLink.TryParseAddress(settings.LinkBluetoothAddress, out ulong savedAddress))
+            {
+                BluetoothDevice saved = null;
+                foreach (BluetoothDevice device in _bluetoothDevices.Items) if (device.Address == savedAddress) saved = device;
+                if (saved == null)
+                {
+                    saved = new BluetoothDevice { Address = savedAddress, Name = settings.LinkBluetoothName, IsComputer = true };
+                    _bluetoothDevices.Items.Add(saved);
+                }
+                _bluetoothDevices.SelectedItem = saved;
+            }
+            else if (_bluetoothDevices.Items.Count == 1)
+            {
+                _bluetoothDevices.SelectedIndex = 0;
+            }
+            _leadBluetooth.Checked = _hasBluetooth && settings.LinkBluetooth && settings.IsLinkLeader;
+            _followBluetooth.Checked = _hasBluetooth && settings.LinkBluetooth && settings.IsLinkFollower;
+
             string addresses = string.Join(",  ", LinkProtocol.LocalAddresses().Select(a => a.Address.ToString()));
             _leadAddresses.Text = addresses.Length > 0
                 ? "This PC's address: " + addresses + Environment.NewLine + "(only needed if a second screen can't find it automatically)"
@@ -187,6 +246,8 @@ namespace GymClock.Link
         {
             _leadPanel.Enabled = _lead.Checked;
             _followPanel.Enabled = _follow.Checked;
+            _address.Enabled = !_followBluetooth.Checked;
+            _bluetoothDevices.Enabled = _followBluetooth.Checked && _hasBluetooth;
             if (_lead.Checked && _leadCode.Text.Trim().Length == 0) _leadCode.Text = LinkProtocol.NewCode();
             _error.Text = string.Empty;
         }
@@ -215,6 +276,21 @@ namespace GymClock.Link
                     return;
                 }
             }
+
+            bool bluetooth = role == "lead" ? _leadBluetooth.Checked : role == "follow" && _followBluetooth.Checked;
+            BluetoothDevice mainPc = _bluetoothDevices.SelectedItem as BluetoothDevice;
+            if (role == "follow" && bluetooth && mainPc == null)
+            {
+                _error.Text = _bluetoothDevices.Items.Count == 0
+                    ? "No paired Bluetooth devices were found. Pair this PC with the main PC in Windows Bluetooth settings, then open this window again."
+                    : "Choose the main PC from the list of paired Bluetooth devices.";
+                return;
+            }
+
+            Bluetooth = bluetooth;
+            // Keep a second screen's chosen main PC even while Bluetooth is unticked, so it is there next time.
+            BluetoothAddress = mainPc != null ? mainPc.AddressText : string.Empty;
+            BluetoothName = mainPc != null ? (mainPc.Name ?? string.Empty) : string.Empty;
 
             Role = role;
             Code = code;
