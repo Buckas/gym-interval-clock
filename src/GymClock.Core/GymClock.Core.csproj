@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Everything in Gym Interval Clock that is not a window: programs and scripts, settings,
+    the timing engine, licensing, the AI assistant's logic and linked displays. The app
+    project (src/GymClock) holds the windows and references this one.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>GymClock</RootNamespace>
+    <AssemblyName>GymClock.Core</AssemblyName>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!--
+      Temporary: WorkoutProgram carries [Editor] attributes for the old property grid, and
+      ColourUITypeEditor lives here with it. Build guide task P5.12 deletes both and sets
+      this to false.
+    -->
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AI.Foundry.Local" Version="2.4.0" />
+    <PackageReference Include="OpenAI" Version="2.15.0" />
+  </ItemGroup>
+
+  <!-- The exercise library ships inside this assembly; newer versions are downloaded from the same file on GitHub. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\data\exercises.json" LogicalName="GymClock.exercises.json" />
+  </ItemGroup>
+
+</Project>

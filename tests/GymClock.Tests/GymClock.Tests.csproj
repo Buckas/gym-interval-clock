@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\GymClock\GymClock.csproj" />
+    <ProjectReference Include="..\..\src\GymClock.Core\GymClock.Core.csproj" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,5 @@
 using System;
 using System.Reflection;
-using System.Windows.Forms;
 
 namespace GymClock
 {
@@ -21,7 +20,6 @@ namespace GymClock
                 Assembly assembly = typeof(AppVersion).Assembly;
                 string version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                     ?? assembly.GetName().Version?.ToString(3)
-                    ?? Application.ProductVersion
                     ?? string.Empty;
                 int plus = version.IndexOf('+');
                 return plus >= 0 ? version.Substring(0, plus) : version;

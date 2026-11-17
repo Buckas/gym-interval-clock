@@ -19,14 +19,9 @@
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
   </PropertyGroup>
 
+  <!-- Programs, settings, timing, licensing, AI logic and linked displays live in the core project. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.AI.Foundry.Local" Version="2.4.0" />
-    <PackageReference Include="OpenAI" Version="2.15.0" />
-  </ItemGroup>
-
-  <!-- The exercise library ships inside the exe; newer versions are downloaded from the same file on GitHub. -->
-  <ItemGroup>
-    <EmbeddedResource Include="..\..\data\exercises.json" LogicalName="GymClock.exercises.json" />
+    <ProjectReference Include="..\GymClock.Core\GymClock.Core.csproj" />
   </ItemGroup>
 
   <!--
