@@ -22,8 +22,11 @@ namespace GymClock
             // Background: colour alone tells the room which phase they are in. Parallel tiles
             // pulse individually, so the base behind them stays put.
             Color background = BackgroundColour();
+            frame.BaseBackground = background;
             if (!parallel && timed) background = ApplyPulse(background, remaining, _phaseClock.IsRunning);
             frame.Background = background;
+            frame.RemainingSeconds = remaining;
+            frame.FinalSeconds = !parallel && timed && IsFinalSeconds(remaining, _phaseClock.IsRunning);
             frame.IsParallel = parallel;
 
             frame.Summary = ConfigSummaryText();
@@ -71,6 +74,13 @@ namespace GymClock
             }
 
             return frame;
+        }
+
+        /// <summary>True in the last three seconds of a running interval: when ApplyPulse flashes.</summary>
+        public static bool IsFinalSeconds(double remainingSeconds, bool running)
+        {
+            int secondsLeft = (int)Math.Ceiling(remainingSeconds - 0.0001);
+            return running && secondsLeft >= 1 && secondsLeft <= 3;
         }
 
         /// <summary>
@@ -129,6 +139,7 @@ namespace GymClock
                 if (position.Block == null || position.Finished)
                 {
                     tile.Background = Settings.DoneBg;
+                    tile.BaseBackground = Settings.DoneBg;
                     tile.PhaseLabel = "DONE";
                     tile.Finished = true;
                 }
@@ -137,6 +148,9 @@ namespace GymClock
                     Block block = position.Block.Block;
                     Color baseColour = Settings.ColourFor(block.Type, block.Colour);
                     tile.Background = ApplyPulse(baseColour, position.RemainingSeconds, _phaseClock.IsRunning);
+                    tile.BaseBackground = baseColour;
+                    tile.RemainingSeconds = position.RemainingSeconds;
+                    tile.FinalSeconds = IsFinalSeconds(position.RemainingSeconds, _phaseClock.IsRunning);
                     tile.PhaseLabel = block.Word;
                     tile.Note = TileNoteFor(index, block);
                     tile.Countdown = FormatSeconds(position.RemainingSeconds);

@@ -12,9 +12,9 @@
     For the release itself all three are X.0.0 / X.0.0.0.
   -->
   <PropertyGroup>
-    <Version>5.0.0-preview.2</Version>
-    <AssemblyVersion>4.99.2.0</AssemblyVersion>
-    <FileVersion>4.99.2.0</FileVersion>
+    <Version>5.0.0-preview.3</Version>
+    <AssemblyVersion>4.99.3.0</AssemblyVersion>
+    <FileVersion>4.99.3.0</FileVersion>
     <Product>Gym Interval Clock</Product>
     <Copyright>Copyright (c) 2026 Chris Bucknell and James Vella. All rights reserved.</Copyright>
     <Authors>Chris Bucknell; James Vella</Authors>

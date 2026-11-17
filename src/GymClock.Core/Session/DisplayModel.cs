@@ -462,12 +462,12 @@ namespace GymClock
         {
             if (IsSecondScreen)
             {
-                return "SECOND SCREEN - the main PC has the controls  -  L link settings  -  M sound on this screen  -  "
+                return "SECOND SCREEN - the main PC has the controls  -  L link settings  -  M sound on this screen  -  C controls  -  "
                     + "F11 full screen  -  F6 next display  -  F3 licence  -  Q quit";
             }
 
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append("SPACE start/pause  -  R reset  -  A open AI assistant  -  S settings  -  L link displays  -  ");
+            sb.Append("SPACE start/pause  -  R reset  -  C controls  -  A open AI assistant  -  S settings  -  L link displays  -  ");
 
             if (_program.Mode == ExecutionMode.Parallel)
             {

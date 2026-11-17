@@ -262,6 +262,15 @@ namespace GymClock
         /// <summary>Where the Control window was last time, in screen pixels: "x,y,width,height" plus ",max" when maximised. Blank = not yet opened.</summary>
         public string ControlBounds = string.Empty;
 
+        /// <summary>The clock's layout: "standard", "bignumber" (just the countdown) or "stations" (a wide station list).</summary>
+        public string DisplayLayout = "standard";
+        /// <summary>0-8: percent of the screen kept clear on every side, for projectors that cut off the edges.</summary>
+        public int SafeMargin = 0;
+        /// <summary>"system" (follow the Windows animation setting), "on" (no fades or pulses) or "off".</summary>
+        public string ReduceMotion = "system";
+        /// <summary>Show the on-screen control bar when the mouse moves over the clock.</summary>
+        public bool ControlBar = true;
+
         /// <summary>Copies this PC's link settings (and nothing else) from another settings object.</summary>
         public void CopyLinkFrom(TimerSettings other)
         {
@@ -446,6 +455,10 @@ namespace GymClock
             c.CopyLinkFrom(this);
             c.Theme = Theme;
             c.ControlBounds = ControlBounds;
+            c.DisplayLayout = DisplayLayout;
+            c.SafeMargin = SafeMargin;
+            c.ReduceMotion = ReduceMotion;
+            c.ControlBar = ControlBar;
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
@@ -596,6 +609,10 @@ namespace GymClock
                     case "linkbluetoothname": if (includeLink) s.LinkBluetoothName = value; break;
                     case "theme": if (includeLink) s.Theme = ReadTheme(value); break;
                     case "controlbounds": if (includeLink) s.ControlBounds = value; break;
+                    case "displaylayout": if (includeLink) s.DisplayLayout = ReadLayout(value); break;
+                    case "safemargin": if (includeLink) s.SafeMargin = ReadInt(value, 0, 0, 8); break;
+                    case "reducemotion": if (includeLink) s.ReduceMotion = ReadReduceMotion(value); break;
+                    case "controlbar": if (includeLink) s.ControlBar = ReadBool(value, s.ControlBar); break;
                     case "presets":
                         List<Preset> parsed = new List<Preset>();
                         foreach (string item in SplitList(value))
@@ -732,6 +749,13 @@ namespace GymClock
                 sb.AppendLine("# was last time (written by the app).");
                 sb.AppendLine("theme=" + Theme);
                 sb.AppendLine("controlbounds=" + ControlBounds);
+                sb.AppendLine();
+                sb.AppendLine("# This PC's clock screen (never sent to second screens): layout standard, bignumber or");
+                sb.AppendLine("# stations; safe margin 0-8 percent; reduce motion system, on or off; control bar true/false.");
+                sb.AppendLine("displaylayout=" + DisplayLayout);
+                sb.AppendLine("safemargin=" + SafeMargin.ToString(CultureInfo.InvariantCulture));
+                sb.AppendLine("reducemotion=" + ReduceMotion);
+                sb.AppendLine("controlbar=" + (ControlBar ? "true" : "false"));
             }
             sb.AppendLine();
             sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
@@ -742,6 +766,20 @@ namespace GymClock
         }
 
         /// <summary>"system", "light" or "dark"; anything else reads as "system".</summary>
+        /// <summary>"standard", "bignumber" or "stations"; anything else reads as "standard".</summary>
+        public static string ReadLayout(string value)
+        {
+            string v = (value ?? string.Empty).Trim().ToLowerInvariant();
+            return v == "bignumber" || v == "stations" ? v : "standard";
+        }
+
+        /// <summary>"system", "on" or "off"; anything else reads as "system".</summary>
+        public static string ReadReduceMotion(string value)
+        {
+            string v = (value ?? string.Empty).Trim().ToLowerInvariant();
+            return v == "on" || v == "off" ? v : "system";
+        }
+
         public static string ReadTheme(string value)
         {
             string v = (value ?? string.Empty).Trim().ToLowerInvariant();

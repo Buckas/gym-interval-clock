@@ -105,6 +105,33 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public void DisplaySettings_AreThisPcsOwn_SavedRead_AndCheckedOnTheWayIn()
+        {
+            TimerSettings s = new TimerSettings { DisplayLayout = "bignumber", SafeMargin = 5, ReduceMotion = "on", ControlBar = false };
+            string saved = s.ToText(true);
+            foreach (string line in new[] { "displaylayout=bignumber", "safemargin=5", "reducemotion=on", "controlbar=false" })
+                Assert.Contains(line, saved);
+
+            string sent = s.ToText(false);
+            Assert.DoesNotContain("displaylayout=", sent);
+            Assert.DoesNotContain("safemargin=", sent);
+            Assert.DoesNotContain("reducemotion=", sent);
+            Assert.DoesNotContain("controlbar=", sent);
+
+            TimerSettings copy = s.Clone();
+            Assert.Equal("bignumber", copy.DisplayLayout);
+            Assert.Equal(5, copy.SafeMargin);
+            Assert.Equal("on", copy.ReduceMotion);
+            Assert.False(copy.ControlBar);
+
+            Assert.Equal("standard", TimerSettings.ReadLayout("sideways"));
+            Assert.Equal("stations", TimerSettings.ReadLayout(" Stations "));
+            Assert.Equal("system", TimerSettings.ReadReduceMotion("maybe"));
+            Assert.True(DisplayWindow.ReduceMotionOn("on"));
+            Assert.False(DisplayWindow.ReduceMotionOn("off"));
+        }
+
+        [Fact]
         public void NumberBox_KeepsToDigitsInRange_AndStepsWithTheArrows()
         {
             WpfTestHost.Run(() =>

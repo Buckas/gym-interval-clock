@@ -46,6 +46,30 @@ namespace GymClock.AI
             }
         }
 
+        /// <summary>
+        /// Unloads the local AI model and stops Foundry Local, waiting at most the given time.
+        /// Called when the app closes: without it the AI's own threads keep the process running
+        /// (invisibly) after the clock window has gone.
+        /// </summary>
+        public static void Shutdown(TimeSpan wait)
+        {
+            FoundryLocalProgramService service;
+            lock (Sync)
+            {
+                if (!_initialized) return;
+                service = Service;
+            }
+            if (service == null) return;
+
+            try
+            {
+                Task.Run(async () => await service.DisposeAsync().ConfigureAwait(false)).Wait(wait);
+            }
+            catch
+            {
+            }
+        }
+
         public static void EnsureInitialized()
         {
             lock (Sync)

@@ -1,7 +1,6 @@
 using System;
 using System.Drawing;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 using Forms = System.Windows.Forms;
@@ -20,13 +19,13 @@ namespace GymClock.Wpf
     {
         private const double PanelShare = 0.40;
 
-        private static Forms.Form _clock;
+        private static Window _clock;
         private static AppSession _session;
         private static ControlWindow _window;
         private static Rectangle _lastNormal;
 
         /// <summary>Called once by the clock window, with the session the pages will use.</summary>
-        public static void Attach(Forms.Form clock, AppSession session)
+        public static void Attach(Window clock, AppSession session)
         {
             _clock = clock;
             _session = session;
@@ -48,7 +47,7 @@ namespace GymClock.Wpf
         /// <summary>Opens the Control window at a page ("session", "builder", "link" and so on), or brings it forward.</summary>
         public static void Open(string pageId)
         {
-            if (_clock == null || _clock.IsDisposed) return;
+            if (_clock == null) return;
             WpfHost.EnsureApplication();
 
             if (_window != null)
@@ -62,7 +61,7 @@ namespace GymClock.Wpf
             ControlViewModel model = new ControlViewModel();
             model.Navigate(pageId);
             ControlWindow window = new ControlWindow(model);
-            new WindowInteropHelper(window).Owner = _clock.Handle;   // stays above the clock, closes with it
+            new WindowInteropHelper(window).Owner = NativeScreen.Handle(_clock);   // stays above the clock, closes with it
             model.FullWindowRequested += ToFullWindow;
             model.CloseRequested += () => window.Close();
             window.LocationChanged += delegate { RememberNormalBounds(); };
@@ -72,7 +71,7 @@ namespace GymClock.Wpf
             _window = window;
             _lastNormal = Rectangle.Empty;
 
-            Forms.Screen clockScreen = Forms.Screen.FromControl(_clock);
+            Forms.Screen clockScreen = NativeScreen.ScreenOf(_clock);
             Forms.Screen other = OtherScreen(clockScreen);
             if (other != null) PlaceAsWindow(other);
             else PlaceAsPanel(clockScreen);
@@ -92,7 +91,7 @@ namespace GymClock.Wpf
         private static void ToFullWindow()
         {
             if (_window == null || _clock == null) return;
-            Forms.Screen clockScreen = Forms.Screen.FromControl(_clock);
+            Forms.Screen clockScreen = NativeScreen.ScreenOf(_clock);
             PlaceAsWindow(OtherScreen(clockScreen) ?? clockScreen);
             _window.Activate();
         }
@@ -112,9 +111,9 @@ namespace GymClock.Wpf
             bool maximised;
             bool useSaved = TryParseBounds(_session != null ? _session.OwnSettings.ControlBounds : null, out saved, out maximised)
                 && IsMostlyOn(saved, target.WorkingArea);
-            Rectangle bounds = useSaved ? saved : Centred(target, 1280, 800);
+            Rectangle bounds = useSaved ? saved : NativeScreen.Centred(target, 1280, 800);
 
-            SetPixelBounds(w, bounds);
+            NativeScreen.SetBounds(w, bounds);
             _lastNormal = bounds;
             if (useSaved && maximised) w.WindowState = WindowState.Maximized;
         }
@@ -129,7 +128,7 @@ namespace GymClock.Wpf
             w.Topmost = true;
             w.MinWidth = 0;
             w.MinHeight = 0;
-            SetPixelBounds(w, PanelBounds(screen.Bounds));
+            NativeScreen.SetBounds(w, PanelBounds(screen.Bounds));
         }
 
         /// <summary>The side panel: the right 40% of the screen, full height.</summary>
@@ -137,16 +136,6 @@ namespace GymClock.Wpf
         {
             int width = (int)Math.Round(screen.Width * PanelShare);
             return new Rectangle(screen.Right - width, screen.Top, width, screen.Height);
-        }
-
-        /// <summary>A window of the given size in WPF units, centred on the screen's working area and kept inside it.</summary>
-        private static Rectangle Centred(Forms.Screen screen, int widthDip, int heightDip)
-        {
-            double scale = DpiFor(screen) / 96.0;
-            Rectangle area = screen.WorkingArea;
-            int width = Math.Min((int)(widthDip * scale), area.Width - 40);
-            int height = Math.Min((int)(heightDip * scale), area.Height - 40);
-            return new Rectangle(area.X + (area.Width - width) / 2, area.Y + (area.Height - height) / 2, width, height);
         }
 
         private static Forms.Screen OtherScreen(Forms.Screen clockScreen)
@@ -171,10 +160,8 @@ namespace GymClock.Wpf
         {
             ControlWindow w = _window;
             if (w == null || w.Model.IsPanel || w.WindowState != WindowState.Normal) return;
-            IntPtr handle = new WindowInteropHelper(w).Handle;
-            RECT r;
-            if (handle != IntPtr.Zero && GetWindowRect(handle, out r))
-                _lastNormal = Rectangle.FromLTRB(r.Left, r.Top, r.Right, r.Bottom);
+            Rectangle r = NativeScreen.GetBounds(w);
+            if (r.Width > 0) _lastNormal = r;
         }
 
         private static void SaveBounds()
@@ -211,48 +198,5 @@ namespace GymClock.Wpf
             maximised = parts.Length > 4 && parts[4].Trim().Equals("max", StringComparison.OrdinalIgnoreCase);
             return true;
         }
-
-        // ------------------------------------------------------------ Win32
-
-        private static void SetPixelBounds(Window window, Rectangle r)
-        {
-            IntPtr handle = new WindowInteropHelper(window).EnsureHandle();
-            SetWindowPos(handle, IntPtr.Zero, r.X, r.Y, r.Width, r.Height, SWP_NOZORDER | SWP_NOACTIVATE);
-        }
-
-        private static uint DpiFor(Forms.Screen screen)
-        {
-            try
-            {
-                Rectangle b = screen.Bounds;
-                IntPtr monitor = MonitorFromPoint(new POINT { X = b.X + b.Width / 2, Y = b.Y + b.Height / 2 }, MONITOR_DEFAULTTONEAREST);
-                uint x, y;
-                if (GetDpiForMonitor(monitor, 0, out x, out y) == 0 && x > 0) return x;
-            }
-            catch { }
-            return 96;
-        }
-
-        private const uint SWP_NOZORDER = 0x0004;
-        private const uint SWP_NOACTIVATE = 0x0010;
-        private const uint MONITOR_DEFAULTTONEAREST = 2;
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct RECT { public int Left, Top, Right, Bottom; }
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct POINT { public int X, Y; }
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
-
-        [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
-
-        [DllImport("shcore.dll")]
-        private static extern int GetDpiForMonitor(IntPtr monitor, int dpiType, out uint dpiX, out uint dpiY);
     }
 }

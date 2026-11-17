@@ -20,12 +20,13 @@ namespace GymClock.Wpf
         }
 
         /// <summary>
-        /// Shows a WPF window from the Windows Forms message loop. Without the keyboard interop
-        /// call, typing in the window's text boxes does nothing. Call once per window.
+        /// Shows a modeless WPF window. Since version 5 Phase 3 the app runs WPF's message loop,
+        /// so this is a plain Show; the keyboard interop is only needed (and only added) if a
+        /// Windows Forms message loop is running instead. Call once per window.
         /// </summary>
         public static void ShowModeless(Window window)
         {
-            ElementHost.EnableModelessKeyboardInterop(window);
+            if (System.Windows.Forms.Application.MessageLoop) ElementHost.EnableModelessKeyboardInterop(window);
             window.Show();
         }
     }

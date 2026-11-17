@@ -381,5 +381,36 @@ END STATION
                 Assert.NotSame(second.Settings, second.OwnSettings);
             }
         }
+
+        [Fact]
+        public void SecondScreen_KeepsItsOwnDisplayLayout_MarginMotionAndControlBar()
+        {
+            TimerSettings mainSettings = new TimerSettings
+            {
+                ProgramScript = CircuitScript, UseBuiltProgram = true, PrepSeconds = 0, SoundEnabled = false, LinkRole = "lead", LinkCode = "4821",
+                DisplayLayout = "bignumber", SafeMargin = 0, ReduceMotion = "off", ControlBar = true, Theme = "dark"
+            };
+            TimerSettings secondSettings = new TimerSettings
+            {
+                SoundEnabled = false, LinkRole = "follow", LinkCode = "4821", LinkAddress = "127.0.0.1",
+                DisplayLayout = "stations", SafeMargin = 5, ReduceMotion = "on", ControlBar = false, Theme = "light"
+            };
+
+            using (LinkedPair pair = new LinkedPair(mainSettings, secondSettings))
+            {
+                AppSession second = pair.Second;
+                pair.Main.Link.Start();
+                second.Link.Start();
+                Assert.True(pair.Pump(() => second.Link.HasLeaderProgram), "the program never arrived");
+
+                // The Display reads these from OwnSettings; the main PC's never arrive.
+                Assert.Equal("stations", second.OwnSettings.DisplayLayout);
+                Assert.Equal(5, second.OwnSettings.SafeMargin);
+                Assert.Equal("on", second.OwnSettings.ReduceMotion);
+                Assert.False(second.OwnSettings.ControlBar);
+                Assert.Equal("light", second.OwnSettings.Theme);
+                Assert.Equal("standard", second.Settings.DisplayLayout);   // what arrived: defaults, not the main PC's
+            }
+        }
     }
 }

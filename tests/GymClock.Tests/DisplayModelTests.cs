@@ -101,6 +101,36 @@ END STATION
         }
 
         [Fact]
+        public void FinalThreeSeconds_FlashTheBackground_ButTheBaseColourStaysForTheNewDisplay()
+        {
+            SessionEngine engine = Engine(Circuit);
+            DisplayModel model = new DisplayModel(engine);
+            engine.Start();
+            At(engine, 43.5);      // 1.5 of 45 seconds left
+
+            DisplayFrame frame = model.BuildFrame(showHints: false);
+
+            Assert.True(frame.FinalSeconds);
+            Assert.InRange(frame.RemainingSeconds, 1.4, 1.6);
+            Assert.Equal(engine.Settings.WorkBg, frame.BaseBackground);
+            Assert.NotEqual(engine.Settings.WorkBg, frame.Background);    // the old flash, kept for reduce motion
+
+            At(engine, 20);
+            frame = model.BuildFrame(showHints: false);
+            Assert.False(frame.FinalSeconds);
+            Assert.Equal(frame.BaseBackground, frame.Background);
+        }
+
+        [Fact]
+        public void TheHints_MentionC_ForTheControls()
+        {
+            DisplayModel model = new DisplayModel(Engine(Circuit));
+            Assert.Contains("C controls", model.HintText());
+            model.IsSecondScreen = true;
+            Assert.Contains("C controls", model.HintText());
+        }
+
+        [Fact]
         public void Circuit_ListsEveryStation_ButMarksNoneCurrent_BecauseGroupsAreAtAllOfThem()
         {
             SessionEngine engine = Engine(Circuit);

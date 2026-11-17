@@ -13,6 +13,15 @@ namespace GymClock
         /// <summary>The whole-screen colour for the phase, with the last-three-seconds pulse applied.</summary>
         public Color Background;
 
+        /// <summary>The same colour without the flash. The version 5 Display draws this and pulses the countdown instead (unless reduce motion is on).</summary>
+        public Color BaseBackground;
+
+        /// <summary>True in the last three seconds of a running interval (the single countdown; tiles have their own).</summary>
+        public bool FinalSeconds;
+
+        /// <summary>Seconds left in the current interval (drives the countdown pulse).</summary>
+        public double RemainingSeconds;
+
         /// <summary>True while a Parallel program is running: draw the tiles instead of the single countdown.</summary>
         public bool IsParallel;
 
@@ -68,6 +77,11 @@ namespace GymClock
         /// <summary>The station's own colour for the swatch beside its name, or Color.Empty.</summary>
         public Color Swatch = Color.Empty;
         public Color Background;
+        /// <summary>The tile colour without the final-seconds flash.</summary>
+        public Color BaseBackground;
+        /// <summary>True in the last three seconds of this station's interval.</summary>
+        public bool FinalSeconds;
+        public double RemainingSeconds;
         /// <summary>WORK, REST, RECOVER... or DONE.</summary>
         public string PhaseLabel = string.Empty;
         public string Note = string.Empty;
