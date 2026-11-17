@@ -25,6 +25,7 @@
 
     <local:BoolToVisibility x:Key="VisibleWhenTrue" />
     <local:BoolToVisibility x:Key="VisibleWhenFalse" Invert="True" />
+    <local:LineStateToBrush x:Key="LineStateBrush" />
 
     <!-- Keyboard focus: a 2-pixel accent outline just outside the control. WPF shows a
          FocusVisualStyle for keyboard focus only, never for a mouse click. -->

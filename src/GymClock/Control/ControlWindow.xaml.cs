@@ -18,6 +18,12 @@ namespace GymClock.Wpf
 
         public ControlViewModel Model { get; }
 
+        /// <summary>A short message in the bar at the top of the page (IDialogService.Notify).</summary>
+        public void Notify(string message, InfoKind kind)
+        {
+            InfoBar.Show(message, kind);
+        }
+
         protected override void OnPreviewKeyDown(KeyEventArgs e)
         {
             // Esc closes the side panel, so the clock is back in one key.

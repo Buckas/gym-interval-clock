@@ -17,7 +17,7 @@ namespace GymClock.Link
     /// <summary>
     /// The Link displays guide, kept in the app so a teacher never needs a separate document:
     /// what it does, how to set it up on a network and over Bluetooth, what to do when it won't
-    /// connect, and what a second screen can do. Shown by <see cref="LinkHelpForm"/>.
+    /// connect, and what a second screen can do. Shown on the Link displays page (HelpTopicView).
     ///
     /// The wording quotes the app's own buttons and status lines exactly - the tests check that.
     /// </summary>

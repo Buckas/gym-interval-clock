@@ -57,6 +57,8 @@
                 </DockPanel>
             </Border>
 
+            <local:InfoBarHost x:Name="InfoBar" DockPanel.Dock="Top" />
+
             <ContentControl Content="{Binding CurrentView}" Focusable="False" />
         </DockPanel>
     </Grid>

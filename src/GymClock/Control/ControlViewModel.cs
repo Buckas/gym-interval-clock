@@ -10,12 +10,22 @@ namespace GymClock.Wpf
         private readonly Func<object> _create;
         private object _view;
 
-        public ControlPage(string id, string title, string glyph, Func<object> create)
+        public ControlPage(string id, string title, string glyph, Func<object> create, bool freshEachTime = false)
         {
             Id = id;
             Title = title;
             Glyph = glyph;
             _create = create;
+            FreshEachTime = freshEachTime;
+        }
+
+        /// <summary>True: the page is made again each time it is opened (it reads settings that may have changed).</summary>
+        public bool FreshEachTime { get; }
+
+        /// <summary>Forgets the page, so the next <see cref="View"/> makes a new one.</summary>
+        public void Forget()
+        {
+            _view = null;
         }
 
         public string Id { get; }
@@ -45,13 +55,17 @@ namespace GymClock.Wpf
         public const string AboutPage = "about";
         public const string GalleryPage = "gallery";
 
+        private readonly IDictionary<string, Func<object>> _built;
         private readonly List<ControlPage> _pages;
         private readonly ControlPage _gallery;
         private ControlPage _current;
         private bool _isPanel;
 
-        public ControlViewModel()
+        /// <param name="pages">The pages that are built, by id; every other page shows a placeholder.</param>
+        public ControlViewModel(IDictionary<string, Func<object>> pages = null)
         {
+            _built = pages ?? new Dictionary<string, Func<object>>();
+
             // Until each page is built (phases 4 to 6) it says where that job is done today.
             _pages = new List<ControlPage>
             {
@@ -94,7 +108,11 @@ namespace GymClock.Wpf
             set
             {
                 if (value == null) return;     // the rail clears its selection when the gallery shows
-                if (Set(ref _current, value)) Raise(nameof(CurrentView));
+                if (value == _current) return;
+                if (value.FreshEachTime) value.Forget();
+                _current = value;
+                Raise();
+                Raise(nameof(CurrentView));
             }
         }
 
@@ -137,10 +155,16 @@ namespace GymClock.Wpf
             return false;
         }
 
-        private static ControlPage Placeholder(string id, string title, string glyph, string phase, string today)
+        /// <summary>The page with this id: the real one if it has been built, otherwise a placeholder.</summary>
+        private ControlPage Placeholder(string id, string title, string glyph, string phase, string today)
         {
+            Func<object> real;
+            if (_built.TryGetValue(id, out real)) return new ControlPage(id, title, glyph, real, FreshPages.Contains(id));
             return new ControlPage(id, title, glyph, () => new PlaceholderPageView(title, phase, today));
         }
+
+        /// <summary>Pages that read this PC's settings or the licence when they open, so they are made again each time.</summary>
+        private static readonly HashSet<string> FreshPages = new HashSet<string> { LinkPage, AboutPage, SettingsPage };
 
         private static void Raise(Action handler)
         {

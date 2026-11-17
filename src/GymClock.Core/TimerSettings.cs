@@ -285,6 +285,42 @@ namespace GymClock
             LinkLastRoute = other.LinkLastRoute;
         }
 
+        /// <summary>
+        /// Copies the general settings - everything on the Settings page: get-ready time, sound,
+        /// clock, station list, colours, theme and the clock's layout - and nothing about the
+        /// program, the simple session or the link.
+        /// </summary>
+        public void CopyGeneralFrom(TimerSettings other)
+        {
+            PrepSeconds = other.PrepSeconds;
+            SoundEnabled = other.SoundEnabled;
+            Volume = other.Volume;
+            ShowClock = other.ShowClock;
+            ClockFormat = other.ClockFormat;
+            AlwaysOnTop = other.AlwaysOnTop;
+            ShowStationsTable = other.ShowStationsTable;
+            ShowStationNameAsDescription = other.ShowStationNameAsDescription;
+
+            WorkColour = other.WorkColour;
+            RestColour = other.RestColour;
+            PrepColour = other.PrepColour;
+            PausedColour = other.PausedColour;
+            DoneColour = other.DoneColour;
+            IdleColour = other.IdleColour;
+            MoveColour = other.MoveColour;
+            RecoveryColour = other.RecoveryColour;
+            CountdownColour = other.CountdownColour;
+            WaterBreakColour = other.WaterBreakColour;
+            InstructionColour = other.InstructionColour;
+            CustomColour = other.CustomColour;
+
+            Theme = other.Theme;
+            DisplayLayout = other.DisplayLayout;
+            SafeMargin = other.SafeMargin;
+            ReduceMotion = other.ReduceMotion;
+            ControlBar = other.ControlBar;
+        }
+
         /// <summary>All the link settings as one string, to tell whether any of them changed.</summary>
         public string LinkKey()
         {

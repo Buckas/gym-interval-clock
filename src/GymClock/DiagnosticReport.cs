@@ -142,52 +142,6 @@ namespace GymClock
             return sb.ToString();
         }
 
-        /// <summary>Asks where to save, writes the file, then offers to open the folder.</summary>
-        public static void SaveInteractive(IWin32Window owner, TimerSettings settings)
-        {
-            string path;
-
-            using (SaveFileDialog dialog = new SaveFileDialog())
-            {
-                dialog.Title = "Save support report";
-                dialog.FileName = SuggestedFileName();
-                dialog.Filter = "Text files (*.txt)|*.txt|All files (*.*)|*.*";
-                dialog.InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
-
-                if (dialog.ShowDialog(owner) != DialogResult.OK) return;
-                path = dialog.FileName;
-            }
-
-            try
-            {
-                File.WriteAllText(path, Build(settings));
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(owner, "The report could not be saved: " + ex.Message,
-                    "Save support report", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            DialogResult open = MessageBox.Show(owner,
-                "Report saved to:" + Environment.NewLine + path + Environment.NewLine + Environment.NewLine
-                + "Attach it to an email to " + Licensing.ContactDetails + "."
-                + Environment.NewLine + Environment.NewLine
-                + "Open the folder now?",
-                "Save support report", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
-
-            if (open != DialogResult.Yes) return;
-
-            try
-            {
-                System.Diagnostics.ProcessStartInfo info =
-                    new System.Diagnostics.ProcessStartInfo("explorer.exe", "/select,\"" + path + "\"");
-                info.UseShellExecute = true;
-                System.Diagnostics.Process.Start(info);
-            }
-            catch { }
-        }
-
         private static void Heading(StringBuilder sb, string text)
         {
             sb.AppendLine(text);

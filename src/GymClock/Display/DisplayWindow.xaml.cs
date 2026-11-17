@@ -19,7 +19,7 @@ namespace GymClock.Wpf
     /// the keys and the mouse exactly as MainForm did (the plan's section 6.1). The settings,
     /// program and licence windows are still the old ones until phases 4 and 5 replace them.
     /// </summary>
-    public partial class DisplayWindow : Window
+    public partial class DisplayWindow : Window, IDisplayActions
     {
         private const double BarSeconds = 4;
 
@@ -57,7 +57,7 @@ namespace GymClock.Wpf
             _session.Link.Changed += ApplyAudioSettings;
             _session.Link.ToastRequested += ShowToast;
 
-            ControlHost.Attach(this, _session);
+            ControlHost.Attach(this, this, _session, () => _update);
 
             Title = "Gym Interval Clock Version " + AppVersion.Display;
             System.Drawing.Icon icon = AppIconProvider.GetIcon();
@@ -68,7 +68,7 @@ namespace GymClock.Wpf
             }
 
             _commands = new DisplayCommands(GoBack, TogglePause, Skip, ResetSession, ToggleSound,
-                () => ShowLinkSettings(null), () => ControlHost.Open(ControlViewModel.SessionPage), () => SetFullScreen(!_fullScreen));
+                () => ControlHost.Open(ControlViewModel.LinkPage), () => ControlHost.Open(ControlViewModel.SessionPage), () => SetFullScreen(!_fullScreen));
             Bar.DataContext = _commands;
 
             _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(40) };   // 25 fps
@@ -222,7 +222,7 @@ namespace GymClock.Wpf
 
             if (key == Key.L)
             {
-                ShowLinkSettings(null);
+                ControlHost.Open(ControlViewModel.LinkPage);
                 e.Handled = true;
                 return;
             }
@@ -254,7 +254,7 @@ namespace GymClock.Wpf
                         MoveToNextScreen();
                         break;
                     case Key.F3:
-                        ShowLicenceInfo();
+                        ControlHost.OpenAbout(false);
                         break;
                     case Key.C:
                         ControlHost.Open(ControlViewModel.LinkPage);
@@ -264,7 +264,7 @@ namespace GymClock.Wpf
                         ShowHint(15);
                         break;
                     case Key.Escape:
-                        if (_fullScreen) SetFullScreen(false);
+                        if (!ControlHost.ClosePanel() && _fullScreen) SetFullScreen(false);
                         break;
                     case Key.Q:
                         Close();
@@ -350,7 +350,7 @@ namespace GymClock.Wpf
                     break;
 
                 case Key.F3:
-                    ShowLicenceInfo();
+                    ControlHost.OpenAbout(false);
                     break;
 
                 case Key.C:
@@ -363,7 +363,7 @@ namespace GymClock.Wpf
                     break;
 
                 case Key.Escape:
-                    if (_fullScreen) SetFullScreen(false);
+                    if (!ControlHost.ClosePanel() && _fullScreen) SetFullScreen(false);
                     break;
 
                 case Key.Q:
@@ -530,7 +530,7 @@ namespace GymClock.Wpf
         {
             using (ProgramEditorForm dialog = new ProgramEditorForm(Settings))
             {
-                dialog.LinkSetupRequested = owner => ShowLinkSettings(owner);
+                dialog.LinkSetupRequested = owner => ShowLinkWindow(owner);
                 if (launchWizard) dialog.Shown += delegate { dialog.LaunchAiAssistant(); };
 
                 if (dialog.ShowDialog(NativeScreen.Owner(this)) == Forms.DialogResult.OK)
@@ -557,26 +557,15 @@ namespace GymClock.Wpf
         }
 
         /// <summary>
-        /// The Link displays window (L, the control bar, or the button in the settings window).
-        /// Every choice in it takes effect at once, so the window can show the link coming up live.
+        /// The Link displays page in a window of its own, over the old program editor (its "Link
+        /// displays..." button): that editor blocks the Control window while it is open. Every choice
+        /// takes effect at once, so the page shows the link coming up live.
         /// </summary>
-        internal void ShowLinkSettings(Forms.IWin32Window owner)
+        private void ShowLinkWindow(Forms.IWin32Window owner)
         {
-            using (LinkSetupForm dialog = new LinkSetupForm(OwnSettings, _session.Link.GetStatus, _session.Link.ApplyChange))
-            {
-                dialog.ShowDialog(owner ?? NativeScreen.Owner(this));
-            }
+            PageWindow window = new PageWindow("Link displays", 1100, 760);
+            window.ShowPage(ControlHost.LinkPage(_session, window.Dialogs), owner ?? NativeScreen.Owner(this));
             ShowHint(6);
-        }
-
-        private void ShowLicenceInfo()
-        {
-            using (LicenceDialog dialog = new LicenceDialog(Licensing.Current, false))
-            {
-                dialog.Settings = Settings;
-                dialog.AvailableUpdate = _update;
-                dialog.ShowDialog(NativeScreen.Owner(this));
-            }
         }
 
         /// <summary>
@@ -589,10 +578,40 @@ namespace GymClock.Wpf
             if (!Licensing.ShouldPromptForRenewal(status)) return;
 
             Licensing.RecordRenewalPrompt(7);     // quiet for a week even if they close it without sending
-            using (LicenceRequestForm form = new LicenceRequestForm(Licensing.Current))
+            ControlHost.OpenAbout(true);
+        }
+
+        // ================================================================ for the Control window (IDisplayActions)
+
+        string IDisplayActions.ScreenDescription
+        {
+            get
             {
-                form.ShowDialog(NativeScreen.Owner(this));
+                Forms.Screen screen = NativeScreen.ScreenOf(this);
+                Forms.Screen[] all = Forms.Screen.AllScreens;
+                string name = screen.Primary ? "main screen" : "screen " + (Array.FindIndex(all, s => s.DeviceName == screen.DeviceName) + 1);
+                return name + " · " + screen.Bounds.Width + " × " + screen.Bounds.Height;
             }
+        }
+
+        bool IDisplayActions.HasOtherScreen
+        {
+            get { return Forms.Screen.AllScreens.Length > 1; }
+        }
+
+        void IDisplayActions.MoveToNextScreen()
+        {
+            MoveToNextScreen();
+        }
+
+        void IDisplayActions.ToggleFullScreen()
+        {
+            SetFullScreen(!_fullScreen);
+        }
+
+        void IDisplayActions.ApplySound()
+        {
+            ApplyAudioSettings();
         }
 
         /// <summary>

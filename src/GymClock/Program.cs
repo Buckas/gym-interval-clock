@@ -57,12 +57,16 @@ namespace GymClock
             LicenceStatus status = Licensing.Current;
             if (status.CanRun) return true;
 
-            using (LicenceDialog dialog = new LicenceDialog(status, true))
-            {
-                if (dialog.ShowDialog() != DialogResult.OK) return false;
-            }
+            // The About page in a window of its own. The only ways out are a valid licence or Exit.
+            PageWindow window = new PageWindow("Licence required", 980, 820) { Blocking = true };
+            AboutViewModel about = new AboutViewModel(window.Dialogs, true, () => null, () => null);
+            about.ShowRequest = true;
+            bool accepted = false;
+            about.LicenceAccepted += () => { accepted = true; window.Close(); };
+            about.CloseRequested += () => window.Close();
+            window.ShowPage(new AboutPageView(about), null);
 
-            return Licensing.Refresh().CanRun;
+            return accepted && Licensing.Refresh().CanRun;
         }
     }
 }

@@ -1,0 +1,179 @@
+<!-- The Link displays page (build guide 7.3, mockup 8). DataContext: LinkViewModel. -->
+<UserControl x:Class="GymClock.Wpf.LinkPageView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:GymClock.Wpf">
+    <UserControl.Resources>
+        <DataTemplate x:Key="Line">
+            <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,4,0,0" FontSize="14"
+                       Foreground="{Binding State, Converter={StaticResource LineStateBrush}}" />
+        </DataTemplate>
+        <Style x:Key="Choice" TargetType="Button" BasedOn="{StaticResource Button.Standard}">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="18,12" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="local:Ui.CornerRadius" Value="12" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Focusable="False">
+        <StackPanel Margin="{StaticResource Padding.Page}">
+            <DockPanel Margin="0,0,0,18">
+                <Border DockPanel.Dock="Right" Style="{StaticResource Tag.Accent}" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding RoleTag}" />
+                </Border>
+                <TextBlock Style="{StaticResource TextStyle.PageTitle}" Text="Link displays" Margin="0" />
+            </DockPanel>
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="3*" MinWidth="340" />
+                    <ColumnDefinition Width="18" />
+                    <ColumnDefinition Width="2*" MinWidth="220" />
+                </Grid.ColumnDefinitions>
+
+                <!-- ============================================ left: status (or a guide topic) -->
+                <Border Style="{StaticResource Card}" VerticalAlignment="Top">
+                    <Grid>
+                        <!-- the guide, when a topic is chosen -->
+                        <StackPanel Visibility="{Binding ShowingHelp, Converter={StaticResource VisibleWhenTrue}}">
+                            <Button Style="{StaticResource Button.Subtle}" HorizontalAlignment="Left" Command="{Binding BackToStatus}" Margin="-12,-8,0,8">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Style="{StaticResource TextStyle.Icon}" Text="{x:Static local:Icons.Back}" FontSize="14" Margin="0,0,8,0" />
+                                    <TextBlock Text="Back to status" VerticalAlignment="Center" />
+                                </StackPanel>
+                            </Button>
+                            <local:HelpTopicView Topic="{Binding SelectedTopic}" />
+                            <WrapPanel Margin="0,16,0,0" Visibility="{Binding ShowBluetoothButtons, Converter={StaticResource VisibleWhenTrue}}">
+                                <Button Style="{StaticResource Button.Standard}" Content="Open Windows Bluetooth settings" Margin="0,0,8,8" Command="{Binding OpenBluetoothSettings}" />
+                                <Button Style="{StaticResource Button.Standard}" Content="Open Personal Area Network devices" Margin="0,0,8,8" Command="{Binding OpenPanDevices}" />
+                            </WrapPanel>
+                        </StackPanel>
+
+                        <StackPanel Visibility="{Binding ShowingStatus, Converter={StaticResource VisibleWhenTrue}}">
+                            <!-- what is this PC? -->
+                            <StackPanel Visibility="{Binding IsChoose, Converter={StaticResource VisibleWhenTrue}}">
+                                <TextBlock Style="{StaticResource TextStyle.Body}" Margin="0,0,0,14"
+                                           Text="Show one session on two or more PCs, in step. One PC runs the session; the others follow it. What is this PC?" />
+                                <Button Style="{StaticResource Choice}" Command="{Binding BecomeMainPc}">
+                                    <StackPanel>
+                                        <TextBlock Text="This is the MAIN PC" FontSize="16" FontWeight="Bold" />
+                                        <TextBlock Text="It runs the session. One click and the link is on." FontWeight="Normal" Foreground="{DynamicResource Text.Secondary}" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource Choice}" Command="{Binding ChooseSecondScreen}">
+                                    <StackPanel>
+                                        <TextBlock Text="This is a SECOND SCREEN" FontSize="16" FontWeight="Bold" />
+                                        <TextBlock Text="It follows the main PC. You only type the link code." FontWeight="Normal" Foreground="{DynamicResource Text.Secondary}" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Style="{StaticResource Button.Standard}" Content="Turn linking off" HorizontalAlignment="Left" Margin="0,6,0,0"
+                                        Command="{Binding TurnOff}" Visibility="{Binding ShowOff, Converter={StaticResource VisibleWhenTrue}}" />
+                            </StackPanel>
+
+                            <!-- main PC -->
+                            <StackPanel Visibility="{Binding IsMain, Converter={StaticResource VisibleWhenTrue}}">
+                                <TextBlock Style="{StaticResource TextStyle.Caption}" Text="LINK CODE" />
+                                <TextBlock Text="{Binding CodeBig}" FontFamily="{StaticResource Font.Display}" FontSize="56" FontWeight="Bold"
+                                           Foreground="{DynamicResource Text.Primary}" Margin="0,0,0,8" />
+                                <TextBlock Style="{StaticResource TextStyle.Body}" Margin="0,0,0,10"
+                                           Text="On each second PC: press L, choose &quot;This is a SECOND SCREEN&quot; and type this code. That is all - this PC is ready and waiting." />
+                                <ContentPresenter Content="{Binding MainScreens}" ContentTemplate="{StaticResource Line}" />
+                                <ContentPresenter Content="{Binding MainNetwork}" ContentTemplate="{StaticResource Line}" />
+                                <ContentPresenter Content="{Binding MainBluetooth}" ContentTemplate="{StaticResource Line}" />
+                                <Border Style="{StaticResource InfoBar.Warning}" Margin="0,12,0,0"
+                                        Visibility="{Binding MainTipVisible, Converter={StaticResource VisibleWhenTrue}}">
+                                    <TextBlock Text="{Binding MainTip}" TextWrapping="Wrap" />
+                                </Border>
+                                <Button Style="{StaticResource Button.Subtle}" HorizontalAlignment="Left" Margin="-12,8,0,0"
+                                        Content="Second screen not connecting? See what to check" Command="{Binding ShowHelp}" CommandParameter="trouble" Foreground="{DynamicResource Accent}" />
+                                <WrapPanel Margin="0,10,0,0">
+                                    <Button Style="{StaticResource Button.Standard}" Content="New code" Margin="0,0,8,8" Command="{Binding NewCode}" />
+                                    <Button Style="{StaticResource Button.Standard}" Content="Change what this PC is..." Margin="0,0,8,8" Command="{Binding ChangeRole}" />
+                                    <Button Style="{StaticResource Button.Standard}" Content="Turn linking off" Margin="0,0,8,8" Command="{Binding TurnOff}" />
+                                </WrapPanel>
+                            </StackPanel>
+
+                            <!-- second screen -->
+                            <StackPanel Visibility="{Binding IsFollow, Converter={StaticResource VisibleWhenTrue}}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Link code from the main PC:" VerticalAlignment="Center" Margin="0,0,10,0" />
+                                    <TextBox x:Name="CodeBox" Width="110" MaxLength="8" FontSize="20" FontWeight="Bold" TextAlignment="Center"
+                                             Text="{Binding Code, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Link code">
+                                        <TextBox.InputBindings>
+                                            <KeyBinding Key="Enter" Command="{Binding LinkNow}" />
+                                        </TextBox.InputBindings>
+                                    </TextBox>
+                                    <Button Style="{StaticResource Button.Primary}" Content="Link" Margin="8,0,0,0" Command="{Binding LinkNow}" />
+                                </StackPanel>
+                                <TextBlock Style="{StaticResource TextStyle.Small}" Margin="0,6,0,10"
+                                           Text="The code is at the bottom of the main PC's screen. Linking starts as soon as it is typed." />
+                                <TextBlock Text="{Binding FollowHeadline}" FontSize="16" FontWeight="Bold" TextWrapping="Wrap"
+                                           Foreground="{Binding FollowHeadlineState, Converter={StaticResource LineStateBrush}}" />
+                                <TextBlock Style="{StaticResource TextStyle.Body}" Text="{Binding FollowDetail}" Margin="0,2,0,6" />
+                                <ContentPresenter Content="{Binding FollowNetwork}" ContentTemplate="{StaticResource Line}" />
+                                <ContentPresenter Content="{Binding FollowBluetooth}" ContentTemplate="{StaticResource Line}" />
+                                <Button Style="{StaticResource Button.Subtle}" HorizontalAlignment="Left" Margin="-12,8,0,0"
+                                        Content="Not connecting? See what to check" Command="{Binding ShowHelp}" CommandParameter="trouble" Foreground="{DynamicResource Accent}" />
+
+                                <ToggleButton Content="More options" IsChecked="{Binding MoreOptions}" HorizontalAlignment="Left" Margin="0,12,0,8" Padding="14,6" />
+                                <Border Style="{StaticResource Card}" Background="{DynamicResource Surface.Raised}" Padding="16"
+                                        Visibility="{Binding MoreOptions, Converter={StaticResource VisibleWhenTrue}}">
+                                    <StackPanel>
+                                        <CheckBox Content="Play the sounds on this screen too" IsChecked="{Binding Sound}" />
+                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                            <TextBlock Text="Show stations" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            <TextBox Width="56" Text="{Binding StationsFrom, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="First station to show" />
+                                            <TextBlock Text="to" VerticalAlignment="Center" Margin="8,0" />
+                                            <TextBox Width="56" Text="{Binding StationsTo, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Last station to show" />
+                                        </StackPanel>
+                                        <TextBlock Style="{StaticResource TextStyle.Small}" Margin="0,4,0,8"
+                                                   Text="Only for programs where each station has its own clock (Parallel). Blank = all stations." />
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Main PC's address:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            <TextBox Width="180" Text="{Binding Address, UpdateSourceTrigger=PropertyChanged}" AutomationProperties.Name="Main PC's address" />
+                                        </StackPanel>
+                                        <TextBlock Style="{StaticResource TextStyle.Small}" Margin="0,4,0,8"
+                                                   Text="Only if the main PC cannot be found automatically. It is shown in the main PC's Link displays window." />
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="Bluetooth main PC:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                            <ComboBox Width="240" ItemsSource="{Binding BluetoothDevices}" SelectedItem="{Binding SelectedBluetooth}"
+                                                      AutomationProperties.Name="Bluetooth main PC" />
+                                        </StackPanel>
+                                        <TextBlock Text="{Binding OptionsError}" Foreground="{DynamicResource Danger}" TextWrapping="Wrap" Margin="0,6,0,0" />
+                                        <Button Style="{StaticResource Button.Standard}" Content="Apply options" HorizontalAlignment="Left" Margin="0,8,0,0"
+                                                Command="{Binding ApplyOptionsCommand}" />
+                                    </StackPanel>
+                                </Border>
+
+                                <WrapPanel Margin="0,14,0,0">
+                                    <Button Style="{StaticResource Button.Standard}" Content="Change what this PC is..." Margin="0,0,8,8" Command="{Binding ChangeRole}" />
+                                    <Button Style="{StaticResource Button.Standard}" Content="Turn linking off" Margin="0,0,8,8" Command="{Binding TurnOff}" />
+                                </WrapPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ============================================ right: the guide -->
+                <Border Grid.Column="2" Style="{StaticResource Card}" VerticalAlignment="Top">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource TextStyle.Caption}" Text="HELP AND SETUP GUIDE" Margin="0,0,0,10" />
+                        <ItemsControl ItemsSource="{Binding Topics}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource Button.Standard}" HorizontalContentAlignment="Left" Margin="0,0,0,8"
+                                            Content="{Binding Title}"
+                                            Command="{Binding DataContext.ShowHelp, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                            CommandParameter="{Binding Id}" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Style="{StaticResource TextStyle.Small}" Margin="0,4,0,0"
+                                   Text="The guide opens beside the link status, so the steps and the result are on screen together." />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

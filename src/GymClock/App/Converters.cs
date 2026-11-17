@@ -26,4 +26,26 @@ namespace GymClock.Wpf
             return Invert ? !visible : visible;
         }
     }
+
+    /// <summary>A status line's state to its colour: good green, waiting amber, problem red, off muted. Declared as LineStateBrush.</summary>
+    public sealed class LineStateToBrush : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            string key;
+            switch (value is LineState s ? s : LineState.Off)
+            {
+                case LineState.Good: key = "Success"; break;
+                case LineState.Problem: key = "Danger"; break;
+                case LineState.Waiting: key = "Warning.SoftText"; break;
+                default: key = "Text.Muted"; break;
+            }
+            return Application.Current != null ? Application.Current.TryFindResource(key) : null;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            throw new NotSupportedException();
+        }
+    }
 }

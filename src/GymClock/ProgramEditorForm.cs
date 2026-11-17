@@ -29,18 +29,10 @@ namespace GymClock
         private readonly TimerSettings _original;
         public TimerSettings Result { get; private set; }
 
-        // General Settings' fields live only in that separate window's dialog,
-        // so they're tracked here exactly like _workingProgramScript below -
-        // otherwise Ok_Click's "rebuild Result from _original" would silently
-        // discard whatever was set there.
-        private int _gPrepSeconds;
-        private double _gVolume;
-        private string _gClockFormat;
-        private bool _gSoundEnabled;
-        private bool _gShowClock;
-        private bool _gAlwaysOnTop;
-        private bool _gShowStationsTable;
-        private bool _gShowStationNameAsDescription;
+        // The general settings (the Settings page's) are edited in their own window, so they are
+        // tracked here - otherwise Ok_Click's "rebuild Result from _original" would silently
+        // discard whatever was set there. Only the general settings are taken from this copy.
+        private TimerSettings _general;
 
         private WorkoutProgram _program;
         private RepeatGroup _groupContext;      // non-null while drilled into a repeat group's own blocks
@@ -111,6 +103,7 @@ namespace GymClock
         {
             _original = settings;
             Result = settings.Clone();
+            _general = settings.Clone();   // the general settings, until their own window is opened
 
             _scriptSyncTimer.Tick += ScriptSyncTimer_Tick;
             AiAssistantRuntime.EnsureInitialized();
@@ -140,15 +133,6 @@ namespace GymClock
             _restAfterFinal.CheckedChanged += refreshPlanPreview;
             UpdatePlanPreview();
 
-            // ---- General settings, tracked here until their own window is opened
-            _gPrepSeconds = settings.PrepSeconds;
-            _gVolume = settings.Volume;
-            _gClockFormat = settings.ClockFormat;
-            _gSoundEnabled = settings.SoundEnabled;
-            _gShowClock = settings.ShowClock;
-            _gAlwaysOnTop = settings.AlwaysOnTop;
-            _gShowStationsTable = settings.ShowStationsTable;
-            _gShowStationNameAsDescription = settings.ShowStationNameAsDescription;
 
             // ---- Program (Built view)
             _program = !string.IsNullOrEmpty(settings.ProgramScript)
@@ -211,7 +195,7 @@ namespace GymClock
                 IntervalPlan uniform = IntervalPlan.Uniform((int)_work.Value, (int)_rest.Value, Math.Max(1, (int)_rounds.Value));
                 _planPreview.Text = "Even session: " + uniform.Summary() + "   ->   "
                     + uniform.RoundCount + " rounds, "
-                    + IntervalPlan.FormatDuration(uniform.TotalSeconds(_gPrepSeconds, _restAfterFinal.Checked))
+                    + IntervalPlan.FormatDuration(uniform.TotalSeconds(_general.PrepSeconds, _restAfterFinal.Checked))
                     + ((int)_rounds.Value == 0 ? ", repeating continuously" : string.Empty);
                 return;
             }
@@ -225,7 +209,7 @@ namespace GymClock
 
             _planPreview.Text = plan.Summary() + "   ->   "
                 + plan.RoundCount + " rounds, "
-                + IntervalPlan.FormatDuration(plan.TotalSeconds(_gPrepSeconds, _restAfterFinal.Checked))
+                + IntervalPlan.FormatDuration(plan.TotalSeconds(_general.PrepSeconds, _restAfterFinal.Checked))
                 + "   (overrides work, rest and rounds above)";
         }
 
@@ -233,31 +217,14 @@ namespace GymClock
 
         private void GeneralSettings_Click(object sender, EventArgs e)
         {
-            TimerSettings current = Result.Clone();
-            current.PrepSeconds = _gPrepSeconds;
-            current.Volume = _gVolume;
-            current.ClockFormat = _gClockFormat;
-            current.SoundEnabled = _gSoundEnabled;
-            current.ShowClock = _gShowClock;
-            current.AlwaysOnTop = _gAlwaysOnTop;
-            current.ShowStationsTable = _gShowStationsTable;
-            current.ShowStationNameAsDescription = _gShowStationNameAsDescription;
-
-            using (GeneralSettingsForm dialog = new GeneralSettingsForm(current))
-            {
-                if (dialog.ShowDialog(this) == DialogResult.OK)
-                {
-                    _gPrepSeconds = dialog.PrepSeconds;
-                    _gVolume = dialog.Volume;
-                    _gClockFormat = dialog.ClockFormat;
-                    _gSoundEnabled = dialog.SoundEnabled;
-                    _gShowClock = dialog.ShowClock;
-                    _gAlwaysOnTop = dialog.AlwaysOnTop;
-                    _gShowStationsTable = dialog.ShowStationsTable;
-                    _gShowStationNameAsDescription = dialog.ShowStationNameAsDescription;
-                    UpdatePlanPreview();   // prep seconds feeds the preview's total duration
-                }
-            }
+            // The version 5 Settings page, in a window of its own over this one. It edits a copy;
+            // the general settings are taken back from it when it closes, and kept with this
+            // window's OK (or dropped with Cancel), like everything else here.
+            GymClock.Wpf.PageWindow window = new GymClock.Wpf.PageWindow("Settings", 1100, 780);
+            GymClock.Wpf.SettingsViewModel model = new GymClock.Wpf.SettingsViewModel(_general, null, window.Dialogs);
+            window.ShowPage(new GymClock.Wpf.SettingsPageView(model), this);
+            _general.CopyGeneralFrom(model.Edited);
+            UpdatePlanPreview();   // prep seconds feeds the preview's total duration
         }
 
         private async void AiAssistant_Click(object sender, EventArgs e)
@@ -1249,14 +1216,7 @@ namespace GymClock
             target.UseBuiltProgram = _sourceBuilt.Checked;
 
             // General settings, tracked via the separate window
-            target.PrepSeconds = _gPrepSeconds;
-            target.Volume = _gVolume;
-            target.ClockFormat = _gClockFormat;
-            target.SoundEnabled = _gSoundEnabled;
-            target.ShowClock = _gShowClock;
-            target.AlwaysOnTop = _gAlwaysOnTop;
-            target.ShowStationsTable = _gShowStationsTable;
-            target.ShowStationNameAsDescription = _gShowStationNameAsDescription;
+            target.CopyGeneralFrom(_general);
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)

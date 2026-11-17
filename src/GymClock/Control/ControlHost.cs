@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
 using System.Windows;
@@ -20,14 +21,19 @@ namespace GymClock.Wpf
         private const double PanelShare = 0.40;
 
         private static Window _clock;
+        private static IDisplayActions _display;
+        private static Func<UpdateInfo> _update;
         private static AppSession _session;
         private static ControlWindow _window;
         private static Rectangle _lastNormal;
 
         /// <summary>Called once by the clock window, with the session the pages will use.</summary>
-        public static void Attach(Window clock, AppSession session)
+        /// <param name="update">A newer version, if the background check has seen one (for About).</param>
+        public static void Attach(Window clock, IDisplayActions display, AppSession session, Func<UpdateInfo> update)
         {
             _clock = clock;
+            _display = display;
+            _update = update;
             _session = session;
             WpfHost.EnsureApplication();
             ThemeService.Apply(session.OwnSettings.Theme);
@@ -58,7 +64,15 @@ namespace GymClock.Wpf
                 return;
             }
 
-            ControlViewModel model = new ControlViewModel();
+            IDialogService dialogs = new DialogService(() => _window, (message, kind) => { if (_window != null) _window.Notify(message, kind); });
+            Dictionary<string, Func<object>> pages = new Dictionary<string, Func<object>>
+            {
+                [ControlViewModel.SessionPage] = () => new SessionPageView(new SessionViewModel(_session, _display)),
+                [ControlViewModel.SettingsPage] = () => SettingsPage(_session, dialogs),
+                [ControlViewModel.LinkPage] = () => LinkPage(_session, dialogs),
+                [ControlViewModel.AboutPage] = () => new AboutPageView(new AboutViewModel(dialogs, false, () => _session.Settings, _update)),
+            };
+            ControlViewModel model = new ControlViewModel(pages);
             model.Navigate(pageId);
             ControlWindow window = new ControlWindow(model);
             new WindowInteropHelper(window).Owner = NativeScreen.Handle(_clock);   // stays above the clock, closes with it
@@ -84,6 +98,45 @@ namespace GymClock.Wpf
         public static void CloseWindow()
         {
             if (_window != null) _window.Close();
+        }
+
+        /// <summary>Esc on the clock: closes the side panel if it is open. True if it did.</summary>
+        public static bool ClosePanel()
+        {
+            if (_window == null || !_window.Model.IsPanel) return false;
+            _window.Close();
+            return true;
+        }
+
+        /// <summary>Opens About; with <paramref name="showRequest"/>, at the licence request form (the renewal offer).</summary>
+        public static void OpenAbout(bool showRequest)
+        {
+            Open(ControlViewModel.AboutPage);
+            AboutPageView about = _window != null ? _window.Model.CurrentView as AboutPageView : null;
+            if (about != null && showRequest) about.ShowRequest();
+        }
+
+        // ------------------------------------------------------------ pages shared with stand-alone windows
+
+        /// <summary>The Settings page for this PC: every change is applied to the clock at once and saved.</summary>
+        public static SettingsPageView SettingsPage(AppSession session, IDialogService dialogs)
+        {
+            SettingsViewModel model = new SettingsViewModel(session.OwnSettings, edited => ApplyGeneral(session, edited), dialogs);
+            return new SettingsPageView(model, () => session.OwnSettings);
+        }
+
+        /// <summary>Takes the general settings (the Settings page's) from <paramref name="edited"/>; the program and the link are kept.</summary>
+        public static void ApplyGeneral(AppSession session, TimerSettings edited)
+        {
+            TimerSettings next = session.OwnSettings.Clone();
+            next.CopyGeneralFrom(edited);
+            session.ReplaceSettings(next, reset: false);
+        }
+
+        /// <summary>The Link displays page: every choice takes effect at once, through the link controller.</summary>
+        public static LinkPageView LinkPage(AppSession session, IDialogService dialogs)
+        {
+            return new LinkPageView(new LinkViewModel(session.OwnSettings, session.Link.GetStatus, session.Link.ApplyChange, dialogs));
         }
 
         // ------------------------------------------------------------ placement

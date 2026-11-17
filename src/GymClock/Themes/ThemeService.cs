@@ -168,6 +168,8 @@ namespace GymClock.Wpf
             { "ListBoxItemSelectedForegroundThemeBrush", "Text.Primary" },
             { "ListViewItemForeground", "Text.Primary" },
             { "ListViewItemPillFillBrush", "Accent" },
+            { "ProgressBarForeground", "Accent" },
+            { "ProgressBarBackground", "Border.Control" },
         };
 
         private static void AddFluentAliases(ResourceDictionary palette)

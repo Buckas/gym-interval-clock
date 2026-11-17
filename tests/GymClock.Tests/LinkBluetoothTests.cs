@@ -301,34 +301,24 @@ namespace GymClock.Tests
             Assert.Contains("Reconnecting", trouble);
         }
 
-        private static void RunSta(Action action)
-        {
-            Exception error = null;
-            Thread t = new Thread(() => { try { action(); } catch (Exception ex) { error = ex; } });
-            t.SetApartmentState(ApartmentState.STA);
-            t.Start();
-            t.Join();
-            if (error != null) throw new Exception(error.ToString(), error);
-        }
-
         [Fact]
-        public void HelpWindow_OpensOnEveryTopic()
+        public void HelpPage_ShowsEveryTopic()
         {
-            RunSta(() =>
+            WpfTestHost.Run(() =>
             {
                 foreach (LinkHelpTopic topic in LinkHelp.Topics)
                 {
-                    using (LinkHelpForm help = new LinkHelpForm(topic.Id)) { IntPtr h = help.Handle; }
+                    GymClock.Wpf.HelpTopicView view = new GymClock.Wpf.HelpTopicView { Topic = topic };
+                    Assert.True(view.Children.Count > topic.Lines.Length / 2, topic.Id + " was not laid out");
                 }
             });
         }
 
         [Fact]
-        public void SetupWindow_MainPcIsOneClick_AndASecondScreenOnlyTypesTheCode()
+        public void LinkPage_MainPcIsOneClick_AndASecondScreenOnlyTypesTheCode()
         {
-            RunSta(() =>
+            WpfTestHost.Run(() =>
             {
-                System.Reflection.BindingFlags priv = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                 TimerSettings settings = new TimerSettings();
                 int applied = 0;
                 Func<LinkStatus> status = () => new LinkStatus
@@ -337,43 +327,57 @@ namespace GymClock.Tests
                     Code = settings.LinkCode, LeaderRunning = settings.IsLinkLeader
                 };
                 Action<Action<TimerSettings>> apply = change => { change(settings); applied++; };
+                FakeDialogs dialogs = new FakeDialogs();
 
                 // ---- main PC: one click turns the link on and makes the code
-                using (LinkSetupForm setup = new LinkSetupForm(settings, status, apply))
-                {
-                    IntPtr h = setup.Handle;
-                    typeof(LinkSetupForm).GetMethod("BecomeMainPc", priv).Invoke(setup, null);
-                    Assert.True(settings.IsLinkLeader);
-                    Assert.Equal(4, settings.LinkCode.Length);
-                    Assert.Equal(1, applied);
-                }
+                GymClock.Wpf.LinkViewModel page = new GymClock.Wpf.LinkViewModel(settings, status, apply, dialogs);
+                Assert.True(page.IsChoose);
+                page.BecomeMainPc.Execute(null);
+                Assert.True(settings.IsLinkLeader);
+                Assert.Equal(4, settings.LinkCode.Length);
+                Assert.Equal(1, applied);
+                Assert.True(page.IsMain);
+                Assert.Equal(string.Join(" ", settings.LinkCode.ToCharArray()), page.CodeBig);
+                Assert.Contains("waiting", page.MainScreens.Text);
 
                 // ---- second screen: the fourth digit starts the link - no OK button, nothing else to choose
                 settings.LinkRole = "off";
                 settings.LinkCode = string.Empty;
                 applied = 0;
-                using (LinkSetupForm setup = new LinkSetupForm(settings, status, apply))
-                {
-                    IntPtr h = setup.Handle;
-                    typeof(LinkSetupForm).GetMethod("ShowPage", priv).Invoke(setup,
-                        new object[] { typeof(LinkSetupForm).GetField("_followPage", priv).GetValue(setup) });
-                    System.Windows.Forms.TextBox code = (System.Windows.Forms.TextBox)typeof(LinkSetupForm).GetField("_codeBox", priv).GetValue(setup);
+                page = new GymClock.Wpf.LinkViewModel(settings, status, apply, dialogs);
+                page.ChooseSecondScreen.Execute(null);
+                Assert.True(page.IsFollow);
 
-                    code.Text = "482";
-                    Assert.False(settings.IsLinkFollower);
-                    code.Text = "4821";
-                    Assert.True(settings.IsLinkFollower);
-                    Assert.Equal("4821", settings.LinkCode);
-                    Assert.Equal(1, applied);
+                page.Code = "482";
+                Assert.False(settings.IsLinkFollower);
+                page.Code = "4821";
+                Assert.True(settings.IsLinkFollower);
+                Assert.Equal("4821", settings.LinkCode);
+                Assert.Equal(1, applied);
 
-                    // "More options" are optional extras; applying them changes only what was typed
-                    ((System.Windows.Forms.TextBox)typeof(LinkSetupForm).GetField("_stationsFrom", priv).GetValue(setup)).Text = "3";
-                    ((System.Windows.Forms.TextBox)typeof(LinkSetupForm).GetField("_stationsTo", priv).GetValue(setup)).Text = "4";
-                    Assert.True((bool)typeof(LinkSetupForm).GetMethod("ApplyOptions", priv).Invoke(setup, null));
-                    Assert.Equal(3, settings.LinkStationsFrom);
-                    Assert.Equal(4, settings.LinkStationsTo);
-                    Assert.Equal("4821", settings.LinkCode);
-                }
+                // "More options" are optional extras; applying them changes only what was typed
+                page.StationsFrom = "3";
+                page.StationsTo = "4";
+                Assert.True(page.ApplyOptions());
+                Assert.Equal(3, settings.LinkStationsFrom);
+                Assert.Equal(4, settings.LinkStationsTo);
+                Assert.Equal("4821", settings.LinkCode);
+
+                page.StationsFrom = "5";
+                Assert.False(page.ApplyOptions());
+                Assert.Contains("Stations must be numbers", page.OptionsError);
+
+                // ---- the guide opens in place of the status, and Back returns to it
+                page.ShowHelp.Execute(LinkHelp.Bluetooth);
+                Assert.True(page.ShowingHelp);
+                Assert.True(page.ShowBluetoothButtons);
+                page.BackToStatus.Execute(null);
+                Assert.True(page.ShowingStatus);
+
+                // ---- turning linking off goes back to the first question
+                page.TurnOff.Execute(null);
+                Assert.Equal("off", settings.LinkRole);
+                Assert.True(page.IsChoose);
             });
         }
 
