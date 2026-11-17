@@ -8,7 +8,7 @@
 
 Where the three disagree, this guide wins, then the mockups, then the plan. Section 8 lists where this guide deliberately differs from the plan.
 
-**Status:** Phase 0 done (17 Nov 2026): go with WPF on .NET 10. Phase 1 in progress. Approved by Chris: the nine mockup screens. The branch `version-5` was made from `version-4`, not `main`, because Chris asked to start before 4.0.0 was released; when 4.0.0 ships, merge `main` into `version-5`.
+**Status (17 Nov 2026):** Phase 0 done: go with WPF on .NET 10. Phase 1 tasks P1.1 to P1.6 done; **next task: P1.7**. Approved by Chris: the nine mockup screens. The branch `version-5` was made from `version-4`, not `main`, because Chris asked to start before 4.0.0 was released; when 4.0.0 ships, merge `main` into `version-5`.
 
 ---
 
@@ -79,6 +79,8 @@ dotnet publish src/GymClock/GymClock.csproj --configuration Release --runtime wi
 - **Editing files with scripts.** Backslash sequences such as `\b`, `\v` and `\p` in script strings have corrupted files twice. Prefer the editor's own edit tool over a script. After any scripted edit, check the result.
 - **Line endings.** The repository has mixed LF and CRLF. Keep each file's existing line endings.
 - **Tests and real hardware.** Tests must never touch a real Bluetooth radio or the teacher's AppData files. Follow the existing patterns: `MainForm.LinkBluetoothEnabled = false`, `ExerciseCatalog.UseFolderForTesting(tempFolder)`, test ports 47415/47416.
+- **The GitHub build has its own file paths.** `.github/workflows/build.yml` reads `src/GymClock.Core/Licensing.cs` by path and publishes `src/GymClock/GymClock.csproj`. When a file it names moves, update the workflow in the same commit. Moving `Licensing.cs` in P1.1 without doing so failed five builds in a row.
+- **The GitHub build runs the tests** (since 17 Nov 2026). After each push, check the run passed; a failure emails Chris.
 - **Windows tests need an STA thread.** Any test that creates a window runs its body on a thread with `SetApartmentState(ApartmentState.STA)`. Copy `RunSta` from `LinkNetworkTests`.
 
 ## 3. Design reference
@@ -683,6 +685,16 @@ Block card colours: the phase colour for the block type from settings. Text is w
 - Below: "Equipment in our gym": a wrap panel of checkboxes (alphabetical), "Don't filter", "Add equipment…", "Remove equipment…".
 - Footer: library status line and "Check for library updates".
 
+## 7.9 Notes from the work so far
+
+Read these before continuing from P1.7.
+
+- **How P1.3 and P1.5 were done.** `MainForm` now holds `_engine` (a `SessionEngine`) and `_display` (a `DisplayModel`). So that the drawing and link code did not have to change, `MainForm` keeps a block of small forwarding members with the old names (`_phase`, `_index`, `_phaseClock`, `IsPaused`, `Advance()` and so on) that read or call the engine. They are temporary. P1.7 removes the ones the link code used; Phase 3 deletes `MainForm` and the rest with it.
+- **`DisplayModel` differs slightly from section 5.3.** `IsSecondScreen` and `HasLeaderProgram` are properties the window sets, not parameters. The frame builder is `BuildFrame(bool showHints)`. `DisplayFrame` has `Summary` (not `ProgramName`), `WorkLine` and `RestLine` on a station row (already worded, "WORK: High cadence"), a `Swatch` on a tile, and four fields the window fills in itself: `UpdateNotice`, `LinkBadge`, `LinkBadgeIsWarning`, `Toast`. The code is the reference: `src/GymClock.Core/Session/DisplayFrame.cs`.
+- **The old `OnPaint` was not rewired to use `DisplayFrame`** (P1.6 said to). It still calls the model's methods one at a time. It is deleted in Phase 3, so rewiring it would be wasted work. `BuildFrame` is covered by `DisplayModelTests` instead, and `ClockSurface` (P3.1) is its first real user.
+- **The tip under the countdown, and the highlighted station.** Mockup 1 shows a station highlighted and its note ("High cadence") under the countdown. That is right for a **Sequential** program, where the whole class is at one station. In **Circuit** and **Shared** every station is in use by a different group, so today's app highlights none, and `DisplayFrame.Tip` is empty and no `StationRow` is current. Keep that behaviour. Draw the tip line and the highlight only when the frame provides them.
+- **Helper scripts.** The moves in P1.3 and P1.5 were done with one-off scripts kept in the untracked `.claude/` folder (`extract_engine.py`, `extract_display.py`). They are not needed again.
+
 ## 8. Where this guide differs from the plan
 
 | Plan says | This guide does | Why |
@@ -710,7 +722,7 @@ Fill in as work proceeds.
 | Phase | Date | Result and measurements | Signed off |
 |---|---|---|---|
 | 0 | 17 Nov 2026 | **Go.** All 274 tests pass on .NET 10 (three old forms needed a designer attribute). Exe size 155 MB on .NET 10 (190 MB on .NET 8). Start time: about 14 s the first time a new build runs (self-unpacking; the same on .NET 8), then 0.3 s. Local AI on .NET 10: ready in 31 s. WPF clock surface: average draw 1.3 ms, worst 4.5 ms, at 3840×2160 and at 5760×3240 pixels (limit 8 ms), hardware accelerated. Built-in Fluent theme: works, follows Windows, a button restyles with `BasedOn`; still flagged experimental (`WPF0001`). A published WPF-only app is 133 MB and shows its window in 0.6–0.8 s. Measured on the development PC only, not on a school laptop. | Chris asked to proceed |
-| 1 | | | |
+| 1 | 17 Nov 2026 | P1.1 to P1.6 done. `GymClock.Core` created; `SessionEngine` (640 lines) and `DisplayModel` (530 lines) extracted; `MainForm.cs` went from 2,218 to 1,261 lines. Tests: 274 before, 296 now (13 engine, 9 display model), all passing locally and on GitHub. The clock was checked by eye in Circuit and Parallel after the moves: unchanged. Still to do: P1.7 (`LinkController`, `AppSession`), P1.8 (tests off reflection), then the gate. | |
 | 2 | | | |
 | 3 | | | |
 | 4 | | | |
