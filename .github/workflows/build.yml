@@ -19,7 +19,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
-      - name: Set up .NET 8
+      - name: Set up .NET 10
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -32,7 +32,8 @@ jobs:
           # Match the constant assignment specifically, not the string anywhere in the
           # file - the code used to mention the placeholder in a guard, which made a
           # whole-file grep fire on correctly configured builds too.
-          $content = Get-Content src/GymClock/Licensing.cs -Raw
+          # Licensing.cs lives in the core project since version 5.
+          $content = Get-Content src/GymClock.Core/Licensing.cs -Raw
           $placeholder = $content -match 'PublicKeyBase64\s*=\s*"PASTE-YOUR-PUBLIC-KEY-HERE"'
           if ($placeholder) {
             if ("${{ github.ref }}".StartsWith("refs/tags/v")) {
@@ -50,6 +51,10 @@ jobs:
 
       - name: Build
         run: dotnet build GymClock.sln --configuration Release --no-restore
+
+      # Every push is tested here as well as on the developer's PC.
+      - name: Test
+        run: dotnet test GymClock.sln --configuration Release --no-build --verbosity normal
 
       - name: Publish single-file exe
         run: >
