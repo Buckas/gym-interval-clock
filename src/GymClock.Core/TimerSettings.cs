@@ -7,7 +7,7 @@ using System.Text;
 
 namespace GymClock
 {
-    /// <summary>A work/rest pairing that can be applied with a single key press.</summary>
+    /// <summary>One work/rest pairing with a round count, such as 45/15x4: a part of a plan (see IntervalPlan).</summary>
     public class Preset
     {
         public int Work;
@@ -296,17 +296,6 @@ namespace GymClock
         public bool IsLinkLeader { get { return string.Equals(LinkRole, "lead", StringComparison.OrdinalIgnoreCase); } }
         public bool IsLinkFollower { get { return string.Equals(LinkRole, "follow", StringComparison.OrdinalIgnoreCase); } }
 
-        public List<Preset> Presets = new List<Preset>();
-
-        public TimerSettings()
-        {
-            Presets.Add(new Preset(45, 15, 10));
-            Presets.Add(new Preset(40, 20, 10));
-            Presets.Add(new Preset(30, 30, 10));
-            Presets.Add(new Preset(20, 10, 8));
-            Presets.Add(new Preset(60, 15, 8));
-        }
-
         /// <summary>
         /// The plan actually in force: the custom one if there is a valid one, and a
         /// single-block uniform plan otherwise.
@@ -459,8 +448,6 @@ namespace GymClock
             c.SafeMargin = SafeMargin;
             c.ReduceMotion = ReduceMotion;
             c.ControlBar = ControlBar;
-            c.Presets = new List<Preset>();
-            foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
         }
 
@@ -538,7 +525,6 @@ namespace GymClock
         private static void ParseLines(IEnumerable<string> lines, TimerSettings s, bool includeLink,
             ref string legacyProgramScript, ref bool useBuiltProgramSeen)
         {
-            bool presetsSeen = false;
             foreach (string raw in lines)
             {
                 string line = raw.Trim();
@@ -613,19 +599,9 @@ namespace GymClock
                     case "safemargin": if (includeLink) s.SafeMargin = ReadInt(value, 0, 0, 8); break;
                     case "reducemotion": if (includeLink) s.ReduceMotion = ReadReduceMotion(value); break;
                     case "controlbar": if (includeLink) s.ControlBar = ReadBool(value, s.ControlBar); break;
-                    case "presets":
-                        List<Preset> parsed = new List<Preset>();
-                        foreach (string item in SplitList(value))
-                        {
-                            Preset p;
-                            if (Preset.TryParse(item, out p)) parsed.Add(p);
-                        }
-                        if (parsed.Count > 0) { s.Presets = parsed; presetsSeen = true; }
-                        break;
+                    // "presets" (keys 1-9 before version 2) is no longer used; an old file's line is ignored.
                 }
             }
-
-            if (!presetsSeen && s.Presets.Count == 0) s.Presets.Add(new Preset(45, 15, 10));
         }
 
         /// <summary>
@@ -757,11 +733,6 @@ namespace GymClock
                 sb.AppendLine("reducemotion=" + ReduceMotion);
                 sb.AppendLine("controlbar=" + (ControlBar ? "true" : "false"));
             }
-            sb.AppendLine();
-            sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
-            List<string> ps = new List<string>();
-            foreach (Preset p in Presets) ps.Add(p.ToString());
-            sb.AppendLine("presets=" + string.Join(",", ps.ToArray()));
             return sb.ToString();
         }
 

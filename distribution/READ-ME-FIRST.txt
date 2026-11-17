@@ -27,7 +27,7 @@ THE CONTROLS
   SPACE or click ....... start, pause, resume
   R .................... reset to the beginning
   S .................... change the work and rest times
-  1 to 9 ............... instantly apply a saved preset
+  1 to 9 ............... jump straight to that station
   RIGHT / LEFT ......... skip forward or back an interval
   M .................... mute the beeps
   F11 .................. leave or re-enter full screen

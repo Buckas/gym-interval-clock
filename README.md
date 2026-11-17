@@ -81,8 +81,7 @@ The result appears in `src/GymClock/bin/publish/win-x64/GymClock.exe`.
 | `S` or `F2` | Open settings — works mid-session |
 | `→` / `Page Down` / `N` | Skip to the next interval |
 | `←` / `Page Up` / `P` | Restart this interval, or step back one |
-| `1`–`9` | Apply quick preset 1–9 instantly |
-| `Ctrl`+`1`–`9` | Jump straight to station 1–9's work phase |
+| `1`–`9` | Jump straight to that station (Sequential, Circuit, or a simple session with stations; not Parallel or Shared) |
 | `M` | Mute / unmute the cues |
 | `T` | Toggle always-on-top |
 | `F11` or `F` | Toggle full screen |
@@ -98,16 +97,14 @@ the intervals without any configuration.
 
 ## Changing the times
 
-Three ways, all of which take effect immediately — even halfway through an interval.
+Two ways, both of which take effect immediately — even halfway through an interval.
 If the new interval is already shorter than the time elapsed, the clock rolls straight
 on to the next one.
 
-1. **Press `1`–`9`** for a preset. Out of the box: `1` = 45/15, `2` = 40/20,
-   `3` = 30/30, `4` = 20/10 (Tabata), `5` = 60/15.
-2. **Press `S`** for the settings dialog: prep countdown, work, rest, rounds, cue
+1. **Press `S`** for the settings dialog: prep countdown, work, rest, rounds, cue
    volume, wording, clock format, and the **Program** tab for Quick Setup / the
    Program Builder - see [Building a program](#building-a-program).
-3. **Edit the settings file** in Notepad. The path is shown at the bottom of the
+2. **Edit the settings file** in Notepad. The path is shown at the bottom of the
    settings dialog; by default it is `%AppData%\GymClock\settings.txt`.
 
 ```ini
@@ -152,8 +149,6 @@ movecolour=#1E9AA6
 # program, below. Blank (the default) means no program has been built yet, so
 # the clock runs the plain work/rest/rounds/stations settings above instead.
 program=
-
-presets=45/15x10,40/20x10,30/30x10,20/10x8,60/15x8
 ```
 
 ### Variable sessions
@@ -182,8 +177,6 @@ The settings dialog (**S**) has a plan box with a live preview showing the resol
 rounds and total running time, so a typo is obvious before you are standing in front of a
 class. While a variable plan is running, the display shows which block you are in and
 warns you on the last rest before the pace changes.
-
-Pressing a preset key (`1`–`9`) clears the plan and returns to an even session.
 
 A file named `gymclock.settings.txt` placed **next to the .exe** is used in preference
 to the one in `%AppData%`, which is handy for a USB-stick copy or several shortcuts
@@ -351,7 +344,7 @@ src/GymClock/
   Program.cs                       Entry point, licence gate, high-DPI setup
   MainForm.cs                      Timing engine + all custom painting
   SettingsForm(.Designer).cs       Settings dialog: timing/wording + the Program tab
-  TimerSettings.cs                 Settings model, presets, text-file persistence
+  TimerSettings.cs                 Settings model, text-file persistence
   WorkoutProgram.cs                Program model: Block, Timeline, RepeatGroup, StationDef
   ProgramScript.cs                 Reads/writes the plain-text program script grammar
   PatternGenerator.cs              Builds a Timeline from a pattern (Tabata, Pyramid, ...)

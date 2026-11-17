@@ -105,6 +105,18 @@ namespace GymClock.Tests
         }
 
         [Fact]
+        public void AnOldPresetsLine_IsIgnoredOnLoad_AndNoLongerWritten()
+        {
+            TimerSettings s = TimerSettings.FromText("work=40\nrest=20\n# Quick presets, applied with keys 1-9.\npresets=45/15x10,40/20x10\n", string.Empty);
+            Assert.Equal(40, s.WorkSeconds);
+            Assert.Equal(20, s.RestSeconds);
+
+            string saved = s.ToText(true);
+            Assert.DoesNotContain("presets", saved);
+            Assert.DoesNotContain("keys 1-9", saved);
+        }
+
+        [Fact]
         public void DisplaySettings_AreThisPcsOwn_SavedRead_AndCheckedOnTheWayIn()
         {
             TimerSettings s = new TimerSettings { DisplayLayout = "bignumber", SafeMargin = 5, ReduceMotion = "on", ControlBar = false };

@@ -10,4 +10,3 @@ worklabel=GO HARD
 restlabel=REST
 workcolour=#B3261E
 restcolour=#1E63D0
-presets=20/10x8,30/15x8,40/20x6,45/15x10,10/20x8
