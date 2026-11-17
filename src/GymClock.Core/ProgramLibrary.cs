@@ -16,8 +16,7 @@ namespace GymClock
         {
             get
             {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GymClock", "Programs");
+                return Path.Combine(AppFolders.Data, "Programs");
             }
         }
 

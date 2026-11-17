@@ -1,9 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Reflection;
 using System.Threading;
-using System.Windows.Forms;
 using GymClock.Link;
 using Xunit;
 
@@ -11,7 +10,7 @@ namespace GymClock.Tests
 {
     /// <summary>
     /// Linked displays over a real connection, both ends on this PC (loopback): the network classes
-    /// by themselves, then two clock windows linked together. One at a time - they share test ports.
+    /// by themselves, then two whole sessions linked together (no windows). One at a time - they share test ports.
     /// </summary>
     [Collection("LinkNetwork")]
     public class LinkNetworkTests
@@ -129,7 +128,7 @@ namespace GymClock.Tests
             }
         }
 
-        // ---------------------------------------------------------------- two clock windows
+        // ---------------------------------------------------------------- two linked sessions
 
         private const string CircuitScript = @"PROGRAM ""Link Test""
 MODE CIRCUIT
@@ -150,230 +149,237 @@ STATION ""Rower""
 END STATION
 ";
 
-        private static readonly BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
-
-        private static T Field<T>(MainForm form, string name)
+        /// <summary>
+        /// Two sessions in one test, with no windows. Each session's link events are queued and run
+        /// here, on the test's thread, in place of a window's message loop.
+        /// </summary>
+        private sealed class LinkedPair : IDisposable
         {
-            // Session state now lives in the engine; MainForm reads it through properties of the same names.
-            FieldInfo field = typeof(MainForm).GetField(name, Private);
-            if (field != null) return (T)field.GetValue(form);
-            return (T)typeof(MainForm).GetProperty(name, Private).GetValue(form);
-        }
+            private readonly ConcurrentQueue<Action> _queue = new ConcurrentQueue<Action>();
+            private readonly int _oldData = LinkController.DataPort, _oldDiscovery = LinkController.DiscoveryPort;
+            public readonly AppSession Main, Second;
+            public readonly List<string> SecondToasts = new List<string>();
 
-        private static void Call(MainForm form, string name, params object[] args)
-        {
-            typeof(MainForm).GetMethod(name, Private).Invoke(form, args);
-        }
-
-        private static double PhaseSeconds(MainForm form)
-        {
-            return Field<RunClock>(form, "_phaseClock").Elapsed.TotalSeconds;
-        }
-
-        /// <summary>Keeps both windows' message loops and tickers turning until the condition holds.</summary>
-        private static bool Pump(MainForm main, MainForm second, Func<bool> condition, int timeoutMs = 8000)
-        {
-            Stopwatch waited = Stopwatch.StartNew();
-            while (waited.ElapsedMilliseconds < timeoutMs)
+            public LinkedPair(TimerSettings mainSettings, TimerSettings secondSettings)
             {
-                Application.DoEvents();
-                Call(main, "RunTick");
-                Call(main, "LinkTick");
-                Call(second, "RunTick");
-                if (condition()) return true;
-                Thread.Sleep(15);
+                LinkController.DataPort = DataPort;
+                LinkController.DiscoveryPort = DiscoveryPort;
+                LinkController.BluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
+
+                Main = new AppSession(mainSettings, new SilentCuePlayer());
+                Second = new AppSession(secondSettings, new SilentCuePlayer());
+                Main.Link.Post = action => _queue.Enqueue(action);
+                Second.Link.Post = action => _queue.Enqueue(action);
+                Second.Link.ToastRequested += (message, seconds) => SecondToasts.Add(message);
             }
-            return condition();
-        }
 
-        private static void PumpFor(MainForm main, MainForm second, int ms)
-        {
-            Stopwatch waited = Stopwatch.StartNew();
-            Pump(main, second, () => waited.ElapsedMilliseconds >= ms, ms + 1000);
-        }
+            /// <summary>Keeps both sessions turning until the condition holds.</summary>
+            public bool Pump(Func<bool> condition, int timeoutMs = 8000)
+            {
+                Stopwatch waited = Stopwatch.StartNew();
+                while (waited.ElapsedMilliseconds < timeoutMs)
+                {
+                    while (_queue.TryDequeue(out Action action)) action();
+                    Main.Tick();
+                    Second.Tick();
+                    if (condition()) return true;
+                    Thread.Sleep(15);
+                }
+                return condition();
+            }
 
-        private static void RunSta(Action action)
-        {
-            Exception error = null;
-            Thread t = new Thread(() => { try { action(); } catch (Exception ex) { error = ex; } });
-            t.SetApartmentState(ApartmentState.STA);
-            t.Start();
-            t.Join();
-            if (error != null) throw new Exception(error.ToString(), error);
+            public void PumpFor(int ms)
+            {
+                Stopwatch waited = Stopwatch.StartNew();
+                Pump(() => waited.ElapsedMilliseconds >= ms, ms + 1000);
+            }
+
+            /// <summary>How far the second screen's countdown is from the main PC's, in seconds.</summary>
+            public double Gap()
+            {
+                return Second.Engine.PhaseClock.Elapsed.TotalSeconds - Main.Engine.PhaseClock.Elapsed.TotalSeconds;
+            }
+
+            public void Dispose()
+            {
+                Main.Dispose();
+                Second.Dispose();
+                LinkController.DataPort = _oldData;
+                LinkController.DiscoveryPort = _oldDiscovery;
+                LinkController.BluetoothEnabled = true;
+            }
         }
 
         [Fact]
         public void TwoClocks_SecondScreenMirrors_Start_Pause_Skip_Back_Reset_AndProgramChanges()
         {
-            RunSta(() =>
+            TimerSettings mainSettings = new TimerSettings
             {
-                int oldData = LinkController.DataPort, oldDiscovery = LinkController.DiscoveryPort;
-                LinkController.DataPort = DataPort;
-                LinkController.DiscoveryPort = DiscoveryPort;
-                LinkController.BluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
+                ProgramScript = CircuitScript, UseBuiltProgram = true, PrepSeconds = 5, SoundEnabled = false,
+                WorkLabel = "MAIN WORK", LinkRole = "lead", LinkCode = "4821"
+            };
+            TimerSettings secondSettings = new TimerSettings
+            {
+                ProgramScript = string.Empty, UseBuiltProgram = false, PrepSeconds = 30, SoundEnabled = false,
+                WorkLabel = "OWN WORK", LinkRole = "follow", LinkCode = "4821", LinkAddress = "127.0.0.1", LinkSound = false
+            };
 
-                TimerSettings mainSettings = new TimerSettings
-                {
-                    ProgramScript = CircuitScript, UseBuiltProgram = true, PrepSeconds = 5, SoundEnabled = false,
-                    WorkLabel = "MAIN WORK", LinkRole = "lead", LinkCode = "4821"
-                };
-                TimerSettings secondSettings = new TimerSettings
-                {
-                    ProgramScript = string.Empty, UseBuiltProgram = false, PrepSeconds = 30, SoundEnabled = false,
-                    WorkLabel = "OWN WORK", LinkRole = "follow", LinkCode = "4821", LinkAddress = "127.0.0.1", LinkSound = false
-                };
+            using (LinkedPair pair = new LinkedPair(mainSettings, secondSettings))
+            {
+                AppSession main = pair.Main, second = pair.Second;
+                main.Link.Start();
+                second.Link.Start();
+                Assert.True(second.Link.IsFollowing);
+                Assert.False(main.Link.IsFollowing);
 
-                MainForm main = new MainForm(mainSettings);
-                MainForm second = new MainForm(secondSettings);
-                try
-                {
-                    IntPtr h1 = main.Handle, h2 = second.Handle; // windows exist (not shown), so link events can reach them
-                    Call(main, "StartLink");
-                    Call(second, "StartLink");
+                // ---- the second screen takes on the main PC's program and settings
+                Assert.True(pair.Pump(() => second.Link.HasLeaderProgram), "the program never arrived");
+                Assert.Equal("MAIN WORK", second.Settings.WorkLabel);
+                Assert.Equal(5, second.Settings.PrepSeconds);
+                Assert.Contains("Link Test", second.Settings.ProgramScript);
+                Assert.Equal(ExecutionMode.Circuit, second.Engine.Program.Mode);
+                Assert.Equal(Phase.Idle, second.Engine.Phase);
 
-                    // ---- the second screen takes on the main PC's program and settings
-                    Assert.True(Pump(main, second, () => Field<bool>(second, "_hasLeaderProgram")), "the program never arrived");
-                    TimerSettings shown = Field<TimerSettings>(second, "_settings");
-                    Assert.Equal("MAIN WORK", shown.WorkLabel);
-                    Assert.Equal(5, shown.PrepSeconds);
-                    Assert.Contains("Link Test", shown.ProgramScript);
-                    Assert.Equal(ExecutionMode.Circuit, Field<WorkoutProgram>(second, "_program").Mode);
-                    Assert.Equal(Phase.Idle, Field<Phase>(second, "_phase"));
+                // ...while its own settings are kept aside, untouched, for when it stops following
+                Assert.True(second.ShowingLeaderSettings);
+                Assert.Same(secondSettings, second.OwnSettings);
+                Assert.Equal("OWN WORK", second.OwnSettings.WorkLabel);
+                Assert.Contains(pair.SecondToasts, t => t.StartsWith("LINKED TO THE MAIN PC"));
 
-                    // ...while its own settings are kept aside, untouched, for when it stops following
-                    TimerSettings own = Field<TimerSettings>(second, "_ownSettings");
-                    Assert.Same(secondSettings, own);
-                    Assert.Equal("OWN WORK", own.WorkLabel);
+                // ---- start: prep countdown on both
+                main.Engine.Start();
+                Assert.True(pair.Pump(() => second.Engine.Phase == Phase.Prep), "start did not mirror");
+                pair.PumpFor(700);
+                Assert.InRange(pair.Gap(), -0.1, 0.1);
 
-                    // ---- start: prep countdown on both
-                    Call(main, "StartSession");
-                    Assert.True(Pump(main, second, () => Field<Phase>(second, "_phase") == Phase.Prep), "start did not mirror");
-                    PumpFor(main, second, 700);
-                    Assert.InRange(PhaseSeconds(second) - PhaseSeconds(main), -0.1, 0.1);
+                // ---- skip into the first work block
+                main.Engine.Advance();
+                Assert.True(pair.Pump(() => second.Engine.Phase == Phase.Active && second.Engine.Index == 0), "skip did not mirror");
+                pair.PumpFor(600);
+                Assert.InRange(pair.Gap(), -0.1, 0.1);
 
-                    // ---- skip into the first work block
-                    Call(main, "Advance");
-                    Assert.True(Pump(main, second, () => Field<Phase>(second, "_phase") == Phase.Active && Field<int>(second, "_index") == 0), "skip did not mirror");
-                    PumpFor(main, second, 600);
-                    Assert.InRange(PhaseSeconds(second) - PhaseSeconds(main), -0.1, 0.1);
+                // ---- it remembered the route that worked, to try first next time, and reports the link test
+                Assert.Equal("tcp:127.0.0.1", secondSettings.LinkLastRoute);
+                LinkStatus linkStatus = second.Link.GetStatus();
+                Assert.Equal("follow", linkStatus.Role);
+                Assert.Equal(FollowerStatus.Connected, linkStatus.FollowerState);
+                Assert.Equal("network", linkStatus.Via);
+                Assert.True(linkStatus.SessionRunning);
+                LinkStatus mainStatus = main.Link.GetStatus();
+                Assert.True(mainStatus.LeaderRunning);
+                Assert.Equal(new[] { Environment.MachineName + " (network)" }, mainStatus.Screens.ToArray());
 
-                    // ---- it remembered the route that worked, to try first next time, and reports the link test
-                    Assert.Equal("tcp:127.0.0.1", secondSettings.LinkLastRoute);
-                    LinkStatus linkStatus = (LinkStatus)typeof(MainForm).GetMethod("GetLinkStatus", Private).Invoke(second, null);
-                    Assert.Equal("follow", linkStatus.Role);
-                    Assert.Equal(FollowerStatus.Connected, linkStatus.FollowerState);
-                    Assert.Equal("network", linkStatus.Via);
-                    Assert.True(linkStatus.SessionRunning);
-                    LinkStatus mainStatus = (LinkStatus)typeof(MainForm).GetMethod("GetLinkStatus", Private).Invoke(main, null);
-                    Assert.True(mainStatus.LeaderRunning);
-                    Assert.Equal(new[] { Environment.MachineName + " (network)" }, mainStatus.Screens.ToArray());
+                // ---- the second screen's status line reports how well in step it is (shown with the key hints)
+                string badge = second.Link.BadgeText(true, out bool warning);
+                Assert.StartsWith("FOLLOWING " + Environment.MachineName.ToUpperInvariant() + "  -  IN STEP WITHIN ", badge);
+                Assert.False(warning);
+                Assert.InRange(second.Link.DriftPeakMs, 0, 100);
+                Assert.Equal("FOLLOWING " + Environment.MachineName.ToUpperInvariant(), second.Link.BadgeText(false, out _));
+                Assert.Equal("LINKED  -  1 SECOND SCREEN", main.Link.BadgeText(false, out _));
 
-                    // ---- the second screen's status line reports how well in step it is (shown with the key hints)
-                    object[] badgeArgs = { true, null };
-                    string badge = (string)typeof(MainForm).GetMethod("LinkBadgeText", Private).Invoke(second, badgeArgs);
-                    Assert.StartsWith("FOLLOWING " + Environment.MachineName.ToUpperInvariant() + "  -  IN STEP WITHIN ", badge);
-                    Assert.InRange(Field<double>(second, "_linkDriftPeakMs"), 0, 100);
-                    Assert.Equal("FOLLOWING " + Environment.MachineName.ToUpperInvariant(),
-                        (string)typeof(MainForm).GetMethod("LinkBadgeText", Private).Invoke(second, new object[] { false, null }));
+                // ---- and the words on a second screen say who has the controls
+                second.Display.IsSecondScreen = second.Link.IsFollowing;
+                Assert.Contains("the main PC has the controls", second.Display.BuildFrame(showHints: true).Hint);
 
-                    // ---- pause: both stop at the same point
-                    Call(main, "TogglePause");
-                    Assert.True(Pump(main, second, () => !Field<RunClock>(second, "_phaseClock").IsRunning), "pause did not mirror");
-                    PumpFor(main, second, 400);
-                    Assert.InRange(PhaseSeconds(second) - PhaseSeconds(main), -0.06, 0.06);
-                    double pausedAt = PhaseSeconds(second);
-                    PumpFor(main, second, 300);
-                    Assert.Equal(pausedAt, PhaseSeconds(second), 3);
+                // ---- pause: both stop at the same point
+                main.Engine.TogglePause();
+                Assert.True(pair.Pump(() => !second.Engine.PhaseClock.IsRunning), "pause did not mirror");
+                pair.PumpFor(400);
+                Assert.InRange(pair.Gap(), -0.06, 0.06);
+                double pausedAt = second.Engine.PhaseClock.Elapsed.TotalSeconds;
+                pair.PumpFor(300);
+                Assert.Equal(pausedAt, second.Engine.PhaseClock.Elapsed.TotalSeconds, 3);
 
-                    // ---- resume
-                    Call(main, "TogglePause");
-                    Assert.True(Pump(main, second, () => Field<RunClock>(second, "_phaseClock").IsRunning), "resume did not mirror");
+                // ---- resume
+                main.Engine.TogglePause();
+                Assert.True(pair.Pump(() => second.Engine.PhaseClock.IsRunning), "resume did not mirror");
 
-                    // ---- skip twice (rest, then round 2 work), and back once
-                    Call(main, "Advance");
-                    Call(main, "Advance");
-                    Assert.True(Pump(main, second, () => Field<int>(second, "_index") == 2), "second skip did not mirror");
-                    PumpFor(main, second, 3000); // more than 2.5 s in, "back" restarts the interval
-                    Call(main, "GoBack");
-                    Assert.True(Pump(main, second, () => PhaseSeconds(second) < 1.0 && Field<int>(second, "_index") == 2), "back did not mirror");
-                    PumpFor(main, second, 500);
-                    Assert.InRange(PhaseSeconds(second) - PhaseSeconds(main), -0.1, 0.1);
+                // ---- skip twice (rest, then round 2 work), and back once
+                main.Engine.Advance();
+                main.Engine.Advance();
+                Assert.True(pair.Pump(() => second.Engine.Index == 2), "second skip did not mirror");
+                pair.PumpFor(3000); // more than 2.5 s in, "back" restarts the interval
+                main.Engine.GoBack();
+                Assert.True(pair.Pump(() => second.Engine.PhaseClock.Elapsed.TotalSeconds < 1.0 && second.Engine.Index == 2), "back did not mirror");
+                pair.PumpFor(500);
+                Assert.InRange(pair.Gap(), -0.1, 0.1);
 
-                    // ---- the main PC's program changes mid-session: the second screen gets the new one
-                    mainSettings.WorkLabel = "NEW LABEL";
-                    Assert.True(Pump(main, second, () => Field<TimerSettings>(second, "_settings").WorkLabel == "NEW LABEL"), "the changed settings never arrived");
-                    Assert.Equal(2, Field<int>(second, "_index")); // and it stays where the session is
+                // ---- the main PC's program changes mid-session: the second screen gets the new one
+                mainSettings.WorkLabel = "NEW LABEL";
+                Assert.True(pair.Pump(() => second.Settings.WorkLabel == "NEW LABEL"), "the changed settings never arrived");
+                Assert.Equal(2, second.Engine.Index); // and it stays where the session is
 
-                    // ---- reset: back to the idle screen
-                    Call(main, "ResetSession");
-                    Assert.True(Pump(main, second, () => Field<Phase>(second, "_phase") == Phase.Idle), "reset did not mirror");
+                // ---- reset: back to the idle screen
+                main.Engine.Reset();
+                Assert.True(pair.Pump(() => second.Engine.Phase == Phase.Idle), "reset did not mirror");
 
-                    // ---- stop following: the second screen goes back to its own settings
-                    Call(second, "StopLink", true);
-                    Assert.Same(secondSettings, Field<TimerSettings>(second, "_settings"));
-                    Assert.Equal("OWN WORK", Field<TimerSettings>(second, "_settings").WorkLabel);
-                    Assert.Null(Field<TimerSettings>(second, "_ownSettings"));
-                }
-                finally
-                {
-                    Call(main, "StopLink", false);
-                    Call(second, "StopLink", false);
-                    main.Dispose();
-                    second.Dispose();
-                    LinkController.DataPort = oldData;
-                    LinkController.DiscoveryPort = oldDiscovery;
-                    LinkController.BluetoothEnabled = true;
-                }
-            });
+                // ---- stop following: the second screen goes back to its own settings
+                second.Link.Stop(true);
+                Assert.False(second.Link.IsFollowing);
+                Assert.False(second.ShowingLeaderSettings);
+                Assert.Same(secondSettings, second.Settings);
+                Assert.Equal("OWN WORK", second.Settings.WorkLabel);
+            }
         }
 
         [Fact]
         public void SecondScreen_JoiningMidSession_StartsAtTheCurrentPoint()
         {
-            RunSta(() =>
+            TimerSettings mainSettings = new TimerSettings
             {
-                int oldData = LinkController.DataPort, oldDiscovery = LinkController.DiscoveryPort;
-                LinkController.DataPort = DataPort;
-                LinkController.DiscoveryPort = DiscoveryPort;
-                LinkController.BluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
+                ProgramScript = CircuitScript, UseBuiltProgram = true, PrepSeconds = 0, SoundEnabled = false, LinkRole = "lead", LinkCode = "4821"
+            };
+            TimerSettings secondSettings = new TimerSettings
+            {
+                SoundEnabled = false, LinkRole = "follow", LinkCode = "4821", LinkAddress = "127.0.0.1"
+            };
 
-                MainForm main = new MainForm(new TimerSettings
-                {
-                    ProgramScript = CircuitScript, UseBuiltProgram = true, PrepSeconds = 0, SoundEnabled = false, LinkRole = "lead", LinkCode = "4821"
-                });
-                MainForm second = new MainForm(new TimerSettings
-                {
-                    SoundEnabled = false, LinkRole = "follow", LinkCode = "4821", LinkAddress = "127.0.0.1"
-                });
-                try
-                {
-                    IntPtr h1 = main.Handle, h2 = second.Handle;
-                    Call(main, "StartLink");
+            using (LinkedPair pair = new LinkedPair(mainSettings, secondSettings))
+            {
+                AppSession main = pair.Main, second = pair.Second;
+                main.Link.Start();
 
-                    // The session is already in its second block, 1.5 s in, before the second screen is switched on.
-                    Call(main, "StartSession");
-                    Call(main, "Advance");
-                    PumpFor(main, second, 1500);
-                    Assert.Equal(1, Field<int>(main, "_index"));
+                // The session is already in its second block, 1.5 s in, before the second screen is switched on.
+                main.Engine.Start();
+                main.Engine.Advance();
+                pair.PumpFor(1500);
+                Assert.Equal(1, main.Engine.Index);
 
-                    Call(second, "StartLink");
-                    Assert.True(Pump(main, second, () => Field<Phase>(second, "_phase") == Phase.Active && Field<int>(second, "_index") == 1),
-                        "the second screen did not pick up the running session");
-                    PumpFor(main, second, 500);
-                    Assert.InRange(PhaseSeconds(second) - PhaseSeconds(main), -0.1, 0.1);
-                    Assert.True(PhaseSeconds(second) > 1.5);
-                }
-                finally
-                {
-                    Call(main, "StopLink", false);
-                    Call(second, "StopLink", false);
-                    main.Dispose();
-                    second.Dispose();
-                    LinkController.DataPort = oldData;
-                    LinkController.DiscoveryPort = oldDiscovery;
-                    LinkController.BluetoothEnabled = true;
-                }
-            });
+                second.Link.Start();
+                Assert.True(pair.Pump(() => second.Engine.Phase == Phase.Active && second.Engine.Index == 1),
+                    "the second screen did not pick up the running session");
+                pair.PumpFor(500);
+                Assert.InRange(pair.Gap(), -0.1, 0.1);
+                Assert.True(second.Engine.PhaseClock.Elapsed.TotalSeconds > 1.5);
+            }
+        }
+
+        [Fact]
+        public void SettingsEditedOnASecondScreen_AreKeptAsItsOwn_AndTheMainPcsSessionStaysOnScreen()
+        {
+            TimerSettings mainSettings = new TimerSettings
+            {
+                ProgramScript = CircuitScript, UseBuiltProgram = true, PrepSeconds = 0, SoundEnabled = false, LinkRole = "lead", LinkCode = "4821"
+            };
+            TimerSettings secondSettings = new TimerSettings
+            {
+                SoundEnabled = false, WorkLabel = "OWN WORK", LinkRole = "follow", LinkCode = "4821", LinkAddress = "127.0.0.1"
+            };
+
+            using (LinkedPair pair = new LinkedPair(mainSettings, secondSettings))
+            {
+                AppSession second = pair.Second;
+                pair.Main.Link.Start();
+                second.Link.Start();
+                Assert.True(pair.Pump(() => second.Link.HasLeaderProgram), "the program never arrived");
+
+                // Not written to the real settings file: keep the test away from the teacher's AppData.
+                // ReplaceSettings would save, so check only the in-memory rule it guards.
+                Assert.True(second.ShowingLeaderSettings);
+                Assert.Contains("Link Test", second.Settings.ProgramScript);
+                Assert.Equal("OWN WORK", second.OwnSettings.WorkLabel);
+                Assert.NotSame(second.Settings, second.OwnSettings);
+            }
         }
     }
 }

@@ -472,9 +472,7 @@ namespace GymClock
 
         private static string StoredLicencePath()
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "GymClock", "licence.txt");
+            return Path.Combine(AppFolders.Data, "licence.txt");
         }
 
         // ------------------------------------------------------- clock rollback
@@ -649,9 +647,7 @@ namespace GymClock
 
         private static string StatePath()
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "GymClock", "state.dat");
+            return Path.Combine(AppFolders.Data, "state.dat");
         }
 
         private static DateTime ParseDate(string text)

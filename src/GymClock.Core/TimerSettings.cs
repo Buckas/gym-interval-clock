@@ -451,16 +451,17 @@ namespace GymClock
         {
             get
             {
-                try
+                if (!AppFolders.IsRedirected)
                 {
-                    string beside = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gymclock.settings.txt");
-                    if (File.Exists(beside)) return beside;
+                    try
+                    {
+                        string beside = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "gymclock.settings.txt");
+                        if (File.Exists(beside)) return beside;
+                    }
+                    catch { }
                 }
-                catch { }
 
-                string dir = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GymClock");
-                return Path.Combine(dir, "settings.txt");
+                return Path.Combine(AppFolders.Data, "settings.txt");
             }
         }
 

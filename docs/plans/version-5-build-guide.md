@@ -8,7 +8,7 @@
 
 Where the three disagree, this guide wins, then the mockups, then the plan. Section 8 lists where this guide deliberately differs from the plan.
 
-**Status (17 Nov 2026):** Phase 0 done: go with WPF on .NET 10. Phase 1 tasks P1.1 to P1.6 done; **next task: P1.7**. Approved by Chris: the nine mockup screens. The branch `version-5` was made from `version-4`, not `main`, because Chris asked to start before 4.0.0 was released; when 4.0.0 ships, merge `main` into `version-5`.
+**Status (17 Nov 2026):** Phase 0 done: go with WPF on .NET 10. Phase 1 tasks P1.1 to P1.8 done; **next: the Phase 1 gate** (Chris runs a normal lesson and a two-PC link test), then P2.1. Approved by Chris: the nine mockup screens. The branch `version-5` was made from `version-4`, not `main`, because Chris asked to start before 4.0.0 was released; when 4.0.0 ships, merge `main` into `version-5`.
 
 ---
 
@@ -78,10 +78,11 @@ dotnet publish src/GymClock/GymClock.csproj --configuration Release --runtime wi
 - **Text on a second screen.** A second screen must never show "Press SPACE to start". Check `IsFollowing` wherever a hint mentions a control.
 - **Editing files with scripts.** Backslash sequences such as `\b`, `\v` and `\p` in script strings have corrupted files twice. Prefer the editor's own edit tool over a script. After any scripted edit, check the result.
 - **Line endings.** The repository has mixed LF and CRLF. Keep each file's existing line endings.
-- **Tests and real hardware.** Tests must never touch a real Bluetooth radio or the teacher's AppData files. Follow the existing patterns: `MainForm.LinkBluetoothEnabled = false`, `ExerciseCatalog.UseFolderForTesting(tempFolder)`, test ports 47415/47416.
+- **Tests and real hardware.** Tests must never touch a real Bluetooth radio. Follow the existing patterns: `LinkController.BluetoothEnabled = false`, test ports 47415/47416.
+- **Tests must never write to the real `%AppData%\GymClock`.** This went wrong once: the app saves its settings as part of normal work (for example when a second screen connects, to remember the route), so the link tests overwrote the settings and current program of the PC they ran on. Now every file the app keeps is found through `AppFolders.Data` (`src/GymClock.Core/AppFolders.cs`), and `tests/GymClock.Tests/TestIsolation.cs` sends it to a temporary folder before any test runs. Two rules follow. In app code, never build a path from `Environment.SpecialFolder.ApplicationData`; use `AppFolders.Data`. In the tests, never remove `TestIsolation.cs` or call `AppFolders.UseFolderForTesting(null)`.
 - **The GitHub build has its own file paths.** `.github/workflows/build.yml` reads `src/GymClock.Core/Licensing.cs` by path and publishes `src/GymClock/GymClock.csproj`. When a file it names moves, update the workflow in the same commit. Moving `Licensing.cs` in P1.1 without doing so failed five builds in a row.
 - **The GitHub build runs the tests** (since 17 Nov 2026). After each push, check the run passed; a failure emails Chris.
-- **Windows tests need an STA thread.** Any test that creates a window runs its body on a thread with `SetApartmentState(ApartmentState.STA)`. Copy `RunSta` from `LinkNetworkTests`.
+- **Windows tests need an STA thread.** Any test that creates a window runs its body on a thread with `SetApartmentState(ApartmentState.STA)`. Copy `RunSta` from `ProgramEditorModeTests`.
 
 ## 3. Design reference
 
@@ -385,7 +386,7 @@ public sealed class LinkController : IDisposable
 }
 ```
 
-Link events arrive on background threads. `LinkController` takes a `SynchronizationContext` captured in its constructor and posts to it, replacing `MainForm.OnUi`. In tests, pump with a small manual context (see P1.8).
+Link events arrive on background threads. `LinkController` hands each one to its `Post` property (an `Action<Action>`), replacing `MainForm.OnUi`. By default `Post` posts to the `SynchronizationContext` captured in the constructor, so create the `AppSession` on the UI thread. Tests set `Post` to add to a queue and run the queue themselves (see `LinkedPair` in `LinkNetworkTests`).
 
 ### 5.5 `AppSession` (`GymClock.Core/Session/AppSession.cs`)
 
@@ -687,9 +688,11 @@ Block card colours: the phase colour for the block type from settings. Text is w
 
 ## 7.9 Notes from the work so far
 
-Read these before continuing from P1.7.
+Read these before starting Phase 2.
 
-- **How P1.3 and P1.5 were done.** `MainForm` now holds `_engine` (a `SessionEngine`) and `_display` (a `DisplayModel`). So that the drawing and link code did not have to change, `MainForm` keeps a block of small forwarding members with the old names (`_phase`, `_index`, `_phaseClock`, `IsPaused`, `Advance()` and so on) that read or call the engine. They are temporary. P1.7 removes the ones the link code used; Phase 3 deletes `MainForm` and the rest with it.
+- **How P1.3 and P1.5 were done.** `MainForm` holds one `AppSession` (`_session`). So that the drawing code did not have to change, `MainForm` keeps a block of small forwarding members with the old names (`_settings`, `_engine`, `_display`, `_phase`, `_index`, `_phaseClock`, `IsPaused`, `Advance()` and so on) that read or call the session. They are temporary: Phase 3 deletes `MainForm` and all of them with it. New code must use `AppSession` directly.
+- **How P1.7 was done.** The link logic moved unchanged from `MainForm.Link.cs` into `LinkController`. `MainForm.Link.cs` (75 lines) now only opens the Link displays window, words the badge and refuses the session keys on a second screen. `AppSession.ReplaceSettings(edited, reset)` is the one way a settings window hands back its result: it keeps the link settings, saves, and returns false on a second screen (where the edit is kept as this PC's own and the main PC's session stays on screen).
+- **How P1.8 was done.** `LinkNetworkTests` has a `LinkedPair` helper: two `AppSession`s on test ports, each with a queue for `Post`, and `Pump`/`PumpFor` to run the queues and tick both. Use it for any new link test. No test reflects on `MainForm` any more.
 - **`DisplayModel` differs slightly from section 5.3.** `IsSecondScreen` and `HasLeaderProgram` are properties the window sets, not parameters. The frame builder is `BuildFrame(bool showHints)`. `DisplayFrame` has `Summary` (not `ProgramName`), `WorkLine` and `RestLine` on a station row (already worded, "WORK: High cadence"), a `Swatch` on a tile, and four fields the window fills in itself: `UpdateNotice`, `LinkBadge`, `LinkBadgeIsWarning`, `Toast`. The code is the reference: `src/GymClock.Core/Session/DisplayFrame.cs`.
 - **The old `OnPaint` was not rewired to use `DisplayFrame`** (P1.6 said to). It still calls the model's methods one at a time. It is deleted in Phase 3, so rewiring it would be wasted work. `BuildFrame` is covered by `DisplayModelTests` instead, and `ClockSurface` (P3.1) is its first real user.
 - **The tip under the countdown, and the highlighted station.** Mockup 1 shows a station highlighted and its note ("High cadence") under the countdown. That is right for a **Sequential** program, where the whole class is at one station. In **Circuit** and **Shared** every station is in use by a different group, so today's app highlights none, and `DisplayFrame.Tip` is empty and no `StationRow` is current. Keep that behaviour. Draw the tip line and the highlight only when the frame provides them.
@@ -722,7 +725,8 @@ Fill in as work proceeds.
 | Phase | Date | Result and measurements | Signed off |
 |---|---|---|---|
 | 0 | 17 Nov 2026 | **Go.** All 274 tests pass on .NET 10 (three old forms needed a designer attribute). Exe size 155 MB on .NET 10 (190 MB on .NET 8). Start time: about 14 s the first time a new build runs (self-unpacking; the same on .NET 8), then 0.3 s. Local AI on .NET 10: ready in 31 s. WPF clock surface: average draw 1.3 ms, worst 4.5 ms, at 3840×2160 and at 5760×3240 pixels (limit 8 ms), hardware accelerated. Built-in Fluent theme: works, follows Windows, a button restyles with `BasedOn`; still flagged experimental (`WPF0001`). A published WPF-only app is 133 MB and shows its window in 0.6–0.8 s. Measured on the development PC only, not on a school laptop. | Chris asked to proceed |
-| 1 | 17 Nov 2026 | P1.1 to P1.6 done. `GymClock.Core` created; `SessionEngine` (640 lines) and `DisplayModel` (530 lines) extracted; `MainForm.cs` went from 2,218 to 1,261 lines. Tests: 274 before, 296 now (13 engine, 9 display model), all passing locally and on GitHub. The clock was checked by eye in Circuit and Parallel after the moves: unchanged. Still to do: P1.7 (`LinkController`, `AppSession`), P1.8 (tests off reflection), then the gate. | |
+| 1 | 17 Nov 2026 | P1.1 to P1.6 done. `GymClock.Core` created; `SessionEngine` (640 lines) and `DisplayModel` (530 lines) extracted; `MainForm.cs` went from 2,218 to 1,261 lines. Tests: 274 before, 296 now (13 engine, 9 display model), all passing locally and on GitHub. The clock was checked by eye in Circuit and Parallel after the moves: unchanged. | |
+| 1 (cont.) | 17 Nov 2026 | P1.7 and P1.8 done. `AppSession` and `LinkController` (560 lines) created; `MainForm.cs` is 1,248 lines and `MainForm.Link.cs` 75. Link tests run on two `AppSession`s with no windows and no reflection. Tests: 299, all passing. **Fault found and fixed:** the link tests had been overwriting the real settings file and current program of the PC they ran on (pitfall 2.4); `AppFolders` and `TestIsolation` now prevent it, checked by comparing the real folder before and after a full test run. Not yet done: the gate (Chris's lesson and two-PC test). The linked clock has not been run on two real PCs since the move. | The link code is the riskiest move in Phase 1 and has only been tested on one PC over loopback. |
 | 2 | | | |
 | 3 | | | |
 | 4 | | | |

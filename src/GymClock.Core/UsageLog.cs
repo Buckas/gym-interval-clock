@@ -334,9 +334,7 @@ namespace GymClock
 
         private static string FilePath()
         {
-            return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "GymClock", "usage.txt");
+            return Path.Combine(AppFolders.Data, "usage.txt");
         }
 
         private static DateTime Date(string value)

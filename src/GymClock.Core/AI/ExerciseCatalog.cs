@@ -137,8 +137,7 @@ namespace GymClock.AI
         {
             get
             {
-                return _folderOverride ?? Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "GymClock", "Exercises");
+                return _folderOverride ?? Path.Combine(AppFolders.Data, "Exercises");
             }
         }
 

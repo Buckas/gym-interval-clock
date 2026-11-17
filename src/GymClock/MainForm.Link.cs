@@ -71,28 +71,5 @@ namespace GymClock
             colour = isWarning ? Color.FromArgb(235, 255, 200, 90) : Color.FromArgb(130, 255, 255, 255);
             return text;
         }
-
-        // ---- kept only for the link tests, which still reach into this window by name.
-        // Build guide task P1.8 moves those tests onto AppSession and deletes these.
-
-        private TimerSettings _ownSettings
-        {
-            get { return _session.ShowingLeaderSettings ? _session.OwnSettings : null; }
-        }
-
-        private double _linkDriftPeakMs
-        {
-            get { return _session.Link.DriftPeakMs; }
-        }
-
-        private void StopLink(bool restoreOwnProgram)
-        {
-            _session.Link.Stop(restoreOwnProgram);
-        }
-
-        private LinkStatus GetLinkStatus()
-        {
-            return _session.Link.GetStatus();
-        }
     }
 }
