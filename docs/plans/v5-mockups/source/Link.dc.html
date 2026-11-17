@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Control, Link displays page</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#A7B0BC}a:hover{color:#F1F3F6}
+</style>
+</helmet>
+<div style="min-height: 800px; box-sizing: border-box; background: #12151A; color: #F1F3F6; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Sections" style="flex: 1 1 208px; max-width: 232px; background: #0D1014; padding: 20px 12px; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box">
+<div style="font-weight: 700; font-size: 15px; padding: 4px 12px 16px">Gym Interval Clock</div>
+<a href="Session.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5v7l6-3.5z"></path></svg>Session</a>
+<a href="Programs.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg>Programs</a>
+<a href="Builder.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4L16 5l3 3L8 19z"></path><path d="M14 7l3 3"></path></svg>Builder</a>
+<a href="Assistant.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l1.8 4.7L18.5 10l-4.7 1.3L12 16l-1.8-4.7L5.5 10l4.7-1.3z"></path><path d="M18 16v4M16 18h4"></path></svg>Assistant</a>
+<a href="Link.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"></path></svg>Exercises</a>
+<a href="Link.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: #1C2733; color: #F1F3F6; text-decoration: none; font-size: 14px; font-weight: 600; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="1.5"></rect><rect x="11" y="11" width="10" height="8" rx="1.5"></rect></svg>Link displays</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>Settings</a>
+<a href="Link.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg>About</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 700">Link displays</h1>
+<div style="background: #1D3A2B; color: #7FE0AE; border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 700">THIS IS THE MAIN PC</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+
+<section style="flex: 3 1 400px; min-width: 0; background: #1B2027; border: 1px solid #2A313B; border-radius: 16px; padding: 24px; display: flex; flex-direction: column; gap: 16px; box-sizing: border-box">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: #A7B0BC">LINK CODE</div>
+<div style="font-size: 84px; font-weight: 800; line-height: 1; letter-spacing: 0.14em; font-variant-numeric: tabular-nums">4821</div>
+</div>
+<div style="font-size: 15px; line-height: 1.5">On each second PC: open Link displays, choose "This is a SECOND SCREEN" and type this code. That is all. This PC is ready and waiting.</div>
+
+<div style="display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: flex-start; gap: 10px; font-size: 15px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4CC38A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12l5 5 9-10"></path></svg><div><strong>Linked:</strong> GYM-PC2 over the network · in step within 12 ms</div></div>
+<div style="display: flex; align-items: flex-start; gap: 10px; font-size: 15px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4CC38A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12l5 5 9-10"></path></svg><div><strong>Network:</strong> Wi-Fi · this PC's address is 192.168.1.20</div></div>
+<div style="display: flex; align-items: flex-start; gap: 10px; font-size: 15px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4CC38A" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink: 0; margin-top: 2px"><path d="M5 12l5 5 9-10"></path></svg><div><strong>Bluetooth:</strong> ready, paired with GYM-PC2 · used if the network fails</div></div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px">
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4450; background: #232A33; color: #F1F3F6; font: inherit; font-size: 14px; font-weight: 600">New code</button>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4450; background: #232A33; color: #F1F3F6; font: inherit; font-size: 14px; font-weight: 600">Change what this PC is...</button>
+<button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid #3A4450; background: #232A33; color: #F1F3F6; font: inherit; font-size: 14px; font-weight: 600">Turn linking off</button>
+</div>
+</section>
+
+<section aria-label="Help and setup guide" style="flex: 2 1 280px; min-width: 0; background: #1B2027; border: 1px solid #2A313B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 6px; box-sizing: border-box">
+<div style="font-size: 12px; font-weight: 600; letter-spacing: 0.06em; color: #A7B0BC; padding-bottom: 6px">HELP AND SETUP GUIDE</div>
+<button type="button" style="min-height: 48px; text-align: left; padding: 0 14px; border-radius: 8px; border: 0; background: #232A33; color: #F1F3F6; font: inherit; font-size: 15px; font-weight: 600">Quick start</button>
+<button type="button" style="min-height: 48px; text-align: left; padding: 0 14px; border-radius: 8px; border: 0; background: #232A33; color: #F1F3F6; font: inherit; font-size: 15px; font-weight: 600">Network setup</button>
+<button type="button" style="min-height: 48px; text-align: left; padding: 0 14px; border-radius: 8px; border: 0; background: #232A33; color: #F1F3F6; font: inherit; font-size: 15px; font-weight: 600">Bluetooth setup</button>
+<button type="button" style="min-height: 48px; text-align: left; padding: 0 14px; border-radius: 8px; border: 0; background: #232A33; color: #F1F3F6; font: inherit; font-size: 15px; font-weight: 600">Not connecting?</button>
+<button type="button" style="min-height: 48px; text-align: left; padding: 0 14px; border-radius: 8px; border: 0; background: #232A33; color: #F1F3F6; font: inherit; font-size: 15px; font-weight: 600">On a second screen</button>
+<button type="button" style="min-height: 48px; text-align: left; padding: 0 14px; border-radius: 8px; border: 0; background: #232A33; color: #F1F3F6; font: inherit; font-size: 15px; font-weight: 600">Checking it's in step</button>
+<div style="font-size: 13px; color: #A7B0BC; padding-top: 8px; line-height: 1.5">The guide opens here, beside the link status, so the steps and the result are on screen together.</div>
+</section>
+
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Control, Settings page</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#A7B0BC}a:hover{color:#F1F3F6}
+</style>
+</helmet>
+<div style="min-height: 800px; box-sizing: border-box; background: #12151A; color: #F1F3F6; font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; display: flex; flex-wrap: wrap">
+
+<nav aria-label="Sections" style="flex: 1 1 208px; max-width: 232px; background: #0D1014; padding: 20px 12px; display: flex; flex-direction: column; gap: 4px; box-sizing: border-box">
+<div style="font-weight: 700; font-size: 15px; padding: 4px 12px 16px">Gym Interval Clock</div>
+<a href="Session.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M10 8.5v7l6-3.5z"></path></svg>Session</a>
+<a href="Programs.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5"></rect><rect x="13" y="4" width="7" height="7" rx="1.5"></rect><rect x="4" y="13" width="7" height="7" rx="1.5"></rect><rect x="13" y="13" width="7" height="7" rx="1.5"></rect></svg>Programs</a>
+<a href="Builder.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4L16 5l3 3L8 19z"></path><path d="M14 7l3 3"></path></svg>Builder</a>
+<a href="Assistant.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l1.8 4.7L18.5 10l-4.7 1.3L12 16l-1.8-4.7L5.5 10l4.7-1.3z"></path><path d="M18 16v4M16 18h4"></path></svg>Assistant</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10"></path></svg>Exercises</a>
+<a href="Link.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="10" height="8" rx="1.5"></rect><rect x="11" y="11" width="10" height="8" rx="1.5"></rect></svg>Link displays</a>
+<a href="Settings.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: #1C2733; color: #F1F3F6; text-decoration: none; font-size: 14px; font-weight: 600; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"></path><circle cx="16" cy="7" r="2"></circle><circle cx="8" cy="17" r="2"></circle></svg>Settings</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 500; min-height: 44px; box-sizing: border-box"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg>About</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 32px; box-sizing: border-box; display: flex; flex-direction: column; gap: 18px">
+
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 12px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 700">Settings</h1>
+<div style="font-size: 13px; color: #A7B0BC">Changes apply straight away</div>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start">
+
+<div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+
+<section style="background: #1B2027; border: 1px solid #2A313B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700">Display layout</h2>
+<div role="group" aria-label="Display layout" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+<button type="button" aria-pressed="true" style="padding: 8px; border-radius: 10px; border: 2px solid #5AA2FF; background: #1C2733; color: #F1F3F6; font: inherit; display: flex; flex-direction: column; gap: 8px; align-items: stretch">
+<span aria-hidden="true" style="height: 70px; border-radius: 6px; background: #0F8A46; display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 4px; padding: 5px"><span style="background: #0A6634; border-radius: 3px"></span><span style="display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 800; color: #FFFFFF">34</span></span>
+<span style="font-size: 13px; font-weight: 700">Standard</span>
+</button>
+<button type="button" aria-pressed="false" style="padding: 8px; border-radius: 10px; border: 1px solid #3A4450; background: #232A33; color: #F1F3F6; font: inherit; display: flex; flex-direction: column; gap: 8px; align-items: stretch">
+<span aria-hidden="true" style="height: 70px; border-radius: 6px; background: #0F8A46; display: flex; align-items: center; justify-content: center; font-size: 48px; font-weight: 800; color: #FFFFFF">34</span>
+<span style="font-size: 13px; font-weight: 600">Big number</span>
+</button>
+<button type="button" aria-pressed="false" style="padding: 8px; border-radius: 10px; border: 1px solid #3A4450; background: #232A33; color: #F1F3F6; font: inherit; display: flex; flex-direction: column; gap: 8px; align-items: stretch">
+<span aria-hidden="true" style="height: 70px; border-radius: 6px; background: #0F8A46; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 5px"><span style="background: #0A6634; border-radius: 3px"></span><span style="display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 800; color: #FFFFFF">34</span></span>
+<span style="font-size: 13px; font-weight: 600">Stations</span>
+</button>
+</div>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px">Safe margin for projectors that cut off the edges: 2%<input type="range" min="0" max="8" value="2" style="width: 100%; accent-color: #5AA2FF"></label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 40px"><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #5AA2FF">Show the control bar when the mouse moves</label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 40px"><input type="checkbox" style="width: 20px; height: 20px; accent-color: #5AA2FF">Reduce motion (no fades or pulses)</label>
+</section>
+
+<section style="background: #1B2027; border: 1px solid #2A313B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700">Phase colours</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #0F8A46; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 700">Work</button>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #A85A12; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 700">Rest</button>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #2B63B8; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 700">Recovery</button>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #176F78; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 700">Move</button>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #1E55B3; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 700">Get ready</button>
+<button type="button" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 0; background: #5B4B9E; color: #FFFFFF; font: inherit; font-size: 14px; font-weight: 700">Finished</button>
+</div>
+<div style="font-size: 13px; color: #A7B0BC">Click a colour to change it. Today this needs the settings file.</div>
+</section>
+
+</div>
+
+<div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 18px">
+
+<section style="background: #1B2027; border: 1px solid #2A313B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 12px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700">Appearance</h2>
+<div role="group" aria-label="Theme for the Control window" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; background: #0D1014; border-radius: 10px; padding: 4px">
+<button type="button" aria-pressed="true" style="min-height: 40px; border-radius: 7px; border: 0; background: #1C2733; color: #F1F3F6; font: inherit; font-size: 14px; font-weight: 600">Follow Windows</button>
+<button type="button" aria-pressed="false" style="min-height: 40px; border-radius: 7px; border: 0; background: #0D1014; color: #A7B0BC; font: inherit; font-size: 14px">Light</button>
+<button type="button" aria-pressed="false" style="min-height: 40px; border-radius: 7px; border: 0; background: #0D1014; color: #A7B0BC; font: inherit; font-size: 14px">Dark</button>
+</div>
+</section>
+
+<section style="background: #1B2027; border: 1px solid #2A313B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700">Sound</h2>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 40px"><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #5AA2FF">Play the sound cues</label>
+<label style="display: flex; flex-direction: column; gap: 6px; font-size: 14px">Volume: 85%<input type="range" min="0" max="100" value="85" style="width: 100%; accent-color: #5AA2FF"></label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px">Get-ready countdown<input type="number" value="10" min="0" max="300" style="min-height: 40px; width: 80px; box-sizing: border-box; border-radius: 8px; border: 1px solid #3A4450; background: #12151A; color: #F1F3F6; font: inherit; font-size: 14px; padding: 0 10px">seconds</label>
+</section>
+
+<section style="background: #1B2027; border: 1px solid #2A313B; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 10px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 700">Clock and stations</h2>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 40px"><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #5AA2FF">Show the time of day</label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px">Time format<select style="min-height: 40px; box-sizing: border-box; border-radius: 8px; border: 1px solid #3A4450; background: #12151A; color: #F1F3F6; font: inherit; font-size: 14px; padding: 0 10px"><option>8:39 PM</option><option>20:39</option><option>8:39:22 PM</option></select></label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 40px"><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #5AA2FF">Keep the Display on top of other windows</label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 40px"><input type="checkbox" checked style="width: 20px; height: 20px; accent-color: #5AA2FF">Show the station list on the Display</label>
+<label style="display: flex; align-items: center; gap: 10px; font-size: 14px; min-height: 40px"><input type="checkbox" style="width: 20px; height: 20px; accent-color: #5AA2FF">Show the station name instead of WORK / REST</label>
+</section>
+
+</div>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

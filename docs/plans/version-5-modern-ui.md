@@ -6,6 +6,11 @@
 
 This plan says what to build, in what order, and how. Section 13 lists the decisions to confirm before work starts; each has a recommended answer, and the plan is written assuming those answers.
 
+Two companions go with it:
+
+- **[version-5-build-guide.md](version-5-build-guide.md):** the task-by-task instructions for whoever does the work, with exact class designs, file lists and a pass/fail check for every task. Where the guide and this plan differ, the guide wins (its section 8 lists the differences).
+- **[v5-mockups/](v5-mockups/):** images of nine screens, approved by Chris on 17 November 2026, with their source files for exact sizes and colours.
+
 ---
 
 ## 1. Summary

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Display, standard layout</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#FFFFFF}a:hover{color:#E6F4EC}
+</style>
+</helmet>
+<div style="width: 1280px; height: 720px; box-sizing: border-box; background: #0F8A46; color: #FFFFFF; font-family: 'Segoe UI Variable Display', 'Segoe UI', Inter, system-ui, sans-serif; display: grid; grid-template-columns: 300px minmax(0, 1fr)">
+
+<aside aria-label="Stations" style="background: #0A6634; padding: 24px 18px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+<div style="background: #FFFFFF; color: #0A4F29; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 23px; font-weight: 800">1. Spin bike</div>
+<div style="font-size: 15px; font-weight: 600">Work: High cadence</div>
+<div style="font-size: 15px">Rest: Easy spin</div>
+</div>
+<div style="background: #085529; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 21px; font-weight: 700">2. Box step ups</div>
+<div style="font-size: 15px">Work: Whole foot on the step</div>
+<div style="font-size: 15px">Rest: Shake out, reset</div>
+</div>
+<div style="background: #085529; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 21px; font-weight: 700">3. Treadmill</div>
+<div style="font-size: 15px">Work: Run at about 80%</div>
+<div style="font-size: 15px">Rest: Walk to recover</div>
+</div>
+<div style="background: #085529; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 21px; font-weight: 700">4. Skipping</div>
+<div style="font-size: 15px">Work: Small jumps, turn from the wrists</div>
+<div style="font-size: 15px">Rest: Rope down, deep breaths</div>
+</div>
+</aside>
+
+<main style="padding: 24px 40px 18px; display: flex; flex-direction: column; box-sizing: border-box; min-width: 0">
+<div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 2px; min-width: 0">
+<div style="font-size: 24px; font-weight: 700">Cardio Circuit</div>
+<div style="font-size: 16px; font-weight: 500">Session 04:12</div>
+</div>
+<div style="font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums">8:39 PM</div>
+</div>
+
+<div style="flex-grow: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center">
+<div style="font-size: 30px; font-weight: 700; letter-spacing: 0.06em">SPIN BIKE</div>
+<div style="font-size: 62px; font-weight: 800; line-height: 1; letter-spacing: 0.02em">WORK</div>
+<div style="font-size: 264px; font-weight: 800; line-height: 0.92; font-variant-numeric: tabular-nums">34</div>
+<div style="font-size: 28px; font-weight: 600">High cadence</div>
+</div>
+
+<div style="display: flex; flex-direction: column; align-items: center; gap: 4px; padding-bottom: 12px">
+<div style="font-size: 24px; font-weight: 700">Round 2 of 4 &nbsp;·&nbsp; Station 1 of 4</div>
+<div style="font-size: 18px; font-weight: 500">Next: Rest 15 s</div>
+</div>
+
+<div role="img" aria-label="Interval progress, 34 of 45 seconds left" style="height: 14px; border-radius: 7px; background: #0A6634; overflow: hidden">
+<div style="width: 76%; height: 14px; border-radius: 7px; background: #FFFFFF"></div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; padding-top: 12px; font-size: 13px; font-weight: 600">
+<div>Licensed to [School name]</div>
+<div style="text-align: center">LINKED · 1 SECOND SCREEN</div>
+<div style="text-align: right">© [Authors] 2026</div>
+</div>
+</main>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":720}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>
