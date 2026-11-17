@@ -28,12 +28,14 @@ namespace GymClock
     /// </summary>
     public partial class MainForm : Form
     {
-        private TimerSettings _settings;
+        /// <summary>Settings, timing engine, display model and link: everything that is not this window.</summary>
+        private readonly AppSession _session;
 
-        // The timing engine (GymClock.Core) owns the session. These read it under the names the
-        // drawing and link code already use; they go when that code moves out too (guide P1.5-P1.7).
-        private readonly SessionEngine _engine;
-        private readonly DisplayModel _display;   // every word and colour on the clock
+        // These read the session under the names the drawing code already uses. They are temporary:
+        // this window, and they with it, is replaced by the new Display in Phase 3 of the build guide.
+        private TimerSettings _settings { get { return _session.Settings; } }
+        private SessionEngine _engine { get { return _session.Engine; } }
+        private DisplayModel _display { get { return _session.Display; } }   // every word and colour on the clock
         private Phase _phase { get { return _engine.Phase; } }
         private double _phaseLength { get { return _engine.PhaseLength; } }
         private RunClock _phaseClock { get { return _engine.PhaseClock; } }
@@ -88,11 +90,19 @@ namespace GymClock
         /// <summary>For tests: a clock window on the given settings instead of this PC's settings file.</summary>
         public MainForm(TimerSettings settings)
         {
-            _settings = settings ?? new TimerSettings();
-            _engine = new SessionEngine(_settings, new BeeperCuePlayer());
-            _engine.Changed += delegate { Invalidate(); };
-            _engine.HintRequested += ShowHint;
-            _display = new DisplayModel(_engine);
+            // The session (GymClock.Core) owns the settings, the engine, the display model and the link.
+            _session = new AppSession(settings ?? new TimerSettings(), new BeeperCuePlayer());
+            _session.Engine.Changed += delegate { Invalidate(); };
+            _session.Engine.HintRequested += ShowHint;
+            _session.SettingsApplied += delegate
+            {
+                // What is this window's own business when the settings in force change.
+                ApplyAudioSettings();
+                TopMost = _settings.AlwaysOnTop;
+                Invalidate();
+            };
+            _session.Link.Changed += delegate { ApplyAudioSettings(); Invalidate(); };
+            _session.Link.ToastRequested += ShowToast;
 
             Text = "Gym Interval Clock Version " + AppVersion.Display;
             Icon = AppIconProvider.GetIcon();
@@ -155,8 +165,8 @@ namespace GymClock
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _ticker.Stop();
-            StopLink(false);
-            _settings.Save();
+            _session.Link.Stop(false);     // a second screen goes back to its own settings before they are saved
+            _session.SaveOwnSettings();
             UsageLog.End();
             base.OnFormClosing(e);
         }
@@ -179,18 +189,6 @@ namespace GymClock
         }
 
         /// <summary>
-        /// Applies changed settings immediately, mid-session if need be. If the new
-        /// interval is already shorter than the time elapsed we roll straight on.
-        /// </summary>
-        private void ApplySettingsLive()
-        {
-            ApplyAudioSettings();
-            TopMost = _settings.AlwaysOnTop;
-            _engine.ApplySettings(_settings); // rebuilds the program and keeps the running session inside it
-            Invalidate();
-        }
-
-        /// <summary>
         /// The single combined window for general settings and program editing.
         /// "B" jumps straight into the AI Assistant; "S" opens the editor at rest.
         /// </summary>
@@ -206,22 +204,11 @@ namespace GymClock
                     bool justActivatedProgram = dialog.Result.UseBuiltProgram
                         && (!_settings.UseBuiltProgram || _settings.ProgramScript != dialog.Result.ProgramScript);
 
-                    if (_ownSettings != null)
-                    {
-                        // "Link displays..." in the settings window made this PC a second screen: it is now showing
-                        // the main PC's session, so the edits belong to its own settings, kept for later.
-                        dialog.Result.CopyLinkFrom(_ownSettings);
-                        _ownSettings = dialog.Result;
-                        _ownSettings.Save();
-                        return;
-                    }
-
-                    // The link is applied live by its own window, so keep whatever it is now.
-                    dialog.Result.CopyLinkFrom(_settings);
-                    _settings = dialog.Result;
-                    _settings.Save();
-                    ApplySettingsLive();
-                    ResetSession();
+                    // The session saves and applies them (keeping the link settings, which the Link displays
+                    // window applies live). It returns false if "Link displays..." in the settings window made
+                    // this PC a second screen: the edits are then kept as its own settings for later, and the
+                    // main PC's session stays on screen.
+                    if (!_session.ReplaceSettings(dialog.Result, reset: true)) return;
 
                     if (justActivatedProgram)
                     {

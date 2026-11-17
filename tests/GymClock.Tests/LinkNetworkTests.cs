@@ -207,10 +207,10 @@ END STATION
         {
             RunSta(() =>
             {
-                int oldData = MainForm.LinkDataPort, oldDiscovery = MainForm.LinkDiscoveryPort;
-                MainForm.LinkDataPort = DataPort;
-                MainForm.LinkDiscoveryPort = DiscoveryPort;
-                MainForm.LinkBluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
+                int oldData = LinkController.DataPort, oldDiscovery = LinkController.DiscoveryPort;
+                LinkController.DataPort = DataPort;
+                LinkController.DiscoveryPort = DiscoveryPort;
+                LinkController.BluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
 
                 TimerSettings mainSettings = new TimerSettings
                 {
@@ -320,9 +320,9 @@ END STATION
                     Call(second, "StopLink", false);
                     main.Dispose();
                     second.Dispose();
-                    MainForm.LinkDataPort = oldData;
-                    MainForm.LinkDiscoveryPort = oldDiscovery;
-                    MainForm.LinkBluetoothEnabled = true;
+                    LinkController.DataPort = oldData;
+                    LinkController.DiscoveryPort = oldDiscovery;
+                    LinkController.BluetoothEnabled = true;
                 }
             });
         }
@@ -332,10 +332,10 @@ END STATION
         {
             RunSta(() =>
             {
-                int oldData = MainForm.LinkDataPort, oldDiscovery = MainForm.LinkDiscoveryPort;
-                MainForm.LinkDataPort = DataPort;
-                MainForm.LinkDiscoveryPort = DiscoveryPort;
-                MainForm.LinkBluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
+                int oldData = LinkController.DataPort, oldDiscovery = LinkController.DiscoveryPort;
+                LinkController.DataPort = DataPort;
+                LinkController.DiscoveryPort = DiscoveryPort;
+                LinkController.BluetoothEnabled = false; // tests never touch a real radio (or a paired PC)
 
                 MainForm main = new MainForm(new TimerSettings
                 {
@@ -369,9 +369,9 @@ END STATION
                     Call(second, "StopLink", false);
                     main.Dispose();
                     second.Dispose();
-                    MainForm.LinkDataPort = oldData;
-                    MainForm.LinkDiscoveryPort = oldDiscovery;
-                    MainForm.LinkBluetoothEnabled = true;
+                    LinkController.DataPort = oldData;
+                    LinkController.DiscoveryPort = oldDiscovery;
+                    LinkController.BluetoothEnabled = true;
                 }
             });
         }

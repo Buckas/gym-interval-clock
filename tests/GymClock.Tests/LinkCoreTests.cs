@@ -184,7 +184,7 @@ namespace GymClock.Tests
         public void StationRange_ForASecondScreen(int from, int to, int[] expected)
         {
             var shown = new System.Collections.Generic.List<int>();
-            for (int i = 0; i < 4; i++) if (MainForm.StationInRange(i, 4, from, to)) shown.Add(i + 1);
+            for (int i = 0; i < 4; i++) if (LinkController.StationInRange(i, 4, from, to)) shown.Add(i + 1);
             Assert.Equal(expected, shown.ToArray());
         }
 
