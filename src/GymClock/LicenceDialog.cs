@@ -156,6 +156,7 @@ namespace GymClock
         }
 
         /// <summary>Set by the caller so the report can include the current session setup.</summary>
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
         public TimerSettings Settings { get; set; }
 
         /// <summary>
@@ -164,6 +165,7 @@ namespace GymClock
         ///
         /// Not called "Update" - that would hide the inherited Control.Update() method.
         /// </summary>
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
         public UpdateInfo AvailableUpdate { get; set; }
 
         protected override void OnShown(EventArgs e)

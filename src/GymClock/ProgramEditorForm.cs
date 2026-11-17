@@ -103,6 +103,7 @@ namespace GymClock
         /// Opens the Link displays setup (set by the clock window, which owns the link). Its choices take
         /// effect at once, independently of this window's OK / Cancel.
         /// </summary>
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
         public Action<IWin32Window> LinkSetupRequested { get; set; }
 
         public ProgramEditorForm(TimerSettings settings)

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
@@ -10,23 +10,13 @@
     <AssemblyName>GymClock</AssemblyName>
     <ApplicationIcon>GymClock.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <!-- Without this, the SDK appends the git commit hash to Version as
-         "+<hash>", which shows up wherever Application.ProductVersion is
-         displayed (e.g. the About dialog title) unless explicitly stripped. -->
-    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <PropertyGroup>
-    <Product>Gym Interval Clock</Product>
     <AssemblyTitle>Gym Interval Clock</AssemblyTitle>
     <Description>Full-screen interval training clock for projecting onto a gym wall.</Description>
-    <Version>4.0.0-preview.3</Version>
-    <AssemblyVersion>3.99.3.0</AssemblyVersion>
-    <FileVersion>3.99.3.0</FileVersion>
-    <Copyright>Copyright (c) 2026 Chris Bucknell and James Vella. All rights reserved.</Copyright>
-    <Authors>Chris Bucknell; James Vella</Authors>
+    <!-- Version, Product, Copyright and Authors are in Directory.Build.props at the repository root. -->
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-    <NeutralLanguage>en-AU</NeutralLanguage>
   </PropertyGroup>
 
   <ItemGroup>

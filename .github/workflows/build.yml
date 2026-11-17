@@ -2,10 +2,10 @@ name: build
 
 on:
   push:
-    branches: [main, version-4]
+    branches: [main, version-4, version-5]
     tags: ['v*']
   pull_request:
-    branches: [main, version-4]
+    branches: [main, version-4, version-5]
   workflow_dispatch:
 
 permissions:
@@ -22,7 +22,7 @@ jobs:
       - name: Set up .NET 8
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
       # A build with the placeholder public key can never be licensed, so it must
       # never reach a release. On ordinary pushes this is only a warning.

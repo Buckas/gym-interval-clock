@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    Version and ownership details shared by every project in the solution, so they are
+    set in one place. Window titles and the About page read the version from here
+    (see AppVersion), and the update check compares the assembly version.
+
+    While a version is in preview:
+      Version          = X.0.0-preview.N
+      AssemblyVersion  = (X-1).99.N.0   (just below X.0.0, so a test PC is still offered
+      FileVersion      = (X-1).99.N.0    the real X.0.0 when it is released)
+    For the release itself all three are X.0.0 / X.0.0.0.
+  -->
+  <PropertyGroup>
+    <Version>5.0.0-preview.1</Version>
+    <AssemblyVersion>4.99.1.0</AssemblyVersion>
+    <FileVersion>4.99.1.0</FileVersion>
+    <Product>Gym Interval Clock</Product>
+    <Copyright>Copyright (c) 2026 Chris Bucknell and James Vella. All rights reserved.</Copyright>
+    <Authors>Chris Bucknell; James Vella</Authors>
+    <NeutralLanguage>en-AU</NeutralLanguage>
+    <!-- Without this, the SDK appends the git commit hash to Version as "+<hash>". -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+</Project>
