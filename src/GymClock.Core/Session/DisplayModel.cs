@@ -13,7 +13,7 @@ namespace GymClock
     ///
     /// The methods below were moved unchanged from MainForm (build guide task P1.5).
     /// </summary>
-    public sealed class DisplayModel
+    public sealed partial class DisplayModel
     {
         private readonly SessionEngine _engine;
 
