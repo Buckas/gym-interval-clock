@@ -76,6 +76,18 @@ namespace GymClock.Wpf
         /// </summary>
         public bool ReduceMotion { get; set; }
 
+        /// <summary>
+        /// True while the control bar is on screen: the key hints are not drawn (the bar's buttons
+        /// and their tooltips say the same), and the bar sits in <see cref="BarSlot"/>.
+        /// </summary>
+        public bool BarShowing { get; set; }
+
+        /// <summary>
+        /// Where the control bar goes, worked out at each draw: a strip just above the footer,
+        /// across the main area only (never over the station list), at least 7.5% of the height.
+        /// </summary>
+        public Rect BarSlot { get; private set; }
+
         // ================================================================ render
 
         protected override void OnRender(DrawingContext dc)
@@ -165,6 +177,7 @@ namespace GymClock.Wpf
 
             double footerHeight = H * 0.018 * 1.45;
             DrawFooter(dc, f, new Rect(main.X, y - footerHeight, main.Width, footerHeight), H);
+            double slotBottom = y - footerHeight - (H * 0.006);
             y -= footerHeight + (H * 0.017);
 
             if (progress)
@@ -176,8 +189,10 @@ namespace GymClock.Wpf
             }
 
             double hintHeight = H * 0.022 * 1.45;
-            if (!string.IsNullOrEmpty(f.Hint))
+            if (!string.IsNullOrEmpty(f.Hint) && !BarShowing)
                 DrawCentred(dc, Fit(f.Hint, Regular, H * 0.022, main.Width, hintHeight, InkFaint), new Rect(main.X, y - hintHeight, main.Width, hintHeight));
+            double slotHeight = Math.Max(slotBottom - (y - hintHeight), H * 0.075);
+            BarSlot = new Rect(main.X, slotBottom - slotHeight, main.Width, slotHeight);
             y -= hintHeight + (H * 0.008);
 
             if (roundLines)
@@ -298,7 +313,7 @@ namespace GymClock.Wpf
                 double textWidth = Math.Max(10, card.Width - (2 * padH * k));
                 double ty = card.Y + (padV * k);
                 double lineName = nameSize * 1.3 * k;
-                FormattedText name = FitLine(row.Number + ". " + row.Name, row.IsCurrent ? ExtraBold : Bold,
+                FormattedText name = FitLine(NumberedName(row), row.IsCurrent ? ExtraBold : Bold,
                     nameSize * k * (row.IsCurrent ? 1.08 : 1.0), textWidth, lineName, ink);
                 dc.DrawText(name, new Point(textX, ty));
                 ty += lineName;
@@ -326,6 +341,19 @@ namespace GymClock.Wpf
         }
 
         /// <summary>A card's height: both note lines (detail 0), one combined line (1) or the name only (2).</summary>
+        /// <summary>"3. Goblet Squats" - but not "3. 3. Goblet Squats" when the name already starts with its number.</summary>
+        public static string NumberedName(StationRow row)
+        {
+            string number = row.Number.ToString(CultureInfo.InvariantCulture);
+            string name = (row.Name ?? string.Empty).TrimStart();
+            if (name.StartsWith(number, StringComparison.Ordinal) && name.Length > number.Length)
+            {
+                char after = name[number.Length];
+                if (after == '.' || after == ')' || after == ' ' || after == ':' || after == '-') return name;
+            }
+            return number + ". " + name;
+        }
+
         private static double CardHeight(StationRow row, double nameSize, double noteSize, double padV, int detail)
         {
             int notes = (row.WorkLine.Length > 0 ? 1 : 0) + (row.RestLine.Length > 0 ? 1 : 0);

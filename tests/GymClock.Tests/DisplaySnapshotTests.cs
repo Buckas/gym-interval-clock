@@ -188,6 +188,75 @@ END STATION
             Shot("crowded", sb.ToString(), e => e.SnapTo(Phase.Active, 3, 10.5, 100.5, false));
         }
 
+        [Fact]
+        public void StationNames_ThatAlreadyStartWithTheirNumber_AreNotNumberedTwice()
+        {
+            Assert.Equal("3. Goblet Squats", ClockSurface.NumberedName(new StationRow { Number = 3, Name = "3. Goblet Squats" }));
+            Assert.Equal("3. Goblet Squats", ClockSurface.NumberedName(new StationRow { Number = 3, Name = "Goblet Squats" }));
+            Assert.Equal("1. 10 burpees", ClockSurface.NumberedName(new StationRow { Number = 1, Name = "10 burpees" }));
+            Assert.Equal("2) Rower", ClockSurface.NumberedName(new StationRow { Number = 2, Name = "2) Rower" }));
+        }
+
+        /// <summary>
+        /// Not a check: the clock with the control bar showing, at two screen shapes, to PNG files.
+        /// Runs only when GYMCLOCK_SCREENSHOTS names a folder.
+        /// </summary>
+        [Fact]
+        public void Screenshots_ControlBarOverTheClock_WhenAsked()
+        {
+            string folder = Environment.GetEnvironmentVariable("GYMCLOCK_SCREENSHOTS");
+            if (string.IsNullOrWhiteSpace(folder)) return;
+            Directory.CreateDirectory(folder);
+
+            StringBuilder sb = new StringBuilder("PROGRAM \"Everest Session 2 - Resistance Circuit\"\nMODE CIRCUIT\n\nREPEAT 3\n    WORK 1m\n    REST 30s\nEND\n\n");
+            string[] names = { "Wall Calf Raises", "RDLs", "Goblet Squats", "Dead Bugs", "Seated Weighted Calf Raises", "Kettlebell Bird Dogs", "Wall Sit", "Plank or V-Hold" };
+            for (int i = 0; i < names.Length; i++)
+                sb.Append("STATION \"").Append(i + 1).Append(". ").Append(names[i]).Append("\"\n    WORKNOTE \"3 x 12-15 reps - one set per work period\"\nEND STATION\n\n");
+
+            AppSession session = new AppSession(Settings(sb.ToString(), 0), new SilentCuePlayer());
+            DisplayFrame frame = session.Display.BuildFrame(true);
+            frame.TimeOfDay = "10:15:45 AM";
+            frame.Licensee = "Licensed to Test School";
+
+            WpfTestHost.Run(() =>
+            {
+                foreach (Size size in new[] { new Size(1280, 800), new Size(1707, 960) })
+                {
+                    ClockSurface surface = new ClockSurface { ReduceMotion = true, BarShowing = true, Frame = frame };
+                    surface.Measure(size);
+                    surface.Arrange(new Rect(size));
+                    surface.UpdateLayout();
+                    RenderTargetBitmap first = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+                    first.Render(surface);           // works out the bar's strip
+
+                    Rect slot = surface.BarSlot;
+                    double height = Math.Min(slot.Height, 84);
+                    ControlBar bar = new ControlBar
+                    {
+                        DataContext = new DisplayCommands(() => { }, () => { }, () => { }, () => { }, () => { }, () => { }, () => { }, () => { })
+                    };
+                    System.Windows.Controls.Viewbox box = new System.Windows.Controls.Viewbox
+                    {
+                        Child = bar, Stretch = Stretch.Uniform, Width = slot.Width, Height = height,
+                    };
+                    System.Windows.Controls.Canvas canvas = new System.Windows.Controls.Canvas();
+                    System.Windows.Controls.Canvas.SetLeft(box, slot.X);
+                    System.Windows.Controls.Canvas.SetTop(box, slot.Bottom - height);
+                    canvas.Children.Add(box);
+                    System.Windows.Controls.Grid grid = new System.Windows.Controls.Grid();
+                    grid.Children.Add(new ClockSurface { ReduceMotion = true, BarShowing = true, Frame = frame });
+                    grid.Children.Add(canvas);
+                    grid.Measure(size);
+                    grid.Arrange(new Rect(size));
+                    grid.UpdateLayout();
+
+                    RenderTargetBitmap bitmap = new RenderTargetBitmap((int)size.Width, (int)size.Height, 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(grid);
+                    Save(bitmap, Path.Combine(folder, "bar-" + (int)size.Width + "x" + (int)size.Height + ".png"));
+                }
+            });
+        }
+
         // ================================================================ helper
 
         private static TimerSettings Settings(string script, int prep)

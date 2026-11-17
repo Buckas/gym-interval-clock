@@ -79,7 +79,6 @@ namespace GymClock.Wpf
 
             Surface.MouseLeftButtonDown += Surface_MouseLeftButtonDown;
             Surface.TouchDown += Surface_TouchDown;
-            SizeChanged += delegate { Bar.Margin = new Thickness(0, 0, 0, Math.Max(24, ActualHeight * 0.075)); };
 
             ApplyAudioSettings();
             ShowHint(14);
@@ -161,8 +160,8 @@ namespace GymClock.Wpf
             _session.Tick();
             Render();
 
-            if (Bar.Visibility == Visibility.Visible && DateTime.Now >= _barHideAt && !Bar.IsMouseOver)
-                Bar.Visibility = Visibility.Collapsed;
+            if (BarBox.Visibility == Visibility.Visible && DateTime.Now >= _barHideAt && !BarBox.IsMouseOver)
+                BarBox.Visibility = Visibility.Collapsed;
         }
 
         /// <summary>Builds this moment's frame and hands it to the surface.</summary>
@@ -193,7 +192,9 @@ namespace GymClock.Wpf
             Surface.Layout = OwnSettings.DisplayLayout;
             Surface.SafeMargin = OwnSettings.SafeMargin;
             Surface.ReduceMotion = ReduceMotionOn(OwnSettings.ReduceMotion);
+            Surface.BarShowing = BarBox.Visibility == Visibility.Visible;
             Surface.Frame = frame;
+            PlaceBar();
 
             _commands.Refresh(engine, Beeper.Enabled, _fullScreen);
         }
@@ -440,8 +441,22 @@ namespace GymClock.Wpf
         private void ShowBar()
         {
             if (IsFollowing || !OwnSettings.ControlBar) return;
-            Bar.Visibility = Visibility.Visible;
+            bool wasHidden = BarBox.Visibility != Visibility.Visible;
+            BarBox.Visibility = Visibility.Visible;
             _barHideAt = DateTime.Now.AddSeconds(BarSeconds);
+            if (wasHidden) PlaceBar();
+        }
+
+        /// <summary>Fits the control bar into the strip the clock keeps for it (at most 84 high, centred).</summary>
+        private void PlaceBar()
+        {
+            Rect slot = Surface.BarSlot;
+            if (slot.Width < 10 || slot.Height < 10) return;
+            double height = Math.Min(slot.Height, 84);
+            System.Windows.Controls.Canvas.SetLeft(BarBox, slot.X);
+            System.Windows.Controls.Canvas.SetTop(BarBox, slot.Bottom - height);
+            BarBox.Width = slot.Width;
+            BarBox.Height = height;
         }
 
         // ================================================================ hints, toasts, sound

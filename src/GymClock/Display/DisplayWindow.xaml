@@ -15,7 +15,11 @@
         FocusVisualStyle="{x:Null}">
     <Grid x:Name="Root" Background="Black">
         <local:ClockSurface x:Name="Surface" />
-        <local:ControlBar x:Name="Bar" VerticalAlignment="Bottom" HorizontalAlignment="Center"
-                          Margin="0,0,0,56" Visibility="Collapsed" />
+        <!-- The control bar, scaled into the strip the clock keeps for it (ClockSurface.BarSlot). -->
+        <Canvas>
+            <Viewbox x:Name="BarBox" Stretch="Uniform" StretchDirection="Both" Visibility="Collapsed">
+                <local:ControlBar x:Name="Bar" />
+            </Viewbox>
+        </Canvas>
     </Grid>
 </Window>
