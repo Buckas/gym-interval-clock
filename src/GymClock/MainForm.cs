@@ -104,6 +104,9 @@ namespace GymClock
             _session.Link.Changed += delegate { ApplyAudioSettings(); Invalidate(); };
             _session.Link.ToastRequested += ShowToast;
 
+            // The new Control window (version 5) works on the same session.
+            GymClock.Wpf.ControlHost.Attach(this, _session);
+
             Text = "Gym Interval Clock Version " + AppVersion.Display;
             Icon = AppIconProvider.GetIcon();
             BackColor = Color.Black;
@@ -165,6 +168,7 @@ namespace GymClock
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             _ticker.Stop();
+            GymClock.Wpf.ControlHost.CloseWindow();
             _session.Link.Stop(false);     // a second screen goes back to its own settings before they are saved
             _session.SaveOwnSettings();
             UsageLog.End();
@@ -419,6 +423,9 @@ namespace GymClock
                     case Keys.F3:
                         ShowLicenceInfo();
                         break;
+                    case Keys.C:
+                        GymClock.Wpf.ControlHost.Open(GymClock.Wpf.ControlViewModel.LinkPage);
+                        break;
                     case Keys.H:
                     case Keys.F1:
                         ShowHint(15);
@@ -510,6 +517,10 @@ namespace GymClock
 
                 case Keys.F3:
                     ShowLicenceInfo();
+                    break;
+
+                case Keys.C:
+                    GymClock.Wpf.ControlHost.Open(GymClock.Wpf.ControlViewModel.SessionPage);
                     break;
 
                 case Keys.H:

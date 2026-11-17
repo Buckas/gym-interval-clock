@@ -1,0 +1,63 @@
+<Window x:Class="GymClock.Wpf.ControlWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:GymClock.Wpf"
+        Title="Gym Interval Clock - Controls"
+        MinWidth="900" MinHeight="600"
+        WindowStartupLocation="Manual"
+        Background="{DynamicResource Surface.App}"
+        Foreground="{DynamicResource Text.Primary}"
+        FontFamily="{DynamicResource Font.Control}"
+        FontSize="14"
+        UseLayoutRounding="True">
+
+    <Window.InputBindings>
+        <KeyBinding Key="G" Modifiers="Ctrl+Shift" Command="{Binding ShowGallery}" />
+    </Window.InputBindings>
+
+    <Grid local:Ui.InPanel="{Binding IsPanel}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- Navigation rail (hidden when the window is the side panel). -->
+        <Border Width="{StaticResource Width.Rail}" Background="{DynamicResource Surface.Rail}" Padding="12,20"
+                Visibility="{Binding IsPanel, Converter={StaticResource VisibleWhenFalse}}">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="Gym Interval Clock" FontSize="15" FontWeight="Bold"
+                           Foreground="{DynamicResource Text.Primary}" Margin="12,4,12,16" />
+                <ListBox Style="{StaticResource NavList}" ItemsSource="{Binding Pages}" SelectedItem="{Binding CurrentPage}"
+                         AutomationProperties.Name="Sections">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Glyph}" Style="{StaticResource TextStyle.Icon}" Width="18" Margin="0,0,12,0" />
+                                <TextBlock Text="{Binding Title}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <DockPanel Grid.Column="1">
+            <!-- Side panel header (mockup 3): the page title, Full window, and close. -->
+            <Border DockPanel.Dock="Top" Padding="20,18,20,0"
+                    Visibility="{Binding IsPanel, Converter={StaticResource VisibleWhenTrue}}">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                        <Button Style="{StaticResource Button.Standard}" Content="Full window" Margin="0,0,8,0"
+                                Command="{Binding FullWindow}" ToolTip="Open the controls as a normal window" />
+                        <Button Style="{StaticResource Button.Icon}" Content="{x:Static local:Icons.Close}"
+                                Command="{Binding Close}" ToolTip="Close (Esc)"
+                                AutomationProperties.Name="Close the control panel" />
+                    </StackPanel>
+                    <TextBlock Text="{Binding CurrentPage.Title}" FontSize="20" FontWeight="Bold" VerticalAlignment="Center" />
+                </DockPanel>
+            </Border>
+
+            <ContentControl Content="{Binding CurrentView}" Focusable="False" />
+        </DockPanel>
+    </Grid>
+</Window>

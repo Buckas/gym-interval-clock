@@ -16,6 +16,9 @@ namespace GymClock
             Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 #endif
 
+            // Version 5: the new windows are WPF and share one WPF application and theme.
+            GymClock.Wpf.WpfHost.EnsureApplication();
+
             if (!PassesLicenceCheck()) return;
 
             ProgramLibrary.EnsureInstalled();

@@ -254,6 +254,14 @@ namespace GymClock
         /// <summary>Second screen: the route that reached the main PC last time ("tcp:192.168.1.20" / "bt:00:1A:..."), tried first.</summary>
         public string LinkLastRoute = string.Empty;
 
+        // ---- This window's own look (version 5). Like the link settings these belong to this PC
+        // only: they are never sent to a second screen and never taken from a main PC.
+
+        /// <summary>"system" (follow Windows), "light" or "dark": the theme of the Control window.</summary>
+        public string Theme = "system";
+        /// <summary>Where the Control window was last time, in screen pixels: "x,y,width,height" plus ",max" when maximised. Blank = not yet opened.</summary>
+        public string ControlBounds = string.Empty;
+
         /// <summary>Copies this PC's link settings (and nothing else) from another settings object.</summary>
         public void CopyLinkFrom(TimerSettings other)
         {
@@ -436,6 +444,8 @@ namespace GymClock
             c.ProgramScript = ProgramScript;
             c.UseBuiltProgram = UseBuiltProgram;
             c.CopyLinkFrom(this);
+            c.Theme = Theme;
+            c.ControlBounds = ControlBounds;
             c.Presets = new List<Preset>();
             foreach (Preset p in Presets) c.Presets.Add(new Preset(p.Work, p.Rest, p.Rounds));
             return c;
@@ -584,6 +594,8 @@ namespace GymClock
                     case "linklastroute": if (includeLink) s.LinkLastRoute = value; break;
                     case "linkbluetoothaddress": if (includeLink) s.LinkBluetoothAddress = value; break;
                     case "linkbluetoothname": if (includeLink) s.LinkBluetoothName = value; break;
+                    case "theme": if (includeLink) s.Theme = ReadTheme(value); break;
+                    case "controlbounds": if (includeLink) s.ControlBounds = value; break;
                     case "presets":
                         List<Preset> parsed = new List<Preset>();
                         foreach (string item in SplitList(value))
@@ -715,6 +727,11 @@ namespace GymClock
                 sb.AppendLine("linkbluetoothname=" + LinkBluetoothName);
                 sb.AppendLine("# The route that reached the main PC last time, tried first (written by the app).");
                 sb.AppendLine("linklastroute=" + LinkLastRoute);
+                sb.AppendLine();
+                sb.AppendLine("# The Control window: its theme (system = follow Windows, light or dark) and where it");
+                sb.AppendLine("# was last time (written by the app).");
+                sb.AppendLine("theme=" + Theme);
+                sb.AppendLine("controlbounds=" + ControlBounds);
             }
             sb.AppendLine();
             sb.AppendLine("# Quick presets, applied with keys 1-9. Format work/restxrounds");
@@ -722,6 +739,13 @@ namespace GymClock
             foreach (Preset p in Presets) ps.Add(p.ToString());
             sb.AppendLine("presets=" + string.Join(",", ps.ToArray()));
             return sb.ToString();
+        }
+
+        /// <summary>"system", "light" or "dark"; anything else reads as "system".</summary>
+        public static string ReadTheme(string value)
+        {
+            string v = (value ?? string.Empty).Trim().ToLowerInvariant();
+            return v == "light" || v == "dark" ? v : "system";
         }
 
         public void Save()

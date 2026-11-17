@@ -4,6 +4,10 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- Version 5: the new windows are WPF. Windows Forms stays until the last old window is replaced. -->
+    <UseWPF>true</UseWPF>
+    <!-- WPF0001: Application.ThemeMode (the built-in Fluent theme) is still marked experimental in .NET 10. -->
+    <NoWarn>$(NoWarn);WPF0001</NoWarn>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <RootNamespace>GymClock</RootNamespace>
