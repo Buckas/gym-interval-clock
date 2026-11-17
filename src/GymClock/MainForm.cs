@@ -11,14 +11,6 @@ using GymClock.Link;
 
 namespace GymClock
 {
-    public enum Phase
-    {
-        Idle,
-        Prep,
-        Active,
-        Finished
-    }
-
     /// <summary>
     /// The whole display is custom painted so every element scales to the projector
     /// resolution automatically - there are no fixed-size controls to fight with.
@@ -38,13 +30,35 @@ namespace GymClock
     {
         private TimerSettings _settings;
 
-        private Phase _phase = Phase.Idle;
-        private double _phaseLength;                       // seconds in the current phase
-        private int _lastCueSecond = -1;
-
-        // RunClock = a Stopwatch that can also be set to a position (a second screen is put where the main PC is).
-        private readonly RunClock _phaseClock = new RunClock();
-        private readonly RunClock _sessionClock = new RunClock();
+        // The timing engine (GymClock.Core) owns the session. These read it under the names the
+        // drawing and link code already use; they go when that code moves out too (guide P1.5-P1.7).
+        private readonly SessionEngine _engine;
+        private Phase _phase { get { return _engine.Phase; } }
+        private double _phaseLength { get { return _engine.PhaseLength; } }
+        private RunClock _phaseClock { get { return _engine.PhaseClock; } }
+        private RunClock _sessionClock { get { return _engine.SessionClock; } }
+        private WorkoutProgram _program { get { return _engine.Program; } }
+        private IReadOnlyList<RuntimeBlock> _sequence { get { return _engine.Sequence; } }
+        private int _index { get { return _engine.Index; } }
+        private ParallelRotationPlan _parallelPlan { get { return _engine.ParallelPlan; } }
+        private bool InTimedPhase { get { return _engine.InTimedPhase; } }
+        private bool IsPaused { get { return _engine.IsPaused; } }
+        private bool UsingLegacyStationRotation { get { return _engine.UsingLegacyStationRotation; } }
+        private bool IsParallelActive { get { return _engine.IsParallelActive; } }
+        private RuntimeBlock CurrentBlock() { return _engine.CurrentBlock(); }
+        private RuntimeBlock BlockAt(int index) { return _engine.BlockAt(index); }
+        private int NextIndex() { return _engine.NextIndex(); }
+        private Station LegacyStationAt(int index) { return _engine.LegacyStationAt(index); }
+        private Station LegacyCurrentStation() { return _engine.LegacyCurrentStation(); }
+        private double RemainingSeconds() { return _engine.RemainingSeconds(); }
+        private List<StationPosition> ComputeParallelPositions() { return _engine.ComputeParallelPositions(); }
+        private void ResetSession() { _engine.Reset(); }
+        private void StartSession() { _engine.Start(); }
+        private void Advance() { _engine.Advance(); }
+        private void GoBack() { _engine.GoBack(); }
+        private void TogglePause() { _engine.TogglePause(); }
+        private void JumpToStation(int stationIndex) { _engine.JumpToStation(stationIndex); }
+        private void RunTick() { _engine.Tick(); }
         private readonly System.Windows.Forms.Timer _ticker = new System.Windows.Forms.Timer();
 
         private bool _fullScreen;
@@ -62,23 +76,6 @@ namespace GymClock
 
         private UpdateInfo _update;
 
-        private WorkoutProgram _program;
-        private List<RuntimeBlock> _sequence = new List<RuntimeBlock>();
-        private int _index = -1;                            // position in _sequence of the block in progress
-
-        /// <summary>
-        /// One resolved block list per station, only populated in Parallel mode.
-        /// Every station is located within its own list by elapsed time (see
-        /// ParallelClock.Locate) rather than stepped through with an index, since
-        /// stations run independently and _phaseClock is shared by all of them.
-        /// </summary>
-        private List<List<ResolvedBlock>> _parallelStations = new List<List<ResolvedBlock>>();
-
-        /// <summary>1-based legacy round number for each entry in _sequence - only
-        /// meaningful on the legacy synthesis path (see UsingLegacyStationRotation),
-        /// where every round contributes exactly one Work block.</summary>
-        private int[] _legacyRound = new int[0];
-
         private static readonly Color Ink = Color.White;
         private static readonly Color InkSoft = Color.FromArgb(205, 255, 255, 255);
         private static readonly Color InkFaint = Color.FromArgb(140, 255, 255, 255);
@@ -91,6 +88,9 @@ namespace GymClock
         public MainForm(TimerSettings settings)
         {
             _settings = settings ?? new TimerSettings();
+            _engine = new SessionEngine(_settings, new BeeperCuePlayer());
+            _engine.Changed += delegate { Invalidate(); };
+            _engine.HintRequested += ShowHint;
 
             Text = "Gym Interval Clock Version " + AppVersion.Display;
             Icon = AppIconProvider.GetIcon();
@@ -133,8 +133,6 @@ namespace GymClock
             };
 
             ApplyAudioSettings();
-            RebuildProgram();
-            ResetSession();
             ShowHint(14);
             UsageLog.Begin();
         }
@@ -163,231 +161,6 @@ namespace GymClock
 
         // ------------------------------------------------------- timing engine
 
-        private bool InTimedPhase
-        {
-            get { return _phase == Phase.Prep || _phase == Phase.Active; }
-        }
-
-        private bool IsPaused
-        {
-            get { return InTimedPhase && !_phaseClock.IsRunning; }
-        }
-
-        /// <summary>
-        /// True while running the legacy synthesis path (no program has been
-        /// built yet) with the classic "linear session" rotating station
-        /// highlight turned on. That legacy behaviour - one station label per
-        /// round, cycling forever - doesn't map onto either new execution mode
-        /// (Shared never highlights a station; Sequential highlights a station
-        /// for its own whole timeline, not one round at a time), so it keeps
-        /// its own small codepath here rather than being forced into one.
-        /// </summary>
-        private bool UsingLegacyStationRotation
-        {
-            get
-            {
-                return !_settings.UseBuiltProgram
-                    && _settings.Stations.Count > 0
-                    && _settings.HighlightCurrentStation;
-            }
-        }
-
-        /// <summary>
-        /// True while N independent stations are actually running at once. In
-        /// this state _phaseClock is read as elapsed time since every station
-        /// started rather than time left in one shared block - see
-        /// ComputeParallelPositions and ParallelClock.Locate.
-        /// </summary>
-        /// <summary>Parallel mode's rotation timing (rotation length, move length, how many), or null in other modes.</summary>
-        private ParallelRotationPlan _parallelPlan;
-
-        /// <summary>Last rotation/move state seen by the ticker, so the rotation cues fire once per change.</summary>
-        private int _lastRotationKey = -1;
-
-        private bool IsParallelActive
-        {
-            get { return _program.Mode == ExecutionMode.Parallel && _phase == Phase.Active; }
-        }
-
-        private void RebuildProgram()
-        {
-            _program = _settings.EffectiveProgram();
-            _sequence = _program.BuildRuntimeSequence();
-            if (_sequence.Count == 0)
-            {
-                _sequence.Add(RuntimeBlock.From(new ResolvedBlock { Block = new Block(BlockType.Work, Math.Max(1, _settings.WorkSeconds)) }, -1));
-                if (_settings.RestSeconds > 0)
-                {
-                    _sequence.Add(RuntimeBlock.From(new ResolvedBlock { Block = new Block(BlockType.Recovery, _settings.RestSeconds) }, -1));
-                }
-            }
-
-            // Every legacy round contributes exactly one Work block (see
-            // TimerSettings.SynthesizeProgram) - counting them back up recovers
-            // the round number for UsingLegacyStationRotation without needing to
-            // plumb it through the general Program/Timeline model.
-            _legacyRound = new int[_sequence.Count];
-            int round = 0;
-            for (int i = 0; i < _sequence.Count; i++)
-            {
-                if (_sequence[i].Block.Type == BlockType.Work) round++;
-                _legacyRound[i] = round;
-            }
-
-            _parallelStations = _program.Mode == ExecutionMode.Parallel
-                ? _program.BuildParallelSequences()
-                : new List<List<ResolvedBlock>>();
-            _parallelPlan = _program.Mode == ExecutionMode.Parallel ? _program.GetParallelRotationPlan() : null;
-            _lastRotationKey = -1;
-        }
-
-        private RuntimeBlock CurrentBlock()
-        {
-            if (_sequence.Count == 0) return null;
-            if (_index < 0 || _index >= _sequence.Count) return _sequence[0];
-            return _sequence[_index];
-        }
-
-        /// <summary>The block at an arbitrary index, wrapping around for a continuous program and clamping otherwise.</summary>
-        private RuntimeBlock BlockAt(int index)
-        {
-            if (_sequence.Count == 0) return null;
-
-            if (_program.Continuous)
-            {
-                int i = index % _sequence.Count;
-                if (i < 0) i += _sequence.Count;
-                return _sequence[i];
-            }
-
-            if (index < 0) index = 0;
-            if (index >= _sequence.Count) index = _sequence.Count - 1;
-            return _sequence[index];
-        }
-
-        private int NextIndex()
-        {
-            if (_sequence.Count == 0) return 0;
-            return _program.Continuous ? (_index + 1) % _sequence.Count : Math.Min(_index + 1, _sequence.Count - 1);
-        }
-
-        private Station LegacyStationAt(int index)
-        {
-            if (_settings.Stations.Count == 0 || _legacyRound.Length == 0) return null;
-            if (index < 0) index = 0;
-            if (index >= _legacyRound.Length) index = _legacyRound.Length - 1;
-
-            int round = _legacyRound[index];
-            int stationIndex = ((round - 1) % _settings.Stations.Count + _settings.Stations.Count) % _settings.Stations.Count;
-            return _settings.Stations[stationIndex];
-        }
-
-        private Station LegacyCurrentStation()
-        {
-            return UsingLegacyStationRotation ? LegacyStationAt(_index) : null;
-        }
-
-        private void ResetSession()
-        {
-            _phase = Phase.Idle;
-            _index = -1;
-            _lastCueSecond = -1;
-            _phaseClock.Reset();
-            _sessionClock.Reset();
-            _phaseLength = Math.Max(1, _sequence[0].Block.Seconds);
-            Invalidate();
-        }
-
-        private void StartSession()
-        {
-            _index = -1;
-            _sessionClock.Restart();
-            if (_settings.PrepSeconds > 0)
-            {
-                BeginPrep();
-            }
-            else
-            {
-                _index = 0;
-                BeginBlock();
-            }
-        }
-
-        private void BeginPrep()
-        {
-            _phase = Phase.Prep;
-            _phaseLength = Math.Max(1, _settings.PrepSeconds);
-            _lastCueSecond = -1;
-            _phaseClock.Restart();
-            if (!_sessionClock.IsRunning) _sessionClock.Start();
-            Beeper.CuePrepStart();
-            Invalidate();
-        }
-
-        private void BeginBlock()
-        {
-            _phase = Phase.Active;
-            _lastCueSecond = -1;
-            _phaseClock.Restart();
-            if (!_sessionClock.IsRunning) _sessionClock.Start();
-
-            if (_program.Mode == ExecutionMode.Parallel)
-            {
-                // There is no single "current block" once every station runs
-                // independently - _phaseClock becomes elapsed time since they
-                // all started, read per-station by ComputeParallelPositions, and
-                // is never restarted again by per-block advancement because
-                // there is no such thing here (see Ticker_Tick/Advance/GoBack).
-                Beeper.CueWorkStart();
-                Invalidate();
-                return;
-            }
-
-            RuntimeBlock current = CurrentBlock();
-            _phaseLength = Math.Max(1, current.Block.Seconds);
-            PlayCueFor(current.Block.Type);
-            Invalidate();
-        }
-
-        /// <summary>Every Parallel-mode station's current position, located by elapsed time off the one shared _phaseClock.</summary>
-        private List<StationPosition> ComputeParallelPositions()
-        {
-            double elapsed = _phaseClock.Elapsed.TotalSeconds;
-            List<StationPosition> positions = new List<StationPosition>(_parallelStations.Count);
-            foreach (List<ResolvedBlock> blocks in _parallelStations)
-            {
-                positions.Add(ParallelClock.Locate(blocks, elapsed, _program.Continuous));
-            }
-            return positions;
-        }
-
-        /// <summary>
-        /// Parallel mode is otherwise silent (stations change at different moments), but
-        /// the whole room rotates together - so cue that: countdown beeps in the last
-        /// three seconds before a move or a new rotation, then the move / start cue.
-        /// </summary>
-        private void PlayParallelRotationCues()
-        {
-            if (_parallelPlan == null || _parallelPlan.Rotations <= 1 || _program.Continuous) return;
-
-            _parallelPlan.Locate(_phaseClock.Elapsed.TotalSeconds, out int rotation, out bool moving, out double toChange);
-            int key = (rotation * 2) + (moving ? 1 : 0);
-            if (_lastRotationKey >= 0 && key != _lastRotationKey)
-            {
-                if (moving) Beeper.CueMoveStart(); else Beeper.CueWorkStart();
-                _lastCueSecond = -1;
-            }
-            _lastRotationKey = key;
-
-            bool lastStretch = rotation == _parallelPlan.Rotations && !moving;
-            int secondsLeft = (int)Math.Ceiling(toChange - 0.0001);
-            if (!lastStretch && secondsLeft >= 1 && secondsLeft <= 3 && secondsLeft != _lastCueSecond)
-            {
-                _lastCueSecond = secondsLeft;
-                Beeper.CueCountdown();
-            }
-        }
-
         /// <summary>"ROTATION 2 OF 4  -  ROTATE IN 6:42" (or the move countdown) for the Parallel dashboard header.</summary>
         private string ParallelRotationText()
         {
@@ -408,182 +181,10 @@ namespace GymClock
                 rotation, _parallelPlan.Rotations, FormatClock(toChange));
         }
 
-        private bool AllParallelStationsFinished(List<StationPosition> positions)
-        {
-            if (_program.Continuous || positions.Count == 0) return false;
-            foreach (StationPosition position in positions) if (!position.Finished) return false;
-            return true;
-        }
-
-        private static void PlayCueFor(BlockType type)
-        {
-            switch (type)
-            {
-                case BlockType.Work: Beeper.CueWorkStart(); break;
-                case BlockType.Move: Beeper.CueMoveStart(); break;
-                case BlockType.Prepare:
-                case BlockType.Countdown: Beeper.CuePrepStart(); break;
-                default: Beeper.CueRestStart(); break;   // Recovery, Rest, WaterBreak, Instruction, Custom
-            }
-        }
-
-        private double RemainingSeconds()
-        {
-            if (_phase == Phase.Idle) return Math.Max(1, _sequence[0].Block.Seconds);
-            if (_phase == Phase.Finished) return 0;
-            double remaining = _phaseLength - _phaseClock.Elapsed.TotalSeconds;
-            return remaining < 0 ? 0 : remaining;
-        }
-
         private void Ticker_Tick(object sender, EventArgs e)
         {
             RunTick();
             LinkTick(); // main PC: tell the second screens where the session is
-        }
-
-        private void RunTick()
-        {
-            if (IsParallelActive)
-            {
-                // No single block to count down or cue here - each station's own
-                // countdown is drawn straight off elapsed time in OnPaint, and
-                // per-station cues are deliberately silent (see BeginBlock) so N
-                // stations transitioning at different moments don't turn into
-                // constant beeping. The only thing this loop watches for is the
-                // whole session ending once every station is done.
-                if (_phaseClock.IsRunning) PlayParallelRotationCues();
-                if (_phaseClock.IsRunning && AllParallelStationsFinished(ComputeParallelPositions())) FinishSession();
-                Invalidate();
-                return;
-            }
-
-            if (_phaseClock.IsRunning && InTimedPhase)
-            {
-                double remaining = _phaseLength - _phaseClock.Elapsed.TotalSeconds;
-
-                if (remaining <= 0)
-                {
-                    Advance();
-                }
-                else
-                {
-                    int secondsLeft = (int)Math.Ceiling(remaining - 0.0001);
-                    if (secondsLeft >= 1 && secondsLeft <= 3 && secondsLeft != _lastCueSecond)
-                    {
-                        _lastCueSecond = secondsLeft;
-                        Beeper.CueCountdown();
-                    }
-                }
-            }
-
-            Invalidate();
-        }
-
-        private void Advance()
-        {
-            if (IsParallelActive)
-            {
-                // No single "skip to next block" makes sense when every station
-                // is at a different point in its own pattern.
-                ShowHint(4);
-                return;
-            }
-
-            switch (_phase)
-            {
-                case Phase.Idle:
-                case Phase.Finished:
-                    StartSession();
-                    return;
-
-                case Phase.Prep:
-                    _index = 0;
-                    BeginBlock();
-                    return;
-
-                case Phase.Active:
-                {
-                    bool last = !_program.Continuous && _index >= _sequence.Count - 1;
-                    if (last) { FinishSession(); return; }
-
-                    _index = _program.Continuous ? (_index + 1) % _sequence.Count : _index + 1;
-                    BeginBlock();
-                    return;
-                }
-            }
-        }
-
-        private void GoBack()
-        {
-            if (IsParallelActive)
-            {
-                // "Back" means restart the whole parallel run from 0:00 - there is
-                // no single block to step back to, but restarting everything
-                // together is still a useful, well-defined action.
-                _phaseClock.Restart();
-                _lastCueSecond = -1;
-                _lastRotationKey = -1;
-                Invalidate();
-                return;
-            }
-
-            // More than a couple of seconds in, "back" means restart this interval.
-            if (InTimedPhase && _phaseClock.Elapsed.TotalSeconds > 2.5)
-            {
-                if (_phase == Phase.Prep) BeginPrep(); else BeginBlock();
-                return;
-            }
-
-            switch (_phase)
-            {
-                case Phase.Active:
-                    if (_index > 0) { _index--; BeginBlock(); }
-                    else if (_settings.PrepSeconds > 0) BeginPrep();
-                    else BeginBlock();
-                    return;
-
-                case Phase.Prep:
-                    BeginPrep();
-                    return;
-
-                case Phase.Finished:
-                    _index = Math.Max(0, _sequence.Count - 1);
-                    BeginBlock();
-                    return;
-            }
-        }
-
-        private void FinishSession()
-        {
-            _phase = Phase.Finished;
-            _phaseClock.Stop();
-            _sessionClock.Stop();
-            Beeper.CueFinish();
-            ShowHint(20);
-            Invalidate();
-        }
-
-        private void TogglePause()
-        {
-            if (_phase == Phase.Idle || _phase == Phase.Finished)
-            {
-                StartSession();
-                return;
-            }
-
-            if (_phaseClock.IsRunning)
-            {
-                _phaseClock.Stop();
-                _sessionClock.Stop();
-                Beeper.CuePause();
-            }
-            else
-            {
-                _phaseClock.Start();
-                _sessionClock.Start();
-            }
-
-            Invalidate();
         }
 
         // ------------------------------------------------------------- settings
@@ -602,30 +203,8 @@ namespace GymClock
         private void ApplySettingsLive()
         {
             ApplyAudioSettings();
-            RebuildProgram();
             TopMost = _settings.AlwaysOnTop;
-
-            if (_phase == Phase.Prep)
-            {
-                _phaseLength = Math.Max(1, _settings.PrepSeconds);
-                if (_phaseClock.Elapsed.TotalSeconds >= _phaseLength) Advance();
-            }
-            else if (IsParallelActive)
-            {
-                // Nothing to clamp - _phaseClock just keeps counting elapsed time
-                // and every station's position is recomputed fresh each tick.
-            }
-            else if (_phase == Phase.Active)
-            {
-                if (_index >= _sequence.Count) _index = _sequence.Count - 1;
-                _phaseLength = Math.Max(1, CurrentBlock().Block.Seconds);
-                if (_phaseClock.Elapsed.TotalSeconds >= _phaseLength) Advance();
-            }
-            else if (_phase == Phase.Idle)
-            {
-                _phaseLength = Math.Max(1, _sequence[0].Block.Seconds);
-            }
-
+            _engine.ApplySettings(_settings); // rebuilds the program and keeps the running session inside it
             Invalidate();
         }
 
@@ -773,71 +352,6 @@ namespace GymClock
                 dialog.ShowDialog(this);
             }
             Invalidate();
-        }
-
-        /// <summary>
-        /// Jumps straight to the given station (0-based), for a teacher correcting
-        /// a mistake or starting mid-way through a class already spread across the
-        /// stations. Wraps forward so it always moves the session on rather than
-        /// back. Works against whichever station model is actually in force - the
-        /// legacy rotating labels, or a real Sequential-mode program.
-        /// </summary>
-        private void JumpToStation(int stationIndex)
-        {
-            if (_program.Mode == ExecutionMode.Parallel)
-            {
-                // Every station is already running from the start - there's
-                // nothing to jump to.
-                ShowHint(4);
-                return;
-            }
-
-            if (UsingLegacyStationRotation)
-            {
-                int count = _settings.Stations.Count;
-                if (stationIndex >= count) { ShowHint(4); return; }
-
-                if (_phase == Phase.Idle || _phase == Phase.Finished) StartSession();
-
-                int fromIndex = Math.Max(0, Math.Min(_index, _legacyRound.Length - 1));
-                int currentStation = (_legacyRound[fromIndex] - 1) % count;
-                if (currentStation < 0) currentStation += count;
-
-                int delta = stationIndex - currentStation;
-                if (delta < 0) delta += count;
-
-                int target = _index;
-                int steps = delta;
-                while (steps > 0 && target < _sequence.Count - 1)
-                {
-                    target++;
-                    if (_sequence[target].Block.Type == BlockType.Work) steps--;
-                }
-
-                _index = target;
-                BeginBlock();
-                ShowHint(4);
-                return;
-            }
-
-            if ((_program.Mode != ExecutionMode.Sequential && _program.Mode != ExecutionMode.Circuit)
-                || stationIndex >= _program.Stations.Count)
-            {
-                ShowHint(4);
-                return;
-            }
-
-            int found = -1;
-            for (int i = 0; i < _sequence.Count; i++)
-            {
-                if (_sequence[i].StationIndex == stationIndex) { found = i; break; }
-            }
-            if (found < 0) { ShowHint(4); return; }
-
-            if (_phase == Phase.Idle || _phase == Phase.Finished) StartSession();
-            _index = found;
-            BeginBlock();
-            ShowHint(4);
         }
 
         // -------------------------------------------------------------- display
@@ -1939,7 +1453,7 @@ namespace GymClock
                     if (_parallelPlan != null && !_program.Continuous)
                     {
                         return string.Format(CultureInfo.InvariantCulture, "{0} STATIONS  -  {1} ROTATION{2} OF {3}  -  {4} MOVE",
-                            _parallelStations.Count, _parallelPlan.Rotations, _parallelPlan.Rotations == 1 ? string.Empty : "S",
+                            _engine.ParallelStations.Count, _parallelPlan.Rotations, _parallelPlan.Rotations == 1 ? string.Empty : "S",
                             FormatClock(_parallelPlan.StationSeconds), FormatClock(_parallelPlan.MoveSeconds));
                     }
                     return _program.Continuous

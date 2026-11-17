@@ -462,55 +462,7 @@ namespace GymClock
 
         private void SnapToLeader(Phase leaderPhase, int leaderIndex, double leaderElapsed, double leaderSession, bool leaderPaused)
         {
-            bool parallel = _program.Mode == ExecutionMode.Parallel;
-            bool stepChanged = leaderPhase != _phase || (leaderPhase == Phase.Active && !parallel && leaderIndex != _index);
-
-            switch (leaderPhase)
-            {
-                case Phase.Idle:
-                    if (_phase != Phase.Idle) ResetSession();
-                    return;
-
-                case Phase.Finished:
-                    _phase = Phase.Finished;
-                    _phaseClock.Stop();
-                    _sessionClock.Set(TimeSpan.FromSeconds(leaderSession), false);
-                    if (stepChanged)
-                    {
-                        Beeper.CueFinish();
-                        ShowHint(20);
-                    }
-                    Invalidate();
-                    return;
-
-                case Phase.Prep:
-                    _phase = Phase.Prep;
-                    _index = -1;
-                    _phaseLength = Math.Max(1, _settings.PrepSeconds);
-                    break;
-
-                default:
-                    _phase = Phase.Active;
-                    _index = Math.Max(0, Math.Min(leaderIndex, _sequence.Count - 1));
-                    if (!parallel) _phaseLength = Math.Max(1, CurrentBlock().Block.Seconds);
-                    break;
-            }
-
-            _phaseClock.Set(TimeSpan.FromSeconds(leaderElapsed), !leaderPaused);
-            _sessionClock.Set(TimeSpan.FromSeconds(leaderSession), !leaderPaused);
-
-            if (stepChanged)
-            {
-                _lastCueSecond = -1;
-                _lastRotationKey = -1;
-                if (!leaderPaused)
-                {
-                    if (_phase == Phase.Prep) Beeper.CuePrepStart();
-                    else if (parallel) Beeper.CueWorkStart();
-                    else PlayCueFor(CurrentBlock().Block.Type);
-                }
-            }
-            Invalidate();
+            _engine.SnapTo(leaderPhase, leaderIndex, leaderElapsed, leaderSession, leaderPaused);
         }
 
         /// <summary>A control key or click on a second screen: say why nothing happened.</summary>

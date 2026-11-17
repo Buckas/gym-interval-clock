@@ -154,7 +154,10 @@ END STATION
 
         private static T Field<T>(MainForm form, string name)
         {
-            return (T)typeof(MainForm).GetField(name, Private).GetValue(form);
+            // Session state now lives in the engine; MainForm reads it through properties of the same names.
+            FieldInfo field = typeof(MainForm).GetField(name, Private);
+            if (field != null) return (T)field.GetValue(form);
+            return (T)typeof(MainForm).GetProperty(name, Private).GetValue(form);
         }
 
         private static void Call(MainForm form, string name, params object[] args)
